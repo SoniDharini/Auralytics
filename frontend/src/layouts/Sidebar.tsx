@@ -1,0 +1,162 @@
+import { NavLink, useNavigate } from 'react-router-dom'
+import {
+  LayoutDashboard,
+  Megaphone,
+  Search,
+  Send,
+  FileText,
+  BarChart3,
+  Bot,
+  CheckSquare,
+  FileBarChart,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+import { cn } from '@/utils'
+import { workspace } from '@/mock-data'
+import { Avatar } from '@/components/ui'
+
+const mainNav = [
+  { to: '/app', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/app/campaigns', label: 'Campaigns', icon: Megaphone },
+  { to: '/app/discovery', label: 'Influencer Discovery', icon: Search },
+  { to: '/app/outreach', label: 'Outreach', icon: Send },
+  { to: '/app/contracts', label: 'Contracts', icon: FileText },
+  { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/agents', label: 'AI Agent Center', icon: Bot },
+  { to: '/app/approvals', label: 'Approval Center', icon: CheckSquare },
+  { to: '/app/reports', label: 'Reports', icon: FileBarChart },
+]
+
+interface SidebarProps {
+  collapsed: boolean
+  onToggle: () => void
+  mobileOpen: boolean
+  onMobileClose: () => void
+}
+
+export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
+  const navigate = useNavigate()
+
+  const content = (
+    <div className="flex h-full flex-col">
+      <div className={cn('flex items-center gap-2.5 px-4 h-16 border-b border-border', collapsed && 'justify-center px-2')}>
+        <button
+          onClick={() => navigate('/app')}
+          className="flex items-center gap-2.5 min-w-0"
+          aria-label="Auralytics home"
+        >
+          <div className="h-8 w-8 rounded-lg ai-gradient-bg flex items-center justify-center text-white font-bold text-sm shrink-0">
+            A
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 text-left">
+              <p className="text-sm font-bold text-text leading-tight">Auralytics</p>
+              <p className="text-[10px] text-text-secondary truncate">Influence OS</p>
+            </div>
+          )}
+        </button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
+        {mainNav.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            onClick={onMobileClose}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors',
+                collapsed && 'justify-center px-2',
+                isActive
+                  ? 'bg-primary-soft text-primary'
+                  : 'text-text-secondary hover:bg-muted hover:text-text',
+              )
+            }
+            title={collapsed ? item.label : undefined}
+          >
+            {({ isActive }) => (
+              <>
+                <item.icon className={cn('h-4.5 w-4.5 shrink-0', isActive ? 'text-primary' : '')} />
+                {!collapsed && <span>{item.label}</span>}
+              </>
+            )}
+          </NavLink>
+        ))}
+
+        <div className="pt-4 mt-2 border-t border-border">
+          <NavLink
+            to="/app/settings"
+            onClick={onMobileClose}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors',
+                collapsed && 'justify-center px-2',
+                isActive
+                  ? 'bg-primary-soft text-primary'
+                  : 'text-text-secondary hover:bg-muted hover:text-text',
+              )
+            }
+            title={collapsed ? 'Settings' : undefined}
+          >
+            <Settings className="h-4.5 w-4.5 shrink-0" />
+            {!collapsed && <span>Settings</span>}
+          </NavLink>
+        </div>
+      </nav>
+
+      <div className={cn('border-t border-border p-3', collapsed && 'px-2')}>
+        {!collapsed ? (
+          <div className="rounded-[12px] bg-page border border-border p-3">
+            <p className="text-[11px] text-text-secondary">Workspace</p>
+            <p className="text-xs font-semibold text-text mt-0.5 truncate">{workspace.name}</p>
+            <div className="mt-3 flex items-center gap-2">
+              <Avatar name={workspace.user} size="sm" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold truncate">{workspace.user.split(' ')[0]}</p>
+                <p className="text-[11px] text-text-secondary truncate">{workspace.role}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-center">
+            <Avatar name={workspace.user} size="sm" />
+          </div>
+        )}
+        <button
+          onClick={onToggle}
+          className="mt-2 hidden lg:flex w-full items-center justify-center gap-2 rounded-[10px] py-2 text-xs font-medium text-text-secondary hover:bg-muted"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <><ChevronLeft className="h-4 w-4" /> Collapse</>}
+        </button>
+      </div>
+    </div>
+  )
+
+  return (
+    <>
+      {/* Desktop */}
+      <aside
+        className={cn(
+          'hidden lg:flex flex-col fixed inset-y-0 left-0 z-30 bg-white border-r border-border transition-all duration-300',
+          collapsed ? 'w-[72px]' : 'w-[240px]',
+        )}
+      >
+        {content}
+      </aside>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="lg:hidden fixed inset-0 z-40">
+          <button className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={onMobileClose} />
+          <aside className="absolute inset-y-0 left-0 w-[260px] bg-white border-r border-border shadow-xl animate-slide-in-right">
+            {content}
+          </aside>
+        </div>
+      )}
+    </>
+  )
+}
