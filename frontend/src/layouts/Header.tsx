@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Bell,
   HelpCircle,
@@ -7,9 +7,13 @@ import {
   Search,
   Bot,
   X,
+  User,
+  Settings,
+  LogOut,
 } from 'lucide-react'
 import { agents, notifications, workspace } from '@/mock-data'
 import { Avatar, Badge, Button, ProgressBar } from '@/components/ui'
+import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
 import { cn } from '@/utils'
 
 interface HeaderProps {
@@ -17,10 +21,39 @@ interface HeaderProps {
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
+  const navigate = useNavigate()
   const [aiOpen, setAiOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [logoutOpen, setLogoutOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+
   const activeAgents = agents.filter((a) => a.status === 'active' || a.status === 'processing')
   const unread = notifications.filter((n) => !n.read).length
+
+  useEffect(() => {
+    if (!profileOpen) return
+    const onPointerDown = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfileOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [profileOpen])
+
+  const handleLogoutConfirm = () => {
+    setLogoutOpen(false)
+    setProfileOpen(false)
+    navigate('/login')
+  }
 
   return (
     <header className="sticky top-0 z-20 h-16 bg-white/90 backdrop-blur border-b border-border flex items-center gap-3 px-4 lg:px-6">
@@ -52,6 +85,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             onClick={() => {
               setAiOpen((v) => !v)
               setNotifOpen(false)
+              setProfileOpen(false)
             }}
             className={cn(
               'inline-flex items-center gap-2 h-9 px-3 rounded-full text-xs font-semibold border transition',
@@ -127,6 +161,7 @@ export function Header({ onMenuClick }: HeaderProps) {
             onClick={() => {
               setNotifOpen((v) => !v)
               setAiOpen(false)
+              setProfileOpen(false)
             }}
           >
             <Bell className="h-4.5 w-4.5" />
@@ -174,14 +209,87 @@ export function Header({ onMenuClick }: HeaderProps) {
 
         <div className="h-6 w-px bg-border mx-1 hidden sm:block" />
 
-        <button className="flex items-center gap-2 rounded-[10px] px-1.5 py-1 hover:bg-muted">
-          <Avatar name={workspace.user} size="sm" />
-          <div className="hidden xl:block text-left">
-            <p className="text-xs font-semibold leading-tight">{workspace.user.split(' ')[0]}</p>
-            <p className="text-[10px] text-text-secondary">{workspace.role}</p>
-          </div>
-        </button>
+        <div className="relative" ref={profileRef}>
+          <button
+            type="button"
+            className={cn(
+              'flex items-center gap-2 rounded-[10px] px-1.5 py-1 hover:bg-muted',
+              profileOpen && 'bg-muted',
+            )}
+            aria-expanded={profileOpen}
+            aria-haspopup="menu"
+            aria-label="User menu"
+            onClick={() => {
+              setProfileOpen((v) => !v)
+              setAiOpen(false)
+              setNotifOpen(false)
+            }}
+          >
+            <Avatar name={workspace.user} size="sm" />
+            <div className="hidden xl:block text-left">
+              <p className="text-xs font-semibold leading-tight">{workspace.user.split(' ')[0]}</p>
+              <p className="text-[10px] text-text-secondary">{workspace.role}</p>
+            </div>
+          </button>
+
+          {profileOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 mt-2 w-[260px] bg-white border border-border rounded-[14px] shadow-xl py-2 animate-fade-in z-50"
+            >
+              <div className="px-3 py-2.5 flex items-center gap-3">
+                <Avatar name={workspace.user} size="md" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-text truncate">{workspace.user}</p>
+                  <p className="text-xs text-text-secondary truncate">{workspace.email}</p>
+                </div>
+              </div>
+
+              <div className="my-1.5 h-px bg-border" />
+
+              <Link
+                to="/app/settings"
+                role="menuitem"
+                onClick={() => setProfileOpen(false)}
+                className="flex items-center gap-2.5 px-3 py-2 mx-1 rounded-[10px] text-sm font-medium text-text hover:bg-muted"
+              >
+                <User className="h-4 w-4 text-text-secondary" />
+                Profile
+              </Link>
+              <Link
+                to="/app/settings"
+                role="menuitem"
+                onClick={() => setProfileOpen(false)}
+                className="flex items-center gap-2.5 px-3 py-2 mx-1 rounded-[10px] text-sm font-medium text-text hover:bg-muted"
+              >
+                <Settings className="h-4 w-4 text-text-secondary" />
+                Settings
+              </Link>
+
+              <div className="my-1.5 h-px bg-border" />
+
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setProfileOpen(false)
+                  setLogoutOpen(true)
+                }}
+                className="w-[calc(100%-8px)] mx-1 flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm font-medium text-danger hover:bg-red-50"
+              >
+                <LogOut className="h-4 w-4" />
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
       </div>
+
+      <LogoutConfirmationModal
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={handleLogoutConfirm}
+      />
     </header>
   )
 }

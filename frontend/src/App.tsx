@@ -3,6 +3,7 @@ import { ToastProvider } from '@/components/ui'
 import { AppLayout } from '@/layouts/AppLayout'
 import { LandingPage } from '@/pages/LandingPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { SignUpPage } from '@/pages/SignUpPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { CampaignsPage } from '@/pages/CampaignsPage'
@@ -29,6 +30,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignUpPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
 
           <Route path="/app" element={<AppLayout />}>

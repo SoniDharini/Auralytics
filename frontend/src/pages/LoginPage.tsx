@@ -113,7 +113,9 @@ export function LoginPage() {
 
             <p className="mt-5 text-center text-sm text-text-secondary">
               Don&apos;t have an account?{' '}
-              <button className="font-semibold text-primary hover:underline">Create Account</button>
+              <Link to="/signup" className="font-semibold text-primary hover:underline">
+                Create account
+              </Link>
             </p>
           </div>
 

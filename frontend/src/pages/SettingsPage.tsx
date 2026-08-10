@@ -1,9 +1,11 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   Bell,
   Building2,
   Key,
+  LogOut,
   Palette,
   Shield,
   Sparkles,
@@ -14,6 +16,7 @@ import {
 } from 'lucide-react'
 import { workspace } from '@/mock-data'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, useToast } from '@/components/ui'
+import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
 import { cn } from '@/utils'
 
 const sections = [
@@ -31,8 +34,10 @@ const sections = [
 type SectionId = (typeof sections)[number]['id']
 
 export function SettingsPage() {
+  const navigate = useNavigate()
   const { toast } = useToast()
   const [activeSection, setActiveSection] = useState<SectionId>('profile')
+  const [logoutOpen, setLogoutOpen] = useState(false)
 
   const [aiPrefs, setAiPrefs] = useState({
     recommendations: true,
@@ -51,6 +56,11 @@ export function SettingsPage() {
 
   const handleSave = () => {
     toast({ type: 'success', title: 'Settings saved', description: 'Your preferences have been updated.' })
+  }
+
+  const handleLogoutConfirm = () => {
+    setLogoutOpen(false)
+    navigate('/login')
   }
 
   return (
@@ -92,6 +102,22 @@ export function SettingsPage() {
                 <Input label="Email" type="email" defaultValue={workspace.email} />
                 <Input label="Job title" defaultValue={workspace.role} />
                 <Input label="Phone" placeholder="+91 98765 43210" />
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-border">
+                <h3 className="text-sm font-semibold text-text">Account Session</h3>
+                <p className="mt-1 text-sm text-text-secondary">
+                  You are currently signed in as {workspace.user}.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="mt-4 border-danger/40 text-danger hover:bg-red-50 hover:border-danger/50"
+                  onClick={() => setLogoutOpen(true)}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </Button>
               </div>
             </SettingsSection>
           )}
@@ -345,6 +371,12 @@ export function SettingsPage() {
           </div>
         </div>
       </div>
+
+      <LogoutConfirmationModal
+        open={logoutOpen}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={handleLogoutConfirm}
+      />
     </div>
   )
 }
