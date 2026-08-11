@@ -1,17 +1,33 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Bot, Lock, Sparkles } from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { AlertCircle, Bot, Loader2, Lock, Sparkles } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
+import { useAuth } from '@/context/AuthContext'
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const [email, setEmail] = useState('aaditya@glownaturals.com')
-  const [password, setPassword] = useState('••••••••')
+  const location = useLocation()
+  const { login } = useAuth()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [email, setEmail] = useState('aaditya@glownaturals.com')
+  const [password, setPassword] = useState('password123')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const onboarded = localStorage.getItem('auralytics_onboarded')
-    navigate(onboarded ? '/app' : '/onboarding')
+    setError(null)
+    setLoading(true)
+
+    try {
+      await login(email, password)
+      const fromPath = (location.state as any)?.from?.pathname || '/app'
+      navigate(fromPath, { replace: true })
+    } catch (err: any) {
+      setError(err.message || 'Invalid email or password.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -74,6 +90,13 @@ export function LoginPage() {
             <h2 className="text-2xl font-bold">Welcome back</h2>
             <p className="text-sm text-text-secondary mt-1">Sign in to your marketing workspace</p>
 
+            {error && (
+              <div className="mt-4 p-3 rounded-xl bg-red-50 border border-danger/30 text-danger text-sm flex items-start gap-2.5">
+                <AlertCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <Input
                 label="Email"
@@ -81,6 +104,7 @@ export function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                autoComplete="email"
               />
               <div>
                 <Input
@@ -89,6 +113,7 @@ export function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
                 <div className="mt-1.5 text-right">
                   <button type="button" className="text-xs font-semibold text-primary hover:underline">
@@ -96,8 +121,15 @@ export function LoginPage() {
                   </button>
                 </div>
               </div>
-              <Button type="submit" className="w-full" size="lg">
-                Sign In
+              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in...
+                  </>
+                ) : (
+                  'Sign In'
+                )}
               </Button>
             </form>
 

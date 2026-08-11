@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  AlertCircle,
   BarChart3,
   CheckCircle2,
   Loader2,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react'
 import { Button, Input, Select } from '@/components/ui'
 import { PasswordInput } from '@/components/auth/PasswordInput'
+import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/utils'
 
 const roles = [
@@ -31,6 +33,8 @@ const highlights = [
 
 export function SignUpPage() {
   const navigate = useNavigate()
+  const { register } = useAuth()
+
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -40,6 +44,7 @@ export function SignUpPage() {
   const [agreed, setAgreed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [serverError, setServerError] = useState<string | null>(null)
 
   const validate = () => {
     const next: Record<string, string> = {}
@@ -53,17 +58,30 @@ export function SignUpPage() {
     return Object.keys(next).length === 0
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setServerError(null)
     if (!validate()) return
 
     setLoading(true)
-    // Demo-only UI flow — no backend auth. Mirror existing login navigation.
-    window.setTimeout(() => {
+    try {
+      await register({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+        company_name: company.trim(),
+        role,
+      })
+      navigate('/app', { replace: true })
+    } catch (err: any) {
+      if (err.message && err.message.toLowerCase().includes('already exists')) {
+        setErrors((prev) => ({ ...prev, email: 'An account with this email already exists.' }))
+      } else {
+        setServerError(err.message || 'Failed to create account. Please try again.')
+      }
+    } finally {
       setLoading(false)
-      const onboarded = localStorage.getItem('auralytics_onboarded')
-      navigate(onboarded ? '/app' : '/onboarding')
-    }, 900)
+    }
   }
 
   return (
@@ -128,6 +146,13 @@ export function SignUpPage() {
             <p className="text-sm text-text-secondary mt-1">
               Start managing smarter influencer campaigns with your AI marketing team.
             </p>
+
+            {serverError && (
+              <div className="mt-4 p-3 rounded-xl bg-red-50 border border-danger/30 text-danger text-sm flex items-start gap-2.5">
+                <AlertCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
+                <span>{serverError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4" noValidate>
               <Input

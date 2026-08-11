@@ -11,9 +11,10 @@ import {
   Settings,
   LogOut,
 } from 'lucide-react'
-import { agents, notifications, workspace } from '@/mock-data'
+import { agents, notifications } from '@/mock-data'
 import { Avatar, Badge, Button, ProgressBar } from '@/components/ui'
 import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
+import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/utils'
 
 interface HeaderProps {
@@ -22,6 +23,7 @@ interface HeaderProps {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const [aiOpen, setAiOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -30,6 +32,10 @@ export function Header({ onMenuClick }: HeaderProps) {
 
   const activeAgents = agents.filter((a) => a.status === 'active' || a.status === 'processing')
   const unread = notifications.filter((n) => !n.read).length
+
+  const displayName = user?.full_name || 'Aaditya Sharma'
+  const displayEmail = user?.email || 'aaditya@glownaturals.com'
+  const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
 
   useEffect(() => {
     if (!profileOpen) return
@@ -49,9 +55,10 @@ export function Header({ onMenuClick }: HeaderProps) {
     }
   }, [profileOpen])
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setLogoutOpen(false)
     setProfileOpen(false)
+    await logout()
     navigate('/login')
   }
 
@@ -225,10 +232,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               setNotifOpen(false)
             }}
           >
-            <Avatar name={workspace.user} size="sm" />
+            <Avatar name={displayName} size="sm" />
             <div className="hidden xl:block text-left">
-              <p className="text-xs font-semibold leading-tight">{workspace.user.split(' ')[0]}</p>
-              <p className="text-[10px] text-text-secondary">{workspace.role}</p>
+              <p className="text-xs font-semibold leading-tight">{displayName.split(' ')[0]}</p>
+              <p className="text-[10px] text-text-secondary">{displayRole}</p>
             </div>
           </button>
 
@@ -238,10 +245,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               className="absolute right-0 mt-2 w-[260px] bg-white border border-border rounded-[14px] shadow-xl py-2 animate-fade-in z-50"
             >
               <div className="px-3 py-2.5 flex items-center gap-3">
-                <Avatar name={workspace.user} size="md" />
+                <Avatar name={displayName} size="md" />
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-text truncate">{workspace.user}</p>
-                  <p className="text-xs text-text-secondary truncate">{workspace.email}</p>
+                  <p className="text-sm font-semibold text-text truncate">{displayName}</p>
+                  <p className="text-xs text-text-secondary truncate">{displayEmail}</p>
                 </div>
               </div>
 

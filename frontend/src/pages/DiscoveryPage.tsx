@@ -108,7 +108,11 @@ function applyFilters(list: Influencer[], query: string, filters: Filters): Infl
   })
 }
 
+import { useEffect } from 'react'
+import { api } from '@/services/api'
+
 export function DiscoveryPage() {
+  const [influencersData, setInfluencersData] = useState<Influencer[]>(allInfluencers)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<Filters>(defaultFilters)
   const [showFilters, setShowFilters] = useState(true)
@@ -117,9 +121,26 @@ export function DiscoveryPage() {
     Object.fromEntries(allInfluencers.map((i) => [i.id, !!i.shortlisted])),
   )
 
+  useEffect(() => {
+    let mounted = true
+    api.influencers
+      .list()
+      .then((data) => {
+        if (mounted && data && data.length > 0) {
+          setInfluencersData(data)
+          setShortlisted(Object.fromEntries(data.map((i) => [i.id, !!i.shortlisted])))
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const filtered = useMemo(
-    () => applyFilters(allInfluencers, query, filters),
-    [query, filters],
+    () => applyFilters(influencersData, query, filters),
+    [influencersData, query, filters],
   )
 
   const enriched = useMemo(
@@ -129,8 +150,13 @@ export function DiscoveryPage() {
 
   const shortlistCount = Object.values(shortlisted).filter(Boolean).length
 
-  const toggleShortlist = (id: string) => {
+  const toggleShortlist = async (id: string) => {
     setShortlisted((prev) => ({ ...prev, [id]: !prev[id] }))
+    try {
+      await api.influencers.toggleShortlist(id)
+    } catch {
+      // Revert if failed
+    }
   }
 
   const updateFilter = (key: keyof Filters, value: string) => {

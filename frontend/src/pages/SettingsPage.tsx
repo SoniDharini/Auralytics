@@ -14,9 +14,10 @@ import {
   Users,
   Webhook,
 } from 'lucide-react'
-import { workspace } from '@/mock-data'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, useToast } from '@/components/ui'
 import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
+import { useAuth } from '@/context/AuthContext'
+import { api } from '@/services/api'
 import { cn } from '@/utils'
 
 const sections = [
@@ -36,8 +37,13 @@ type SectionId = (typeof sections)[number]['id']
 export function SettingsPage() {
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user, logout, updateUser } = useAuth()
   const [activeSection, setActiveSection] = useState<SectionId>('profile')
   const [logoutOpen, setLogoutOpen] = useState(false)
+
+  const [fullName, setFullName] = useState(user?.full_name || 'Aaditya Sharma')
+  const [companyName, setCompanyName] = useState(user?.company_name || 'GlowNaturals')
+  const [role, setRole] = useState(user?.role || 'marketing_manager')
 
   const [aiPrefs, setAiPrefs] = useState({
     recommendations: true,
@@ -54,14 +60,29 @@ export function SettingsPage() {
     performance: true,
   })
 
-  const handleSave = () => {
-    toast({ type: 'success', title: 'Settings saved', description: 'Your preferences have been updated.' })
+  const handleSave = async () => {
+    try {
+      const updated = await api.auth.updateProfile({
+        full_name: fullName,
+        company_name: companyName,
+        role: role,
+      })
+      updateUser(updated)
+      toast({ type: 'success', title: 'Settings saved', description: 'Your preferences have been updated.' })
+    } catch (err: any) {
+      toast({ type: 'error', title: 'Update failed', description: err.message || 'Could not save profile changes.' })
+    }
   }
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
     setLogoutOpen(false)
+    await logout()
     navigate('/login')
   }
+
+  const displayName = user?.full_name || fullName
+  const displayEmail = user?.email || 'aaditya@glownaturals.com'
+  const displayOrg = user?.company_name || companyName
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -98,16 +119,29 @@ export function SettingsPage() {
           {activeSection === 'profile' && (
             <SettingsSection title="Profile" description="Your personal account details.">
               <div className="grid sm:grid-cols-2 gap-4">
-                <Input label="Full name" defaultValue={workspace.user} />
-                <Input label="Email" type="email" defaultValue={workspace.email} />
-                <Input label="Job title" defaultValue={workspace.role} />
+                <Input
+                  label="Full name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+                <Input
+                  label="Email"
+                  type="email"
+                  value={displayEmail}
+                  disabled
+                />
+                <Input
+                  label="Job role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                />
                 <Input label="Phone" placeholder="+91 98765 43210" />
               </div>
 
               <div className="mt-8 pt-6 border-t border-border">
                 <h3 className="text-sm font-semibold text-text">Account Session</h3>
                 <p className="mt-1 text-sm text-text-secondary">
-                  You are currently signed in as {workspace.user}.
+                  You are currently signed in as <span className="font-semibold text-text">{displayName}</span> ({displayEmail}).
                 </p>
                 <Button
                   type="button"
@@ -125,7 +159,11 @@ export function SettingsPage() {
           {activeSection === 'organization' && (
             <SettingsSection title="Organization" description="Workspace and company settings.">
               <div className="grid sm:grid-cols-2 gap-4">
-                <Input label="Organization name" defaultValue={workspace.name} />
+                <Input
+                  label="Organization name"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                />
                 <Select
                   label="Industry"
                   options={[
@@ -135,7 +173,7 @@ export function SettingsPage() {
                   ]}
                   defaultValue="beauty"
                 />
-                <Input label="Website" placeholder="https://glownaturals.com" />
+                <Input label="Website" defaultValue="https://glownaturals.com" />
                 <Select
                   label="Timezone"
                   options={[
@@ -151,7 +189,7 @@ export function SettingsPage() {
           {activeSection === 'brand' && (
             <SettingsSection title="Brand Preferences" description="Default brand voice and guidelines.">
               <div className="space-y-4">
-                <Input label="Primary brand" defaultValue="GlowNaturals" />
+                <Input label="Primary brand" defaultValue={displayOrg} />
                 <Select
                   label="Brand voice"
                   options={[
@@ -306,7 +344,7 @@ export function SettingsPage() {
             <SettingsSection title="Team Members" description="Manage who has access to this workspace.">
               <div className="space-y-3">
                 {[
-                  { name: workspace.user, email: workspace.email, role: 'Admin' },
+                  { name: displayName, email: displayEmail, role: 'Admin' },
                   { name: 'Priya Mehta', email: 'priya@glownaturals.com', role: 'Editor' },
                   { name: 'Rohan Singh', email: 'rohan@glownaturals.com', role: 'Viewer' },
                 ].map((member) => (

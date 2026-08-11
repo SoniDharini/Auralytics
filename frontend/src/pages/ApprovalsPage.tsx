@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Bot,
   CheckCircle2,
@@ -10,6 +10,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { approvals as initialApprovals, approvalHistory } from '@/mock-data'
+import { api } from '@/services/api'
 import {
   Badge,
   Button,
@@ -46,6 +47,22 @@ export function ApprovalsPage() {
   const [activeTab, setActiveTab] = useState('all')
   const [items, setItems] = useState<ApprovalItem[]>(initialApprovals)
 
+  useEffect(() => {
+    let mounted = true
+    api.approvals
+      .list()
+      .then((data) => {
+        if (mounted && data && data.length > 0) {
+          setItems(data)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const tabs = useMemo(
     () =>
       TAB_TYPES.map((tab) => ({
@@ -64,8 +81,14 @@ export function ApprovalsPage() {
     return pending.filter((a) => a.type === activeTab)
   }, [items, activeTab])
 
-  const updateStatus = (id: string, status: ApprovalStatus) => {
+  const updateStatus = async (id: string, status: ApprovalStatus) => {
     setItems((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)))
+    try {
+      const decision = status === 'approved' ? 'approve' : status === 'rejected' ? 'reject' : 'edit'
+      await api.approvals.decide(id, decision)
+    } catch {
+      // Revert if error
+    }
   }
 
   const handleApprove = (item: ApprovalItem) => {

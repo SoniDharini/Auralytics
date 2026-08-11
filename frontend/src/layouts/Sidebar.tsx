@@ -14,8 +14,8 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/utils'
-import { workspace } from '@/mock-data'
 import { Avatar } from '@/components/ui'
+import { useAuth } from '@/context/AuthContext'
 
 const mainNav = [
   { to: '/app', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -38,6 +38,11 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const navigate = useNavigate()
+  const { user } = useAuth()
+
+  const displayName = user?.full_name || 'Aaditya Sharma'
+  const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
+  const displayOrg = user?.company_name || 'InfluenceOS'
 
   const content = (
     <div className="flex h-full flex-col">
@@ -45,58 +50,58 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Side
         <button
           onClick={() => navigate('/app')}
           className="flex items-center gap-2.5 min-w-0"
-          aria-label="Auralytics home"
+          aria-label="InfluenceOS home"
         >
           <div className="h-8 w-8 rounded-lg ai-gradient-bg flex items-center justify-center text-white font-bold text-sm shrink-0">
             A
           </div>
           {!collapsed && (
             <div className="min-w-0 text-left">
-              <p className="text-sm font-bold text-text leading-tight">Auralytics</p>
-              <p className="text-[10px] text-text-secondary truncate">Influence OS</p>
+              <p className="text-sm font-bold text-text leading-tight">InfluenceOS</p>
+              <p className="text-[10px] text-text-secondary truncate">From Discovery to ROI</p>
             </div>
           )}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-        {mainNav.map((item) => (
+      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+        <p className={cn('px-3 text-[10px] font-bold text-text-secondary uppercase tracking-wider mb-2', collapsed && 'sr-only')}>
+          Main Menu
+        </p>
+        {mainNav.map(({ to, label, icon: Icon, end }) => (
           <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            onClick={onMobileClose}
+            key={to}
+            to={to}
+            end={end}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors',
-                collapsed && 'justify-center px-2',
+                'flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-sm font-medium transition group',
                 isActive
-                  ? 'bg-primary-soft text-primary'
+                  ? 'bg-primary-soft text-primary font-semibold'
                   : 'text-text-secondary hover:bg-muted hover:text-text',
+                collapsed && 'justify-center px-2',
               )
             }
-            title={collapsed ? item.label : undefined}
+            title={collapsed ? label : undefined}
           >
-            {({ isActive }) => (
-              <>
-                <item.icon className={cn('h-4.5 w-4.5 shrink-0', isActive ? 'text-primary' : '')} />
-                {!collapsed && <span>{item.label}</span>}
-              </>
-            )}
+            <Icon className="h-4.5 w-4.5 shrink-0" />
+            {!collapsed && <span className="truncate">{label}</span>}
           </NavLink>
         ))}
 
-        <div className="pt-4 mt-2 border-t border-border">
+        <div className="pt-4 mt-4 border-t border-border">
+          <p className={cn('px-3 text-[10px] font-bold text-text-secondary uppercase tracking-wider mb-2', collapsed && 'sr-only')}>
+            System
+          </p>
           <NavLink
             to="/app/settings"
-            onClick={onMobileClose}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors',
-                collapsed && 'justify-center px-2',
+                'flex items-center gap-3 px-3 py-2.5 rounded-[10px] text-sm font-medium transition',
                 isActive
-                  ? 'bg-primary-soft text-primary'
+                  ? 'bg-primary-soft text-primary font-semibold'
                   : 'text-text-secondary hover:bg-muted hover:text-text',
+                collapsed && 'justify-center px-2',
               )
             }
             title={collapsed ? 'Settings' : undefined}
@@ -111,18 +116,18 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Side
         {!collapsed ? (
           <div className="rounded-[12px] bg-page border border-border p-3">
             <p className="text-[11px] text-text-secondary">Workspace</p>
-            <p className="text-xs font-semibold text-text mt-0.5 truncate">{workspace.name}</p>
+            <p className="text-xs font-semibold text-text mt-0.5 truncate">{displayOrg}</p>
             <div className="mt-3 flex items-center gap-2">
-              <Avatar name={workspace.user} size="sm" />
+              <Avatar name={displayName} size="sm" />
               <div className="min-w-0">
-                <p className="text-xs font-semibold truncate">{workspace.user.split(' ')[0]}</p>
-                <p className="text-[11px] text-text-secondary truncate">{workspace.role}</p>
+                <p className="text-xs font-semibold truncate">{displayName.split(' ')[0]}</p>
+                <p className="text-[11px] text-text-secondary truncate">{displayRole}</p>
               </div>
             </div>
           </div>
         ) : (
           <div className="flex justify-center">
-            <Avatar name={workspace.user} size="sm" />
+            <Avatar name={displayName} size="sm" />
           </div>
         )}
         <button

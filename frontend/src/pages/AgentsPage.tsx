@@ -1,16 +1,15 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity,
-  Bot,
   CheckCircle2,
   Info,
   User,
   Zap,
 } from 'lucide-react'
-import { agents, agentTimeline } from '@/mock-data'
+import { agents as initialAgents, agentTimeline as initialTimeline } from '@/mock-data'
+import { api } from '@/services/api'
 import { AgentCard, Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 import { cn } from '@/utils'
-import type { TimelineEvent } from '@/types'
+import type { Agent, TimelineEvent } from '@/types'
 
 const timelineStyles: Record<
   TimelineEvent['type'],
@@ -23,9 +22,37 @@ const timelineStyles: Record<
 }
 
 export function AgentsPage() {
+  const [agentsList, setAgentsList] = useState<Agent[]>(initialAgents)
+  const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimeline)
+
+  useEffect(() => {
+    let mounted = true
+    api.agents
+      .list()
+      .then((data) => {
+        if (mounted && data && data.length > 0) {
+          setAgentsList(data)
+        }
+      })
+      .catch(() => {})
+
+    api.agents
+      .getTimeline()
+      .then((events) => {
+        if (mounted && events && events.length > 0) {
+          setTimeline(events)
+        }
+      })
+      .catch(() => {})
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   const activeCount = useMemo(
-    () => agents.filter((a) => a.status === 'active' || a.status === 'processing').length,
-    [],
+    () => agentsList.filter((a) => a.status === 'active' || a.status === 'processing').length,
+    [agentsList],
   )
 
   return (
@@ -55,74 +82,46 @@ export function AgentsPage() {
       </div>
 
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {agents.map((agent) => (
+        {agentsList.map((agent) => (
           <AgentCard key={agent.id} agent={agent} />
         ))}
       </div>
 
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-primary" />
-            <div>
-              <CardTitle>Agent Activity Timeline</CardTitle>
-              <p className="text-sm text-text-secondary mt-0.5">
-                Real-time log of agent and human actions
-              </p>
-            </div>
+          <div className="flex items-center justify-between">
+            <CardTitle>Autonomous Activity Feed</CardTitle>
+            <span className="text-xs text-text-secondary font-mono">Live coordination log</span>
           </div>
-          <Badge variant="ai">
-            <Bot className="h-3 w-3" /> Today
-          </Badge>
         </CardHeader>
         <CardContent>
-          <div className="relative">
-            <div className="absolute left-[15px] top-2 bottom-2 w-px bg-border" />
-            <ul className="space-y-1">
-              {agentTimeline.map((event, i) => (
-                <TimelineRow key={event.id} event={event} isLast={i === agentTimeline.length - 1} />
-              ))}
-            </ul>
+          <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+            {timeline.map((event) => {
+              const s = timelineStyles[event.type] ?? timelineStyles.info
+              const Icon = s.icon
+              return (
+                <div key={event.id} className="relative flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'absolute -left-6 mt-1 h-5 w-5 rounded-full border-2 border-white flex items-center justify-center',
+                      s.dot,
+                    )}
+                  >
+                    <Icon className="h-2.5 w-2.5 text-white" />
+                  </div>
+                  <div className="flex-1 rounded-xl border border-border bg-page p-3 text-xs">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-semibold text-text">{event.agent}</span>
+                      <span className="text-[11px] text-text-secondary font-mono">{event.time}</span>
+                    </div>
+                    <p className="text-text-secondary">{event.message}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function TimelineRow({ event, isLast }: { event: TimelineEvent; isLast: boolean }) {
-  const style = timelineStyles[event.type]
-  const Icon = style.icon
-
-  return (
-    <li className={cn('relative flex gap-4 pb-5', isLast && 'pb-0')}>
-      <div
-        className={cn(
-          'relative z-10 h-8 w-8 rounded-full flex items-center justify-center shrink-0 border-2 border-white shadow-sm',
-          style.bg,
-        )}
-      >
-        <Icon className={cn('h-3.5 w-3.5', event.type === 'info' && 'text-primary', event.type === 'success' && 'text-success', event.type === 'action' && 'text-ai', event.type === 'human' && 'text-amber-600')} />
-      </div>
-      <div className="flex-1 min-w-0 pt-0.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-mono font-semibold text-text-secondary">{event.time}</span>
-          <span className="text-sm font-semibold">{event.agent}</span>
-          <span
-            className={cn(
-              'text-[10px] uppercase font-bold tracking-wide px-1.5 py-0.5 rounded',
-              style.bg,
-              event.type === 'info' && 'text-primary',
-              event.type === 'success' && 'text-success',
-              event.type === 'action' && 'text-ai',
-              event.type === 'human' && 'text-amber-700',
-            )}
-          >
-            {event.type}
-          </span>
-        </div>
-        <p className="text-sm text-text-secondary mt-0.5">{event.message}</p>
-      </div>
-    </li>
   )
 }

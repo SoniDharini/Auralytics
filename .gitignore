@@ -1,0 +1,104 @@
+# ==========================================
+# InfluenceOS Git Ignore
+# ==========================================
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+backend/venv/
+backend/env/
+backend/.venv/
+
+# Python Bytecode & Cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.eslintcache
+.vite/
+frontend/.vite/
+
+# PostgreSQL Standalone Binaries & Data
+pgsql/
+pgsql/data/
+pgsql/bin/
+pgsql/lib/
+pgsql/share/
+pgsql/include/
+*.log
+pg.log
+logfile
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# IDE & Editor Configs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini

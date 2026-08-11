@@ -62,6 +62,8 @@ const nicheOptions = ['Beauty', 'Skincare', 'Fashion', 'Lifestyle', 'Wellness', 
 const primaryKpis = ['ROAS', 'CPA', 'Engagement Rate', 'Conversions', 'Reach', 'Brand Lift']
 const secondaryKpis = ['CTR', 'Video Views', 'Story Views', 'Save Rate', 'Share Rate', 'Follower Growth']
 
+import { api } from '@/services/api'
+
 interface BudgetAllocation {
   id: string
   label: string
@@ -91,6 +93,7 @@ export function CreateCampaignPage() {
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [workflowStep, setWorkflowStep] = useState(0)
   const [workflowComplete, setWorkflowComplete] = useState(false)
+  const [createdCampaignId, setCreatedCampaignId] = useState<string>('camp-1')
 
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('GlowNaturals')
@@ -133,10 +136,45 @@ export function CreateCampaignPage() {
     setAllocation((prev) => prev.map((a) => (a.id === id ? { ...a, amount: Math.max(0, amount) } : a)))
   }
 
-  const handleLaunch = () => {
+  const objectiveLabel = objectives.find((o) => o.value === objective)?.label ?? objective
+
+  const handleLaunch = async () => {
     setShowLaunchModal(true)
     setWorkflowStep(0)
     setWorkflowComplete(false)
+
+    try {
+      const payload = {
+        name: name || 'New Influencer Campaign',
+        brand: brand || 'GlowNaturals',
+        description,
+        budget: totalBudget,
+        objective: objectiveLabel,
+        start_date: startDate,
+        end_date: endDate,
+        status: 'active',
+        health: 'excellent',
+        campaign_types: selectedTypes,
+        target_locations: locations,
+        target_age_min: ageMin,
+        target_age_max: ageMax,
+        target_gender: gender,
+        interests: selectedInterests,
+        languages: selectedLanguages,
+        platforms: selectedPlatforms,
+        creator_tiers: selectedTiers,
+        budget_allocation: allocation,
+        primary_kpi: primaryKpi,
+        target_roas: parseFloat(targetRoas) || 3.0,
+        target_cpa: parseFloat(targetCpa) || 150,
+      }
+      const res = await api.campaigns.create(payload)
+      if (res?.id) {
+        setCreatedCampaignId(res.id)
+      }
+    } catch {
+      // Keep default fallback
+    }
   }
 
   useEffect(() => {
@@ -146,15 +184,13 @@ export function CreateCampaignPage() {
     )
     const completeTimer = setTimeout(() => {
       setWorkflowComplete(true)
-      setTimeout(() => navigate('/app/campaigns/camp-1'), 1500)
+      setTimeout(() => navigate(`/app/campaigns/${createdCampaignId}`), 1500)
     }, 7200)
     return () => {
       timers.forEach(clearTimeout)
       clearTimeout(completeTimer)
     }
-  }, [showLaunchModal, navigate])
-
-  const objectiveLabel = objectives.find((o) => o.value === objective)?.label ?? objective
+  }, [showLaunchModal, createdCampaignId, navigate])
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
