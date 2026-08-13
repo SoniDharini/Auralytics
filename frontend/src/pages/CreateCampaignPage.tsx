@@ -69,14 +69,75 @@ interface BudgetAllocation {
   label: string
   amount: number
   color: string
+  rationale: string
 }
 
-const defaultAllocation: BudgetAllocation[] = [
-  { id: 'micro', label: 'Micro Creators', amount: 90000, color: 'bg-primary' },
-  { id: 'mid', label: 'Mid-tier Creators', amount: 70000, color: 'bg-accent' },
-  { id: 'content', label: 'Content Production', amount: 20000, color: 'bg-ai' },
-  { id: 'reserve', label: 'Reserve Fund', amount: 20000, color: 'bg-warning' },
+/** AI suggestion ratios — applied to total budget; user can override freely. */
+const AI_ALLOCATION_RATIOS: { id: string; label: string; ratio: number; color: string; rationale: string }[] = [
+  {
+    id: 'micro',
+    label: 'Micro Creators',
+    ratio: 0.45,
+    color: 'bg-primary',
+    rationale: 'Higher engagement & better CPA — volume of authentic content.',
+  },
+  {
+    id: 'mid',
+    label: 'Mid-tier Creators',
+    ratio: 0.35,
+    color: 'bg-accent',
+    rationale: 'Balance of reach and credibility for brand lift.',
+  },
+  {
+    id: 'content',
+    label: 'Content Production',
+    ratio: 0.1,
+    color: 'bg-ai',
+    rationale: 'Assets, edits, and production support for deliverables.',
+  },
+  {
+    id: 'reserve',
+    label: 'Reserve Fund',
+    ratio: 0.1,
+    color: 'bg-warning',
+    rationale: 'Buffer for negotiation, top-ups to winners, and contingencies.',
+  },
 ]
+
+function buildAllocationFromTotal(total: number): BudgetAllocation[] {
+  const safeTotal = Math.max(0, Math.round(total))
+  const items = AI_ALLOCATION_RATIOS.map((item) => ({
+    id: item.id,
+    label: item.label,
+    amount: Math.round(safeTotal * item.ratio),
+    color: item.color,
+    rationale: item.rationale,
+  }))
+  // Fix rounding so amounts always sum exactly to total
+  const sum = items.reduce((s, a) => s + a.amount, 0)
+  const diff = safeTotal - sum
+  if (items.length > 0 && diff !== 0) {
+    items[0] = { ...items[0], amount: Math.max(0, items[0].amount + diff) }
+  }
+  return items
+}
+
+function scaleAllocationToTotal(current: BudgetAllocation[], total: number): BudgetAllocation[] {
+  const safeTotal = Math.max(0, Math.round(total))
+  const currentSum = current.reduce((s, a) => s + a.amount, 0)
+  if (currentSum <= 0) return buildAllocationFromTotal(safeTotal)
+
+  const scaled = current.map((item) => ({
+    ...item,
+    amount: Math.round((item.amount / currentSum) * safeTotal),
+  }))
+  const sum = scaled.reduce((s, a) => s + a.amount, 0)
+  const diff = safeTotal - sum
+  if (scaled.length > 0 && diff !== 0) {
+    scaled[0] = { ...scaled[0], amount: Math.max(0, scaled[0].amount + diff) }
+  }
+  return scaled
+}
 
 const agentWorkflowSteps = [
   { agent: 'Supervisor Agent', task: 'Orchestrating campaign workflow', delay: 0 },
@@ -116,7 +177,8 @@ export function CreateCampaignPage() {
   const [selectedNiches, setSelectedNiches] = useState<string[]>(['Beauty', 'Skincare', 'Lifestyle'])
 
   const [totalBudget, setTotalBudget] = useState(200000)
-  const [allocation, setAllocation] = useState(defaultAllocation)
+  const [allocation, setAllocation] = useState(() => buildAllocationFromTotal(200000))
+  const [allocationCustomized, setAllocationCustomized] = useState(false)
 
   const [primaryKpi, setPrimaryKpi] = useState('ROAS')
   const [secondaryKpiList, setSecondaryKpiList] = useState<string[]>(['Engagement Rate', 'Conversions'])
@@ -126,14 +188,44 @@ export function CreateCampaignPage() {
   const [targetConversions, setTargetConversions] = useState('400')
 
   const allocatedTotal = allocation.reduce((s, a) => s + a.amount, 0)
-  const allocationValid = allocatedTotal === totalBudget
+  const allocationDiff = totalBudget - allocatedTotal
+  const allocationValid = allocationDiff === 0
 
   const toggle = <T extends string>(list: T[], value: T, setter: (v: T[]) => void) => {
     setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
   }
 
+  const handleTotalBudgetChange = (value: number) => {
+    const next = Math.max(0, value)
+    setTotalBudget(next)
+    // Keep user's relative split; re-apply AI ratios only if they haven't customized
+    setAllocation((prev) =>
+      allocationCustomized ? scaleAllocationToTotal(prev, next) : buildAllocationFromTotal(next),
+    )
+  }
+
   const updateAllocation = (id: string, amount: number) => {
+    setAllocationCustomized(true)
     setAllocation((prev) => prev.map((a) => (a.id === id ? { ...a, amount: Math.max(0, amount) } : a)))
+  }
+
+  const applyAiSuggestion = () => {
+    setAllocation(buildAllocationFromTotal(totalBudget))
+    setAllocationCustomized(false)
+  }
+
+  const distributeEvenly = () => {
+    const n = allocation.length
+    if (n === 0) return
+    const base = Math.floor(totalBudget / n)
+    const remainder = totalBudget - base * n
+    setAllocationCustomized(true)
+    setAllocation((prev) =>
+      prev.map((item, i) => ({
+        ...item,
+        amount: base + (i === 0 ? remainder : 0),
+      })),
+    )
   }
 
   const objectiveLabel = objectives.find((o) => o.value === objective)?.label ?? objective
@@ -433,48 +525,119 @@ export function CreateCampaignPage() {
               <div>
                 <h2 className="text-xl font-bold">Budget & allocation</h2>
                 <p className="text-sm text-text-secondary mt-1">
-                  AI-recommended split — adjust to match your priorities.
+                  You decide the final split. AI can suggest a starting allocation — you approve or change every rupee.
                 </p>
               </div>
+
               <Input
                 label="Total budget (INR)"
                 type="number"
+                min={0}
                 value={totalBudget}
-                onChange={(e) => setTotalBudget(Number(e.target.value) || 0)}
+                onChange={(e) => handleTotalBudgetChange(Number(e.target.value) || 0)}
+                hint="This is your campaign ceiling. Allocation below must add up to this amount."
               />
-              <div className="rounded-[12px] border border-border bg-primary-soft/50 p-4">
-                <div className="flex items-center gap-2 mb-4">
-                  <Sparkles className="h-4 w-4 text-ai" />
-                  <p className="text-sm font-semibold text-ai">AI Recommended Allocation</p>
+
+              <div className="rounded-[12px] border border-border bg-white p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <Target className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-text">How budget allocation works</p>
+                    <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                      Split your total budget across creator fees, content support, and a reserve. The sum of all
+                      buckets must equal your total budget before you continue. Strategy Agent suggests ratios based
+                      on typical influencer ROAS patterns — you stay in control of the final amounts.
+                    </p>
+                  </div>
                 </div>
+                <ul className="grid sm:grid-cols-2 gap-2 text-xs text-text-secondary">
+                  <li className="rounded-lg bg-page border border-border px-3 py-2">
+                    <span className="font-semibold text-text">Creators</span> — fees for micro & mid-tier partners
+                  </li>
+                  <li className="rounded-lg bg-page border border-border px-3 py-2">
+                    <span className="font-semibold text-text">Content</span> — production, edits, assets
+                  </li>
+                  <li className="rounded-lg bg-page border border-border px-3 py-2">
+                    <span className="font-semibold text-text">Reserve</span> — negotiation buffer & top-ups
+                  </li>
+                  <li className="rounded-lg bg-page border border-border px-3 py-2">
+                    <span className="font-semibold text-text">Rule</span> — allocated total = total budget
+                  </li>
+                </ul>
+              </div>
+
+              <div className="rounded-[12px] border border-border bg-primary-soft/40 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-ai" />
+                    <p className="text-sm font-semibold text-ai">AI suggestion</p>
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white border border-border text-text-secondary">
+                      Advisory only
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={distributeEvenly}>
+                      Split evenly
+                    </Button>
+                    <Button type="button" size="sm" variant="soft" onClick={applyAiSuggestion}>
+                      Apply AI suggestion
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-text-secondary mb-4">
+                  Suggested mix for this objective: 45% micro · 35% mid-tier · 10% content · 10% reserve. Editing any
+                  amount marks the plan as customized by you.
+                </p>
+
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-text">Your allocation</p>
+                  <span
+                    className={cn(
+                      'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
+                      allocationCustomized
+                        ? 'bg-white border-primary/30 text-primary'
+                        : 'bg-violet-50 border-violet-200 text-ai',
+                    )}
+                  >
+                    {allocationCustomized ? 'Customized by you' : 'Matching AI suggestion'}
+                  </span>
+                </div>
+
                 <div className="space-y-4">
                   {allocation.map((item) => {
                     const pct = totalBudget > 0 ? (item.amount / totalBudget) * 100 : 0
+                    const barWidth = Math.min(100, Math.max(0, pct))
                     return (
                       <div key={item.id}>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-sm font-medium">{item.label}</span>
-                          <div className="flex items-center gap-2">
+                        <div className="flex items-start justify-between gap-3 mb-1.5">
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium">{item.label}</span>
+                            <p className="text-[11px] text-text-secondary mt-0.5 leading-snug">{item.rationale}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
                             <input
                               type="number"
+                              min={0}
                               value={item.amount}
                               onChange={(e) => updateAllocation(item.id, Number(e.target.value) || 0)}
-                              className="w-24 h-8 px-2 text-xs font-semibold text-right rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              aria-label={`${item.label} amount`}
+                              className="w-28 h-8 px-2 text-xs font-semibold text-right rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
                             />
-                            <span className="text-xs text-text-secondary w-10">{Math.round(pct)}%</span>
+                            <span className="text-xs text-text-secondary w-10 text-right">{Math.round(pct)}%</span>
                           </div>
                         </div>
                         <div className="h-3 rounded-full bg-muted overflow-hidden">
                           <div
                             className={cn('h-full rounded-full transition-all duration-300', item.color)}
-                            style={{ width: `${pct}%` }}
+                            style={{ width: `${barWidth}%` }}
                           />
                         </div>
                       </div>
                     )
                   })}
                 </div>
-                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
+
+                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-3">
                   <span className="text-sm text-text-secondary">Allocated total</span>
                   <span
                     className={cn(
@@ -486,8 +649,15 @@ export function CreateCampaignPage() {
                   </span>
                 </div>
                 {!allocationValid && (
-                  <p className="text-xs text-danger mt-1">
-                    Allocation must equal total budget ({formatINR(totalBudget - allocatedTotal)} remaining)
+                  <p className="text-xs text-danger mt-1.5">
+                    {allocationDiff > 0
+                      ? `Allocate ${formatINR(allocationDiff)} more to match your total budget.`
+                      : `Reduce allocation by ${formatINR(Math.abs(allocationDiff))} to match your total budget.`}
+                  </p>
+                )}
+                {allocationValid && (
+                  <p className="text-xs text-success mt-1.5">
+                    Allocation matches total budget. You can continue — this is your approved plan.
                   </p>
                 )}
               </div>
