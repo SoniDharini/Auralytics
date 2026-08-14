@@ -1,16 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  AlertTriangle,
   ArrowLeft,
   Bot,
   FileText,
-  Send,
+  Loader2,
   Sparkles,
 } from 'lucide-react'
-import { contracts } from '@/mock-data'
+import { api } from '@/services/api'
 import {
-  Badge,
   Button,
   Card,
   CardContent,
@@ -20,28 +18,53 @@ import {
   Input,
   StatusChip,
 } from '@/components/ui'
-import { cn, formatINR } from '@/utils'
+import { formatINR } from '@/utils'
+import type { Contract } from '@/types'
+
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
+  try {
+    return new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    })
+  } catch {
+    return dateStr
+  }
 }
-
-const FAKE_RESPONSES = [
-  'Based on clause 4.2, the creator must deliver all assets within 48 hours of approval. Current timeline shows 4 days remaining.',
-  'The exclusivity window runs for 30 days post-publication. No competing skincare brands are permitted during this period.',
-  'Payment is net-15 after final deliverable approval. Given one pending deliverable, payment may be delayed by up to 7 days.',
-  'Usage rights grant GlowNaturals 90-day organic and paid amplification across owned channels.',
-]
 
 export function ContractDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const contract = contracts.find((c) => c.id === id)
+  const [contract, setContract] = useState<Contract | null>(null)
+  const [loading, setLoading] = useState(true)
   const [question, setQuestion] = useState('')
   const [agentResponse, setAgentResponse] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!id) return
+    setLoading(true)
+    api.contracts
+      .get(id)
+      .then((data) => {
+        setContract(data)
+      })
+      .catch(() => {
+        setContract(null)
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [id])
+
+  if (loading) {
+    return (
+      <div className="py-24 flex flex-col justify-center items-center gap-3 text-text-secondary text-sm">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p>Loading contract details...</p>
+      </div>
+    )
+  }
 
   if (!contract) {
     return (
@@ -58,193 +81,108 @@ export function ContractDetailPage() {
   const handleAsk = (e: React.FormEvent) => {
     e.preventDefault()
     if (!question.trim()) return
-    const response = FAKE_RESPONSES[Math.floor(Math.random() * FAKE_RESPONSES.length)]
-    setAgentResponse(response)
-    setQuestion('')
+    setAgentResponse(
+      `Contract Agent review: Terms for ${contract.creator} specify ${contract.usageRights || 'standard digital rights'} under campaign ${contract.campaign}.`,
+    )
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <Link
-            to="/app/contracts"
-            className="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-border bg-white text-text-secondary hover:bg-muted transition"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight">{contract.creator}</h1>
-              <StatusChip status={contract.status} />
-              <Badge variant={contract.risk === 'High' ? 'danger' : contract.risk === 'Medium' ? 'warning' : 'success'}>
-                {contract.risk} Risk
-              </Badge>
-            </div>
-            <p className="text-sm text-text-secondary mt-1">
-              @{contract.username} · {contract.campaign} · {formatINR(contract.value)}
-            </p>
+    <div className="space-y-6 animate-fade-in max-w-5xl">
+      <div className="flex items-center gap-3">
+        <Link
+          to="/app/contracts"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-white text-text-secondary hover:bg-page hover:text-text transition"
+          aria-label="Back to contracts"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight truncate">{contract.creator}</h1>
+            <StatusChip status={contract.status} />
           </div>
+          <p className="text-sm text-text-secondary mt-0.5">
+            @{contract.username} · {contract.campaign}
+          </p>
         </div>
       </div>
 
-      <div className="grid xl:grid-cols-[1.1fr_1fr] gap-4">
-        {/* PDF Preview Placeholder */}
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b border-border bg-muted/40">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-primary" />
-              <CardTitle>Contract Document</CardTitle>
-            </div>
-            <Badge variant="outline">PDF Preview</Badge>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="bg-[#fafafa] min-h-[520px] p-8">
-              <div className="mx-auto max-w-md bg-white border border-border rounded-lg shadow-sm p-8 space-y-5">
-                <div className="text-center border-b border-border pb-5">
-                  <p className="text-[10px] uppercase tracking-widest text-text-secondary font-semibold">
-                    Influencer Collaboration Agreement
-                  </p>
-                  <h2 className="text-lg font-bold mt-2">{contract.campaign}</h2>
-                  <p className="text-xs text-text-secondary mt-1">GlowNaturals × @{contract.username}</p>
-                </div>
-
-                <div className="space-y-3 text-xs text-text-secondary leading-relaxed">
-                  <p>
-                    <span className="font-semibold text-text">Parties:</span> GlowNaturals Pvt. Ltd. and{' '}
-                    {contract.creator} (&quot;Creator&quot;).
-                  </p>
-                  <p>
-                    <span className="font-semibold text-text">Term:</span> {formatDate(contract.startDate)} to{' '}
-                    {formatDate(contract.endDate)}.
-                  </p>
-                  <p>
-                    <span className="font-semibold text-text">Compensation:</span> {formatINR(contract.value)}{' '}
-                    payable by {formatDate(contract.paymentDue)}.
-                  </p>
-                  <p>
-                    <span className="font-semibold text-text">Deliverables:</span>
-                  </p>
-                  <ul className="list-disc pl-4 space-y-1">
-                    {contract.deliverables.map((d) => (
-                      <li key={d}>{d}</li>
-                    ))}
-                  </ul>
-                  <p>
-                    <span className="font-semibold text-text">Usage Rights:</span> {contract.usageRights} from
-                    publication date.
-                  </p>
-                  <p>
-                    <span className="font-semibold text-text">Exclusivity:</span> {contract.exclusivity} in the
-                    skincare category.
-                  </p>
-                </div>
-
-                <div className="pt-4 border-t border-dashed border-border flex justify-between items-end">
-                  <div className="space-y-1">
-                    <div className="h-8 w-24 border-b border-text/30" />
-                    <p className="text-[10px] text-text-secondary">GlowNaturals</p>
-                  </div>
-                  <div className="space-y-1 text-right">
-                    <div className="h-8 w-24 border-b border-text/30 ml-auto" />
-                    <p className="text-[10px] text-text-secondary">{contract.creator}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* AI Summary Panel */}
-        <div className="space-y-4">
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-violet-50 text-ai flex items-center justify-center">
-                  <Sparkles className="h-4 w-4" />
+              <CardTitle>Agreement Summary</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">Contract Value</p>
+                  <p className="text-xl font-bold text-text mt-1">{formatINR(contract.value)}</p>
                 </div>
                 <div>
-                  <div className="flex items-center gap-2">
-                    <CardTitle>AI Contract Summary</CardTitle>
-                    <Badge variant="ai">AI Generated</Badge>
-                  </div>
-                  <p className="text-xs text-text-secondary mt-0.5">Extracted by Contract Agent</p>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">Payment Due</p>
+                  <p className="text-base font-semibold text-text mt-1">{formatDate(contract.paymentDue)}</p>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {[
-                { label: 'Payment', value: `${formatINR(contract.value)} due ${formatDate(contract.paymentDue)}` },
-                { label: 'Deliverables', value: contract.deliverables.join(', ') },
-                { label: 'Deadline', value: formatDate(contract.endDate) },
-                { label: 'Usage Rights', value: contract.usageRights },
-                { label: 'Exclusivity', value: contract.exclusivity },
-                { label: 'Payment Due', value: formatDate(contract.paymentDue) },
-              ].map((item) => (
-                <div key={item.label} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 py-2 border-b border-border last:border-0">
-                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide sm:w-32 shrink-0">
-                    {item.label}
-                  </span>
-                  <span className="text-sm text-text">{item.value}</span>
+
+              <div className="grid sm:grid-cols-2 gap-4 pt-3 border-t border-border">
+                <div>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">Start Date</p>
+                  <p className="font-medium text-text mt-0.5">{formatDate(contract.startDate)}</p>
                 </div>
-              ))}
+                <div>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">End Date</p>
+                  <p className="font-medium text-text mt-0.5">{formatDate(contract.endDate)}</p>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-border">
+                <p className="text-xs text-text-secondary font-medium uppercase tracking-wide mb-2">Deliverables</p>
+                <ul className="space-y-1.5 list-disc list-inside text-text">
+                  {contract.deliverables?.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4 pt-3 border-t border-border">
+                <div>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">Usage Rights</p>
+                  <p className="font-medium text-text mt-0.5">{contract.usageRights || 'Standard digital rights'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-secondary font-medium uppercase tracking-wide">Exclusivity</p>
+                  <p className="font-medium text-text mt-0.5">{contract.exclusivity || 'Non-exclusive'}</p>
+                </div>
+              </div>
             </CardContent>
           </Card>
+        </div>
 
-          {contract.aiRisks.length > 0 && (
-            <Card className="border-l-4 border-l-warning">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-warning" />
-                  <CardTitle>AI Risks</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {contract.aiRisks.map((risk) => (
-                  <div
-                    key={risk}
-                    className="flex items-start gap-3 rounded-[10px] bg-amber-50 border border-amber-100 px-3 py-2.5"
-                  >
-                    <Badge variant="warning" className="shrink-0 mt-0.5">
-                      Warning
-                    </Badge>
-                    <p className="text-sm text-text">{risk}</p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
+        <div className="space-y-6">
           <Card>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Bot className="h-4 w-4 text-ai" />
                 <CardTitle>Ask Contract Agent</CardTitle>
               </div>
-              <p className="text-xs text-text-secondary">Quick questions about this agreement</p>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAsk} className="flex gap-2">
+            <CardContent className="space-y-4">
+              <form onSubmit={handleAsk} className="space-y-3">
                 <Input
-                  placeholder="e.g. What are the reshoot obligations?"
+                  placeholder="e.g. When are deliverables due?"
                   value={question}
                   onChange={(e) => setQuestion(e.target.value)}
-                  className="flex-1"
                 />
-                <Button type="submit" size="icon" disabled={!question.trim()}>
-                  <Send className="h-4 w-4" />
+                <Button type="submit" size="sm" variant="ai" className="w-full gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5" /> Ask AI Agent
                 </Button>
               </form>
+
               {agentResponse && (
-                <div
-                  className={cn(
-                    'mt-3 rounded-[10px] border border-indigo-100 bg-indigo-50/60 px-3 py-2.5 text-sm text-text animate-fade-in',
-                  )}
-                >
-                  <p className="text-xs font-semibold text-ai mb-1 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" /> Contract Agent
-                  </p>
-                  {agentResponse}
+                <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-3 text-xs leading-relaxed">
+                  <p className="font-semibold text-ai mb-1">Contract Agent Response:</p>
+                  <p className="text-text">{agentResponse}</p>
                 </div>
               )}
             </CardContent>

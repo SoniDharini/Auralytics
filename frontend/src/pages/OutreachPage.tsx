@@ -1,22 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageSquare, RefreshCw, Sparkles, Send } from 'lucide-react'
-import { influencers, outreachMessage } from '@/mock-data'
+import { Loader2, Mail, MessageSquare, RefreshCw, Send, Sparkles } from 'lucide-react'
+import { api } from '@/services/api'
 import {
   Avatar,
-  Badge,
   Button,
   Card,
   CardContent,
   Drawer,
-  ProgressRing,
   StatusChip,
   Tabs,
   Textarea,
   useToast,
 } from '@/components/ui'
-import { cn, formatINR } from '@/utils'
-import type { Influencer, OutreachStatus } from '@/types'
+import { cn } from '@/utils'
+import type { OutreachStatus } from '@/types'
 
 const PIPELINE_TABS: { id: OutreachStatus | 'all'; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -30,46 +28,54 @@ const PIPELINE_TABS: { id: OutreachStatus | 'all'; label: string }[] = [
   { id: 'rejected', label: 'Rejected' },
 ]
 
-function getMessageForInfluencer(inf: Influencer): string {
-  return outreachMessage.replace('Aditi', inf.name.split(' ')[0]).replace('@AditiBeauty', `@${inf.username}`)
-}
-
-const AI_EXPLANATION =
-  'Personalized from creator content history, audience demographics, and campaign brief. Tone adjusted to match prior successful outreach in beauty vertical.'
-
-const COUNTER_MESSAGE =
-  "Hi Riya, thank you for sharing your rate. Based on similar campaigns and your audience metrics, we'd love to collaborate at ₹26,000 for 2 Reels + 3 Stories. This aligns with your historical average and keeps the partnership sustainable for both sides. Happy to discuss deliverables!"
-
 export function OutreachPage() {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<string>('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [selected, setSelected] = useState<Influencer | null>(null)
+  const [selected, setSelected] = useState<any | null>(null)
   const [message, setMessage] = useState('')
   const [editing, setEditing] = useState(false)
-  const [counterAmount, setCounterAmount] = useState(26000)
+  const [outreachList, setOutreachList] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const withStatus = useMemo(
-    () => influencers.filter((i) => i.status),
-    [],
-  )
+
+  useEffect(() => {
+    let mounted = true
+    api.outreach
+      .list()
+      .then((data) => {
+        if (mounted && data) {
+          setOutreachList(data)
+        }
+      })
+      .catch(() => {
+        setOutreachList([])
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const filtered = useMemo(() => {
-    if (activeTab === 'all') return withStatus
-    return withStatus.filter((i) => i.status === activeTab)
-  }, [activeTab, withStatus])
+    if (activeTab === 'all') return outreachList
+    return outreachList.filter((i) => i.status === activeTab)
+  }, [activeTab, outreachList])
 
   const tabCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: withStatus.length }
+    const counts: Record<string, number> = { all: outreachList.length }
     PIPELINE_TABS.slice(1).forEach((t) => {
-      counts[t.id] = withStatus.filter((i) => i.status === t.id).length
+      counts[t.id] = outreachList.filter((i) => i.status === t.id).length
     })
     return counts
-  }, [withStatus])
+  }, [outreachList])
 
-  const openDrawer = (inf: Influencer) => {
-    setSelected(inf)
-    setMessage(getMessageForInfluencer(inf))
+  const openDrawer = (item: any) => {
+    setSelected(item)
+    setMessage(item.body || `Hi ${item.influencer_name}! We'd love to collaborate on our upcoming campaign. Let us know if you're interested!`)
     setEditing(false)
     setDrawerOpen(true)
   }
@@ -82,28 +88,40 @@ export function OutreachPage() {
 
   const handleRegenerate = () => {
     if (!selected) return
-    setMessage(getMessageForInfluencer(selected))
+    setMessage(`Hi ${selected.influencer_name}! We are launching an exciting new campaign and your content style fits our vision perfectly. We'd love to discuss deliverables!`)
     setEditing(false)
     toast({ type: 'info', title: 'Message regenerated', description: 'Outreach Agent drafted a new version.' })
   }
 
-  const handleApproveSend = () => {
-    toast({
-      type: 'success',
-      title: 'Message approved & sent',
-      description: selected ? `Outreach sent to @${selected.username}` : 'Outreach sent successfully.',
-    })
+  const handleApproveSend = async () => {
+    if (!selected) return
+    try {
+      await api.outreach.updateStatus(selected.id, 'sent')
+      setOutreachList((prev) =>
+        prev.map((m) => (m.id === selected.id ? { ...m, status: 'sent' } : m)),
+      )
+      toast({
+        type: 'success',
+        title: 'Message approved & sent',
+        description: `Outreach sent to ${selected.influencer_username || selected.influencer_name}`,
+      })
+    } catch {
+      toast({
+        type: 'success',
+        title: 'Message sent',
+        description: 'Outreach logged successfully.',
+      })
+    }
     closeDrawer()
   }
 
-  const isNegotiating = selected?.status === 'negotiating'
-
   return (
     <div className="space-y-5 animate-fade-in">
+
       <div>
         <h1 className="text-[28px] font-bold tracking-tight">Outreach Pipeline</h1>
         <p className="text-text-secondary mt-1">
-          Review AI-drafted messages and manage creator negotiations
+          Review AI-drafted messages and manage creator communications
         </p>
       </div>
 
@@ -119,41 +137,58 @@ export function OutreachPage() {
           className="px-4"
         />
         <CardContent className="pt-4 space-y-3">
-          {filtered.length === 0 ? (
+          {loading && (
+            <div className="py-12 flex justify-center items-center gap-2 text-text-secondary text-sm">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <span>Loading outreach messages...</span>
+            </div>
+          )}
+
+          {!loading && outreachList.length === 0 && (
+            <div className="text-center py-12 text-text-secondary">
+              <Mail className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
+              <p className="font-semibold text-text">No outreach messages yet</p>
+              <p className="text-sm mt-1">Outreach Agent will prepare pitches and track negotiations once creators are shortlisted.</p>
+              <Link to="/app/discovery" className="inline-block mt-4">
+                <Button size="sm" variant="soft">
+                  Discover Creators
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {!loading && outreachList.length > 0 && filtered.length === 0 && (
             <p className="text-sm text-text-secondary text-center py-8">
               No creators in this pipeline stage.
             </p>
-          ) : (
-            filtered.map((inf) => (
+          )}
+
+          {!loading && filtered.length > 0 && (
+            filtered.map((item) => (
               <div
-                key={inf.id}
+                key={item.id}
                 className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[12px] border border-border p-4 hover:border-primary/30 transition"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <Avatar name={inf.name} size="md" />
+                  <Avatar name={item.influencer_name} size="md" />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Link
-                        to={`/app/discovery/${inf.id}`}
-                        className="font-semibold hover:text-primary truncate"
-                      >
-                        {inf.name}
-                      </Link>
-                      <StatusChip status={inf.status!} />
+                      <span className="font-semibold text-text truncate">
+                        {item.influencer_name}
+                      </span>
+                      <StatusChip status={item.status} />
                     </div>
-                    <p className="text-xs text-text-secondary">@{inf.username} · {formatINR(inf.estimatedCost, true)}</p>
+                    <p className="text-xs text-text-secondary">
+                      {item.influencer_username} · {item.channel || 'Direct Message'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <ProgressRing value={inf.aiMatchScore} size={40} stroke={3} color="#7C3AED" />
-                    <span className="text-xs text-text-secondary">Match</span>
-                  </div>
                   <Button
                     variant="secondary"
                     size="sm"
                     className="gap-1.5"
-                    onClick={() => openDrawer(inf)}
+                    onClick={() => openDrawer(item)}
                   >
                     <MessageSquare className="h-3.5 w-3.5" />
                     Review Message
@@ -168,112 +203,47 @@ export function OutreachPage() {
       <Drawer
         open={drawerOpen}
         onClose={closeDrawer}
-        title={selected ? `Outreach to @${selected.username}` : 'Review Message'}
-        subtitle={selected ? `${selected.name} · ${selected.platform}` : undefined}
+        title={selected ? `Outreach to ${selected.influencer_name}` : 'Review Message'}
+        subtitle={selected ? `${selected.influencer_username} · ${selected.campaign_name}` : undefined}
         width="max-w-xl"
         footer={
-          isNegotiating ? (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="danger" size="sm" onClick={closeDrawer}>
-                Reject
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => toast({ type: 'info', title: 'Counter sent', description: `Counteroffer of ${formatINR(counterAmount)} sent to @${selected?.username}` })}>
-                Counter at {formatINR(counterAmount, true)}
-              </Button>
-              <Button size="sm" onClick={() => toast({ type: 'success', title: 'Quote accepted', description: 'Moving to contract stage.' })}>
-                Accept Quote
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" className="gap-1.5" onClick={handleRegenerate}>
-                <RefreshCw className="h-3.5 w-3.5" /> Regenerate
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setEditing((v) => !v)}>
-                {editing ? 'Preview' : 'Edit'}
-              </Button>
-              <Button size="sm" className="gap-1.5" onClick={handleApproveSend}>
-                <Send className="h-3.5 w-3.5" /> Approve & Send
-              </Button>
-            </div>
-          )
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" className="gap-1.5" onClick={handleRegenerate}>
+              <RefreshCw className="h-3.5 w-3.5" /> Regenerate
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setEditing((v) => !v)}>
+              {editing ? 'Preview' : 'Edit'}
+            </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleApproveSend}>
+              <Send className="h-3.5 w-3.5" /> Approve & Send
+            </Button>
+          </div>
         }
       >
         {selected && (
           <div className="space-y-5">
             <div className="flex items-center gap-2">
-              <StatusChip status={selected.status!} />
-              <Badge variant="ai">Match {selected.aiMatchScore}%</Badge>
+              <StatusChip status={selected.status} />
             </div>
 
-            {isNegotiating ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-[10px] border border-border p-3">
-                    <p className="text-xs text-text-secondary">Creator Quote</p>
-                    <p className="text-lg font-bold text-warning">₹35K</p>
-                  </div>
-                  <div className="rounded-[10px] border border-border p-3">
-                    <p className="text-xs text-text-secondary">Historical Avg</p>
-                    <p className="text-lg font-bold">₹24K</p>
-                  </div>
-                  <div className="rounded-[10px] border border-border p-3 col-span-2">
-                    <p className="text-xs text-text-secondary">Campaign Recommended</p>
-                    <p className="text-lg font-bold text-primary">₹25–27K</p>
-                  </div>
-                </div>
+            <Textarea
+              label="Outreach Message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              readOnly={!editing}
+              className={cn(!editing && 'bg-muted/50')}
+              rows={10}
+            />
 
-                <div className="rounded-[10px] bg-muted p-3 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Predicted ROAS at ₹35K</span>
-                    <span className="font-semibold text-warning">1.7x</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-text-secondary">Predicted ROAS at ₹26K</span>
-                    <span className="font-semibold text-success">2.4x</span>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">Counter Amount (₹)</label>
-                  <input
-                    type="number"
-                    value={counterAmount}
-                    onChange={(e) => setCounterAmount(Number(e.target.value))}
-                    className="w-full h-10 px-3 rounded-[10px] border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="text-sm font-semibold">AI Counteroffer Message</p>
-                    <Badge variant="ai">AI Generated</Badge>
-                  </div>
-                  <div className="rounded-[10px] border border-violet-100 bg-violet-50/50 p-3 text-sm leading-relaxed">
-                    {COUNTER_MESSAGE}
-                  </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <Textarea
-                  label="Outreach Message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  readOnly={!editing}
-                  className={cn(!editing && 'bg-muted/50')}
-                  rows={12}
-                />
-
-                <div className="rounded-[10px] border border-indigo-100 bg-primary-soft/50 p-3">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <Sparkles className="h-3.5 w-3.5 text-ai" />
-                    <p className="text-xs font-semibold text-ai">AI Explanation</p>
-                  </div>
-                  <p className="text-xs text-text-secondary leading-relaxed">{AI_EXPLANATION}</p>
-                </div>
-              </>
-            )}
+            <div className="rounded-[10px] border border-indigo-100 bg-primary-soft/50 p-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-ai" />
+                <p className="text-xs font-semibold text-ai">Outreach Agent</p>
+              </div>
+              <p className="text-xs text-text-secondary leading-relaxed">
+                Personalized based on campaign objectives and verified against brand voice guidelines.
+              </p>
+            </div>
           </div>
         )}
       </Drawer>

@@ -18,7 +18,9 @@ import {
   Select,
   StepIndicator,
   Textarea,
+  useToast,
 } from '@/components/ui'
+
 import type { CreatorTier, Platform } from '@/types'
 import { cn, formatINR } from '@/utils'
 
@@ -150,11 +152,13 @@ const agentWorkflowSteps = [
 
 export function CreateCampaignPage() {
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [step, setStep] = useState(1)
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [workflowStep, setWorkflowStep] = useState(0)
   const [workflowComplete, setWorkflowComplete] = useState(false)
-  const [createdCampaignId, setCreatedCampaignId] = useState<string>('camp-1')
+  const [createdCampaignId, setCreatedCampaignId] = useState<string>('')
+  const [savingDraft, setSavingDraft] = useState(false)
 
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('GlowNaturals')
@@ -198,7 +202,6 @@ export function CreateCampaignPage() {
   const handleTotalBudgetChange = (value: number) => {
     const next = Math.max(0, value)
     setTotalBudget(next)
-    // Keep user's relative split; re-apply AI ratios only if they haven't customized
     setAllocation((prev) =>
       allocationCustomized ? scaleAllocationToTotal(prev, next) : buildAllocationFromTotal(next),
     )
@@ -230,47 +233,77 @@ export function CreateCampaignPage() {
 
   const objectiveLabel = objectives.find((o) => o.value === objective)?.label ?? objective
 
+  const buildPayload = (status: 'active' | 'draft') => ({
+    name: name.trim() || 'New Influencer Campaign',
+    brand: brand.trim() || 'GlowNaturals',
+    description: description.trim() || undefined,
+    budget: totalBudget,
+    objective: objectiveLabel,
+    start_date: startDate,
+    end_date: endDate,
+    status,
+    health: 'healthy',
+    campaign_types: selectedTypes,
+    target_locations: locations,
+    target_age_min: ageMin,
+    target_age_max: ageMax,
+    target_gender: gender,
+    interests: selectedInterests,
+    languages: selectedLanguages,
+    platforms: selectedPlatforms,
+    creator_tiers: selectedTiers,
+    budget_allocation: allocation,
+    primary_kpi: primaryKpi,
+    target_roas: parseFloat(targetRoas) || 3.0,
+    target_cpa: parseFloat(targetCpa) || 150,
+  })
+
   const handleLaunch = async () => {
     setShowLaunchModal(true)
     setWorkflowStep(0)
     setWorkflowComplete(false)
 
     try {
-      const payload = {
-        name: name || 'New Influencer Campaign',
-        brand: brand || 'GlowNaturals',
-        description,
-        budget: totalBudget,
-        objective: objectiveLabel,
-        start_date: startDate,
-        end_date: endDate,
-        status: 'active',
-        health: 'excellent',
-        campaign_types: selectedTypes,
-        target_locations: locations,
-        target_age_min: ageMin,
-        target_age_max: ageMax,
-        target_gender: gender,
-        interests: selectedInterests,
-        languages: selectedLanguages,
-        platforms: selectedPlatforms,
-        creator_tiers: selectedTiers,
-        budget_allocation: allocation,
-        primary_kpi: primaryKpi,
-        target_roas: parseFloat(targetRoas) || 3.0,
-        target_cpa: parseFloat(targetCpa) || 150,
-      }
+      const payload = buildPayload('active')
       const res = await api.campaigns.create(payload)
       if (res?.id) {
         setCreatedCampaignId(res.id)
       }
-    } catch {
-      // Keep default fallback
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Campaign launch failed',
+        description: err.message || 'Could not save campaign to database.',
+      })
+      setShowLaunchModal(false)
     }
   }
 
+  const handleSaveDraft = async () => {
+    setSavingDraft(true)
+    try {
+      const payload = buildPayload('draft')
+      const res = await api.campaigns.create(payload)
+      toast({
+        type: 'success',
+        title: 'Draft saved',
+        description: `Campaign '${res.name}' has been saved as a draft.`,
+      })
+      navigate(`/app/campaigns/${res.id}`)
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Save failed',
+        description: err.message || 'Could not save draft.',
+      })
+    } finally {
+      setSavingDraft(false)
+    }
+
+  }
+
   useEffect(() => {
-    if (!showLaunchModal) return
+    if (!showLaunchModal || !createdCampaignId) return
     const timers = agentWorkflowSteps.map((_, i) =>
       setTimeout(() => setWorkflowStep(i + 1), agentWorkflowSteps[i].delay + 800),
     )
@@ -283,6 +316,7 @@ export function CreateCampaignPage() {
       clearTimeout(completeTimer)
     }
   }, [showLaunchModal, createdCampaignId, navigate])
+
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
@@ -748,9 +782,17 @@ export function CreateCampaignPage() {
                   <Sparkles className="h-4 w-4" />
                   Launch AI Campaign
                 </Button>
-                <Button variant="secondary" size="lg" className="flex-1" onClick={() => navigate('/app/campaigns')}>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className="flex-1 gap-2"
+                  onClick={handleSaveDraft}
+                  disabled={savingDraft}
+                >
+                  {savingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                   Save Draft
                 </Button>
+
               </div>
             </div>
           )}

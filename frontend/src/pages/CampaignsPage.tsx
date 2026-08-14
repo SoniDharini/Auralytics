@@ -1,15 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Filter, Loader2, Plus, Search, Users } from 'lucide-react'
+import {
+  Filter,
+  FolderPlus,
+  Loader2,
+  Plus,
+  Search,
+  Trash2,
+  Users,
+} from 'lucide-react'
 import { api } from '@/services/api'
-import { campaigns as fallbackCampaigns } from '@/mock-data'
 import {
   Button,
   Card,
   CardContent,
   CardHeader,
+  Modal,
   ProgressBar,
   StatusChip,
+  useToast,
 } from '@/components/ui'
 import type { Campaign, CampaignStatus } from '@/types'
 import { cn, formatINR } from '@/utils'
@@ -18,36 +27,41 @@ const statusFilters: { value: CampaignStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Active' },
   { value: 'planning', label: 'Planning' },
+  { value: 'draft', label: 'Draft' },
   { value: 'paused', label: 'Paused' },
   { value: 'completed', label: 'Completed' },
   { value: 'needs_attention', label: 'Needs Attention' },
 ]
 
 export function CampaignsPage() {
-  const [campaignsList, setCampaignsList] = useState<Campaign[]>(fallbackCampaigns)
+  const { toast } = useToast()
+
+  const [campaignsList, setCampaignsList] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'all'>('all')
 
-  useEffect(() => {
-    let mounted = true
+  // Deletion modal state
+  const [deleteTarget, setDeleteTarget] = useState<Campaign | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const loadCampaigns = () => {
+    setLoading(true)
     api.campaigns
       .list()
       .then((data) => {
-        if (mounted && data && data.length > 0) {
-          setCampaignsList(data)
-        }
+        setCampaignsList(data ?? [])
       })
       .catch(() => {
-        // keep fallback
+        setCampaignsList([])
       })
       .finally(() => {
-        if (mounted) setLoading(false)
+        setLoading(false)
       })
+  }
 
-    return () => {
-      mounted = false
-    }
+  useEffect(() => {
+    loadCampaigns()
   }, [])
 
   const filtered = useMemo(() => {
@@ -63,12 +77,36 @@ export function CampaignsPage() {
 
   const totals = useMemo(() => {
     const active = campaignsList.filter((c) => c.status === 'active').length
-    const budget = campaignsList.reduce((s, c) => s + c.budget, 0)
-    const spend = campaignsList.reduce((s, c) => s + c.spend, 0)
-    const revenue = campaignsList.reduce((s, c) => s + c.revenue, 0)
+    const budget = campaignsList.reduce((s, c) => s + (c.budget || 0), 0)
+    const spend = campaignsList.reduce((s, c) => s + (c.spend || 0), 0)
+    const revenue = campaignsList.reduce((s, c) => s + (c.revenue || 0), 0)
     const avgRoas = spend > 0 ? revenue / spend : 0
     return { active, budget, spend, revenue, avgRoas }
   }, [campaignsList])
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await api.campaigns.delete(deleteTarget.id)
+      setCampaignsList((prev) => prev.filter((c) => c.id !== deleteTarget.id))
+      toast({
+        type: 'success',
+        title: 'Campaign deleted',
+        description: `Campaign '${deleteTarget.name}' was successfully deleted.`,
+      })
+      setDeleteTarget(null)
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Deletion failed',
+        description: err.message || 'Could not delete campaign.',
+      })
+    } finally {
+
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -142,73 +180,154 @@ export function CampaignsPage() {
       </div>
 
       {loading && (
-        <div className="py-8 flex justify-center items-center gap-2 text-text-secondary text-sm">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        <div className="py-12 flex justify-center items-center gap-2 text-text-secondary text-sm">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
           <span>Loading campaigns...</span>
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
-        {filtered.map((c) => (
-          <Card key={c.id} className="hover:shadow-md transition-shadow">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs text-text-secondary font-medium">{c.brand}</p>
+      {!loading && campaignsList.length === 0 && (
+        <div className="py-16 text-center border border-dashed border-border rounded-2xl bg-white p-8 space-y-4">
+          <div className="mx-auto h-14 w-14 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
+            <FolderPlus className="h-7 w-7" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-text">No campaigns yet</h3>
+            <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
+              Create your first campaign to start managing influencers with InfluenceOS.
+            </p>
+          </div>
+          <Link to="/app/campaigns/new">
+            <Button size="lg" className="gap-2 mt-2">
+              <Plus className="h-4 w-4" /> Create Campaign
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {!loading && campaignsList.length > 0 && filtered.length === 0 && (
+        <div className="py-12 text-center text-text-secondary">
+          <p className="font-semibold text-text">No campaigns found</p>
+          <p className="text-xs mt-1">No campaigns matched your current search and filter criteria.</p>
+        </div>
+      )}
+
+      {!loading && filtered.length > 0 && (
+        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {filtered.map((c) => (
+            <Card key={c.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs text-text-secondary font-medium">{c.brand}</p>
+                    <Link
+                      to={`/app/campaigns/${c.id}`}
+                      className="font-bold text-base text-text hover:text-primary transition truncate block mt-0.5"
+                    >
+                      {c.name}
+                    </Link>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusChip status={c.status} />
+                    <button
+                      onClick={() => setDeleteTarget(c)}
+                      className="text-text-secondary hover:text-danger p-1 rounded transition"
+                      title="Delete Campaign"
+                      aria-label={`Delete ${c.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-text-secondary font-medium">Budget Spent</span>
+                    <span className="font-semibold text-text">
+                      {formatINR(c.spend)} / {formatINR(c.budget)} (
+                      {Math.round((c.spend / (c.budget || 1)) * 100 || 0)}%)
+                    </span>
+                  </div>
+                  <ProgressBar
+                    value={Math.round((c.spend / (c.budget || 1)) * 100 || 0)}
+                    size="sm"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border text-center">
+                  <div>
+                    <p className="text-[11px] text-text-secondary">ROAS</p>
+                    <p
+                      className={cn(
+                        'text-sm font-bold mt-0.5',
+                        c.roas >= 2.5 ? 'text-success' : 'text-text',
+                      )}
+                    >
+                      {(c.roas || 0).toFixed(2)}x
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-secondary">Revenue</p>
+                    <p className="text-sm font-bold text-text mt-0.5">{formatINR(c.revenue || 0)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-text-secondary">Creators</p>
+                    <p className="text-sm font-bold text-text mt-0.5 flex items-center justify-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-text-secondary" />
+                      {c.influencers || 0}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-text-secondary">
+                  <span className="truncate max-w-[160px]">{c.objective}</span>
                   <Link
                     to={`/app/campaigns/${c.id}`}
-                    className="font-bold text-base text-text hover:text-primary transition truncate block mt-0.5"
+                    className="font-semibold text-primary hover:underline"
                   >
-                    {c.name}
+                    View details →
                   </Link>
                 </div>
-                <StatusChip status={c.status} />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="text-text-secondary font-medium">Budget Spent</span>
-                  <span className="font-semibold text-text">
-                    {formatINR(c.spend)} / {formatINR(c.budget)} ({Math.round((c.spend / c.budget) * 100 || 0)}%)
-                  </span>
-                </div>
-                <ProgressBar value={Math.round((c.spend / c.budget) * 100 || 0)} size="sm" />
-              </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border text-center">
-                <div>
-                  <p className="text-[11px] text-text-secondary">ROAS</p>
-                  <p className={cn('text-sm font-bold mt-0.5', c.roas >= 2.5 ? 'text-success' : 'text-text')}>
-                    {c.roas.toFixed(2)}x
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[11px] text-text-secondary">Revenue</p>
-                  <p className="text-sm font-bold text-text mt-0.5">{formatINR(c.revenue)}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] text-text-secondary">Creators</p>
-                  <p className="text-sm font-bold text-text mt-0.5 flex items-center justify-center gap-1">
-                    <Users className="h-3.5 w-3.5 text-text-secondary" />
-                    {c.influencers}
-                  </p>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-text-secondary">
-                <span>{c.objective}</span>
-                <Link
-                  to={`/app/campaigns/${c.id}`}
-                  className="font-semibold text-primary hover:underline"
-                >
-                  View details →
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* Delete confirmation modal */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Campaign?"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            Are you sure you want to delete{' '}
+            <span className="font-semibold text-text">{deleteTarget?.name}</span>? This action cannot
+            be undone and all campaign activities will be permanently removed.
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              className="gap-2"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete Campaign
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

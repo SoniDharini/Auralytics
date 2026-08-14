@@ -1,27 +1,30 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  LayoutGrid,
-  List,
-  Search,
-  SlidersHorizontal,
-  Sparkles,
   Bookmark,
   ChevronDown,
   ChevronUp,
+  LayoutGrid,
+  List,
+  Loader2,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Users,
 } from 'lucide-react'
-import { influencers as allInfluencers } from '@/mock-data'
+import { api } from '@/services/api'
 import {
+  Badge,
   Button,
   Card,
-  CardContent,
-  EmptyState,
   InfluencerCard,
   Input,
   Select,
+  useToast,
 } from '@/components/ui'
-import { cn, formatINR, formatNumber } from '@/utils'
-import type { Influencer } from '@/types'
+import { cn, formatNumber } from '@/utils'
+import type { Campaign, Influencer, IntegrationStatus } from '@/types'
 
 type ViewMode = 'grid' | 'table'
 
@@ -32,10 +35,6 @@ interface Filters {
   followersMax: string
   location: string
   engagementMin: string
-  priceMin: string
-  priceMax: string
-  aiMatchMin: string
-  roasMin: string
 }
 
 const defaultFilters: Filters = {
@@ -45,97 +44,104 @@ const defaultFilters: Filters = {
   followersMax: '',
   location: 'all',
   engagementMin: '',
-  priceMin: '',
-  priceMax: '',
-  aiMatchMin: '',
-  roasMin: '',
 }
 
 const platformOptions = [
   { value: 'all', label: 'All platforms' },
-  { value: 'instagram', label: 'Instagram' },
   { value: 'youtube', label: 'YouTube' },
-  { value: 'tiktok', label: 'TikTok' },
-  { value: 'linkedin', label: 'LinkedIn' },
-  { value: 'x', label: 'X' },
+  { value: 'instagram', label: 'Instagram' },
 ]
 
 const nicheOptions = [
   { value: 'all', label: 'All niches' },
-  { value: 'Beauty', label: 'Beauty' },
   { value: 'Skincare', label: 'Skincare' },
+  { value: 'Beauty', label: 'Beauty' },
+  { value: 'Clean Beauty', label: 'Clean Beauty' },
+  { value: 'Dermatology', label: 'Dermatology' },
   { value: 'Lifestyle', label: 'Lifestyle' },
   { value: 'Fashion', label: 'Fashion' },
   { value: 'Fitness', label: 'Fitness' },
-  { value: 'Wellness', label: 'Wellness' },
-  { value: 'Food', label: 'Food' },
   { value: 'Technology', label: 'Technology' },
 ]
 
 const locationOptions = [
   { value: 'all', label: 'All locations' },
+  { value: 'India', label: 'India' },
   { value: 'Mumbai', label: 'Mumbai' },
   { value: 'Delhi', label: 'Delhi' },
   { value: 'Bangalore', label: 'Bangalore' },
-  { value: 'Pune', label: 'Pune' },
-  { value: 'Hyderabad', label: 'Hyderabad' },
-  { value: 'Goa', label: 'Goa' },
-  { value: 'Ahmedabad', label: 'Ahmedabad' },
-  { value: 'Kochi', label: 'Kochi' },
+  { value: 'Global', label: 'Global' },
 ]
 
 function applyFilters(list: Influencer[], query: string, filters: Filters): Influencer[] {
   return list.filter((inf) => {
     const q = query.trim().toLowerCase()
-    if (q && !`${inf.name} ${inf.username} ${inf.niches.join(' ')}`.toLowerCase().includes(q)) {
+    if (q) {
+      const name = (inf.name || '').toLowerCase()
+      const username = (inf.username || '').toLowerCase()
+      const niches = (inf.niches || []).join(' ').toLowerCase()
+      const desc = (inf.description || '').toLowerCase()
+      if (!name.includes(q) && !username.includes(q) && !niches.includes(q) && !desc.includes(q)) {
+        return false
+      }
+    }
+    if (filters.platform !== 'all' && (inf.platform || '').toLowerCase() !== filters.platform.toLowerCase()) {
       return false
     }
-    if (filters.platform !== 'all' && inf.platform !== filters.platform) return false
-    if (filters.niche !== 'all' && !inf.niches.some((n) => n.toLowerCase() === filters.niche.toLowerCase())) {
-      return false
+    if (filters.niche !== 'all') {
+      const target = filters.niche.toLowerCase()
+      const hasNiche = (inf.niches || []).some((n) => n.toLowerCase().includes(target))
+      if (!hasNiche) return false
     }
-    if (filters.location !== 'all' && !inf.location.toLowerCase().includes(filters.location.toLowerCase())) {
-      return false
+    if (filters.location !== 'all') {
+      const loc = (inf.location || inf.country || '').toLowerCase()
+      if (!loc.includes(filters.location.toLowerCase())) return false
     }
-    if (filters.followersMin && inf.followers < Number(filters.followersMin)) return false
-    if (filters.followersMax && inf.followers > Number(filters.followersMax)) return false
-    if (filters.engagementMin && inf.engagementRate < Number(filters.engagementMin)) return false
-    if (filters.priceMin && inf.estimatedCost < Number(filters.priceMin)) return false
-    if (filters.priceMax && inf.estimatedCost > Number(filters.priceMax)) return false
-    if (filters.aiMatchMin && inf.aiMatchScore < Number(filters.aiMatchMin)) return false
-    if (filters.roasMin && inf.predictedRoas < Number(filters.roasMin)) return false
+    if (filters.followersMin && (inf.followers || 0) < Number(filters.followersMin)) return false
+    if (filters.followersMax && (inf.followers || 0) > Number(filters.followersMax)) return false
+    if (filters.engagementMin && (inf.engagementRate || 0) < Number(filters.engagementMin)) return false
     return true
   })
 }
 
-import { useEffect } from 'react'
-import { api } from '@/services/api'
-
 export function DiscoveryPage() {
-  const [influencersData, setInfluencersData] = useState<Influencer[]>(allInfluencers)
+  const { toast } = useToast()
+  const [influencersData, setInfluencersData] = useState<Influencer[]>([])
+  const [campaignsList, setCampaignsList] = useState<Campaign[]>([])
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('')
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [discovering, setDiscovering] = useState(false)
+
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<Filters>(defaultFilters)
   const [showFilters, setShowFilters] = useState(true)
   const [view, setView] = useState<ViewMode>('grid')
-  const [shortlisted, setShortlisted] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(allInfluencers.map((i) => [i.id, !!i.shortlisted])),
-  )
+  const [shortlisted, setShortlisted] = useState<Record<string, boolean>>({})
+
+  const loadData = () => {
+    setLoading(true)
+    Promise.all([
+      api.influencers.list().catch(() => []),
+      api.campaigns.list().catch(() => []),
+      api.integrations.getStatus().catch(() => null),
+    ])
+      .then(([infs, camps, status]) => {
+        setInfluencersData(infs || [])
+        setCampaignsList(camps || [])
+        if (camps && camps.length > 0 && !selectedCampaignId) {
+          setSelectedCampaignId(camps[0].id)
+        }
+        if (status) setIntegrationStatus(status)
+        setShortlisted(Object.fromEntries((infs || []).map((i) => [i.id, !!i.shortlisted])))
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }
 
   useEffect(() => {
-    let mounted = true
-    api.influencers
-      .list()
-      .then((data) => {
-        if (mounted && data && data.length > 0) {
-          setInfluencersData(data)
-          setShortlisted(Object.fromEntries(data.map((i) => [i.id, !!i.shortlisted])))
-        }
-      })
-      .catch(() => {})
-
-    return () => {
-      mounted = false
-    }
+    loadData()
   }, [])
 
   const filtered = useMemo(
@@ -159,235 +165,352 @@ export function DiscoveryPage() {
     }
   }
 
-  const updateFilter = (key: keyof Filters, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }))
-  }
+  const handleDiscoverCreators = async () => {
+    if (!selectedCampaignId) {
+      if (campaignsList.length === 0) {
+        toast({
+          type: 'warning',
+          title: 'Create a campaign first',
+          description: 'Creator discovery is driven by your campaign requirements and target audience.',
+        })
+        return
+      }
+      setSelectedCampaignId(campaignsList[0].id)
+    }
 
-  const resetFilters = () => {
-    setFilters(defaultFilters)
-    setQuery('')
+    const campaignIdToUse = selectedCampaignId || (campaignsList[0] ? campaignsList[0].id : '')
+    if (!campaignIdToUse) return
+
+    setDiscovering(true)
+    try {
+      const res = await api.campaigns.fetchInfluencers(campaignIdToUse, {
+        limit: 25,
+        force_refresh: true,
+      })
+
+      const youtubeFetched = res.providers?.youtube?.fetched || 0
+      const totalCreated = (res.providers?.youtube?.created || 0) + (res.providers?.instagram?.created || 0)
+
+      if (youtubeFetched > 0) {
+        toast({
+          type: 'success',
+          title: 'Discovery completed',
+          description: `Acquired ${youtubeFetched} real creator profiles (${totalCreated} new) from YouTube.`,
+        })
+      } else {
+        toast({
+          type: 'info',
+          title: 'Discovery finished',
+          description: 'No new creators found for this specific query.',
+        })
+      }
+
+      // Refresh list from database
+      const updatedList = await api.influencers.list()
+      setInfluencersData(updatedList)
+      setShortlisted(Object.fromEntries(updatedList.map((i) => [i.id, !!i.shortlisted])))
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Discovery failed',
+        description: err.message || 'Could not acquire creator data from external APIs.',
+      })
+    } finally {
+      setDiscovering(false)
+    }
   }
 
   return (
-    <div className="space-y-5 animate-fade-in">
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[28px] font-bold tracking-tight">Influencer Discovery</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-[32px] font-bold tracking-tight">Creator Discovery</h1>
+            {integrationStatus?.youtube?.configured ? (
+              <Badge variant="success" className="gap-1 text-xs">
+                <Sparkles className="h-3 w-3" /> Live API Connected
+              </Badge>
+            ) : (
+              <Badge variant="default" className="text-xs">
+                YouTube API Standing By
+              </Badge>
+            )}
+          </div>
           <p className="text-text-secondary mt-1">
-            AI-ranked creators for GlowNaturals Summer Launch
+            Acquire and analyze real creator data from YouTube and social channels.
           </p>
         </div>
-        <Link to="/app/shortlist">
-          <Button variant="secondary" className="gap-2">
-            <Bookmark className="h-4 w-4" />
-            View Shortlist ({shortlistCount})
-          </Button>
-        </Link>
-      </div>
 
-      <div className="flex items-center gap-2 rounded-[10px] border border-indigo-100 bg-primary-soft/60 px-4 py-2.5 text-sm text-primary">
-        <Sparkles className="h-4 w-4 shrink-0 animate-pulse" />
-        <span>
-          <span className="font-semibold">Discovery Agent is analyzing…</span>
-          <span className="text-primary/80"> 487 creators scanned, {filtered.length} match your criteria</span>
-        </span>
-      </div>
-
-      <Card>
-        <CardContent className="pt-5 space-y-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-              <Input
-                placeholder="Search by name, handle, or niche…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="pl-9"
+        <div className="flex flex-wrap items-center gap-3">
+          {campaignsList.length > 0 && (
+            <div className="w-48 sm:w-56">
+              <Select
+                options={campaignsList.map((c) => ({ value: c.id, label: c.name }))}
+                value={selectedCampaignId}
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
               />
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                className="gap-2"
-                onClick={() => setShowFilters((v) => !v)}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                Filters
-                {showFilters ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          )}
+
+          <Button
+            onClick={handleDiscoverCreators}
+            disabled={discovering}
+            className="gap-2 shrink-0"
+          >
+            {discovering ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin text-white" />
+                <span>Fetching Live Creators...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                <span>Discover Creators</span>
+              </>
+            )}
+          </Button>
+
+          {shortlistCount > 0 && (
+            <Link to="/app/shortlist">
+              <Button variant="soft" className="gap-2 shrink-0">
+                <Bookmark className="h-4 w-4" /> Shortlist ({shortlistCount})
               </Button>
-              <div className="flex rounded-[10px] border border-border overflow-hidden">
-                <button
-                  onClick={() => setView('grid')}
-                  className={cn(
-                    'px-3 py-2 transition',
-                    view === 'grid' ? 'bg-primary text-white' : 'bg-white text-text-secondary hover:bg-muted',
-                  )}
-                  aria-label="Grid view"
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </button>
-                <button
-                  onClick={() => setView('table')}
-                  className={cn(
-                    'px-3 py-2 transition border-l border-border',
-                    view === 'table' ? 'bg-primary text-white' : 'bg-white text-text-secondary hover:bg-muted',
-                  )}
-                  aria-label="Table view"
-                >
-                  <List className="h-4 w-4" />
-                </button>
-              </div>
+            </Link>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 relative">
+            <Search className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search creators by channel name, handle, niche, or bio keywords..."
+              className="w-full h-10 pl-10 pr-4 rounded-[10px] border border-border bg-white text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+            />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              className="gap-2"
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filters
+              {showFilters ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+            <div className="flex border border-border rounded-[10px] p-0.5 bg-page">
+              <button
+                onClick={() => setView('grid')}
+                className={cn('p-1.5 rounded-md transition', view === 'grid' ? 'bg-white shadow-xs text-text' : 'text-text-secondary hover:text-text')}
+                aria-label="Grid view"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setView('table')}
+                className={cn('p-1.5 rounded-md transition', view === 'table' ? 'bg-white shadow-xs text-text' : 'text-text-secondary hover:text-text')}
+                aria-label="Table view"
+              >
+                <List className="h-4 w-4" />
+              </button>
             </div>
           </div>
+        </div>
 
-          {showFilters && (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3 pt-2 border-t border-border">
+        {showFilters && (
+          <Card className="p-4 animate-fade-in bg-white">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <Select
                 label="Platform"
                 options={platformOptions}
                 value={filters.platform}
-                onChange={(e) => updateFilter('platform', e.target.value)}
+                onChange={(e) => setFilters((f) => ({ ...f, platform: e.target.value }))}
               />
               <Select
                 label="Niche"
                 options={nicheOptions}
                 value={filters.niche}
-                onChange={(e) => updateFilter('niche', e.target.value)}
-              />
-              <Input
-                label="Min followers"
-                type="number"
-                placeholder="e.g. 50000"
-                value={filters.followersMin}
-                onChange={(e) => updateFilter('followersMin', e.target.value)}
-              />
-              <Input
-                label="Max followers"
-                type="number"
-                placeholder="e.g. 500000"
-                value={filters.followersMax}
-                onChange={(e) => updateFilter('followersMax', e.target.value)}
+                onChange={(e) => setFilters((f) => ({ ...f, niche: e.target.value }))}
               />
               <Select
                 label="Location"
                 options={locationOptions}
                 value={filters.location}
-                onChange={(e) => updateFilter('location', e.target.value)}
+                onChange={(e) => setFilters((f) => ({ ...f, location: e.target.value }))}
               />
               <Input
-                label="Min engagement %"
-                type="number"
-                placeholder="e.g. 4"
-                value={filters.engagementMin}
-                onChange={(e) => updateFilter('engagementMin', e.target.value)}
-              />
-              <Input
-                label="Min price (₹)"
+                label="Min Subscribers"
                 type="number"
                 placeholder="e.g. 10000"
-                value={filters.priceMin}
-                onChange={(e) => updateFilter('priceMin', e.target.value)}
+                value={filters.followersMin}
+                onChange={(e) => setFilters((f) => ({ ...f, followersMin: e.target.value }))}
               />
               <Input
-                label="Max price (₹)"
+                label="Min Engagement %"
                 type="number"
-                placeholder="e.g. 50000"
-                value={filters.priceMax}
-                onChange={(e) => updateFilter('priceMax', e.target.value)}
+                placeholder="e.g. 3.5"
+                value={filters.engagementMin}
+                onChange={(e) => setFilters((f) => ({ ...f, engagementMin: e.target.value }))}
               />
-              <Input
-                label="Min AI match %"
-                type="number"
-                placeholder="e.g. 70"
-                value={filters.aiMatchMin}
-                onChange={(e) => updateFilter('aiMatchMin', e.target.value)}
-              />
-              <Input
-                label="Min predicted ROAS"
-                type="number"
-                step="0.1"
-                placeholder="e.g. 2.0"
-                value={filters.roasMin}
-                onChange={(e) => updateFilter('roasMin', e.target.value)}
-              />
-              <div className="flex items-end">
-                <Button variant="ghost" size="sm" onClick={resetFilters}>
-                  Reset filters
-                </Button>
-              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            {(filters.platform !== 'all' || filters.niche !== 'all' || filters.location !== 'all' || filters.followersMin || filters.engagementMin) && (
+              <div className="mt-3 flex justify-end">
+                <button
+                  onClick={() => setFilters(defaultFilters)}
+                  className="text-xs font-semibold text-primary hover:underline"
+                >
+                  Reset all filters
+                </button>
+              </div>
+            )}
+          </Card>
+        )}
+      </div>
 
-      {enriched.length === 0 ? (
-        <Card>
-          <EmptyState
-            icon={Search}
-            title="No creators match your filters"
-            description="Try adjusting your search or filter criteria. Discovery Agent can also expand the search to adjacent niches."
-            actionLabel="Reset filters"
-            onAction={resetFilters}
-          />
-        </Card>
-      ) : view === 'grid' ? (
-        <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {enriched.map((inf) => (
-            <InfluencerCard
-              key={inf.id}
-              influencer={inf}
-              onShortlist={toggleShortlist}
-            />
-          ))}
+      {loading && (
+        <div className="py-20 flex flex-col justify-center items-center gap-3 text-text-secondary text-sm">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <p>Loading creator catalog...</p>
         </div>
-      ) : (
-        <Card>
-          <CardContent className="pt-5 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-text-secondary border-b border-border">
-                  <th className="pb-3 font-semibold">Influencer</th>
-                  <th className="pb-3 font-semibold">Platform</th>
-                  <th className="pb-3 font-semibold">Followers</th>
-                  <th className="pb-3 font-semibold">Engagement</th>
-                  <th className="pb-3 font-semibold">AI Match</th>
-                  <th className="pb-3 font-semibold">Pred. ROAS</th>
-                  <th className="pb-3 font-semibold">Est. Cost</th>
-                  <th className="pb-3 font-semibold">Location</th>
-                  <th className="pb-3 font-semibold" />
-                </tr>
-              </thead>
-              <tbody>
-                {enriched.map((inf) => (
-                  <tr key={inf.id} className="border-b border-border last:border-0 hover:bg-page/80">
-                    <td className="py-3.5 pr-3">
-                      <Link to={`/app/discovery/${inf.id}`} className="font-semibold hover:text-primary">
-                        {inf.name}
-                      </Link>
-                      <p className="text-xs text-text-secondary">@{inf.username}</p>
-                    </td>
-                    <td className="py-3.5 pr-3 capitalize">{inf.platform}</td>
-                    <td className="py-3.5 pr-3">{formatNumber(inf.followers)}</td>
-                    <td className="py-3.5 pr-3">{inf.engagementRate}%</td>
-                    <td className="py-3.5 pr-3 font-semibold text-ai">{inf.aiMatchScore}%</td>
-                    <td className="py-3.5 pr-3 font-semibold text-primary">{inf.predictedRoas}x</td>
-                    <td className="py-3.5 pr-3">{formatINR(inf.estimatedCost, true)}</td>
-                    <td className="py-3.5 pr-3 text-text-secondary">{inf.location}</td>
-                    <td className="py-3.5">
-                      <Button
-                        size="sm"
-                        variant={inf.shortlisted ? 'soft' : 'primary'}
-                        onClick={() => toggleShortlist(inf.id)}
-                      >
-                        {inf.shortlisted ? 'Shortlisted' : 'Shortlist'}
-                      </Button>
-                    </td>
+      )}
+
+      {!loading && influencersData.length === 0 && (
+        <div className="py-16 text-center border border-dashed border-border rounded-2xl bg-white p-8 space-y-4">
+          <div className="mx-auto h-14 w-14 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
+            <Users className="h-7 w-7" />
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-text">No creators discovered yet</h3>
+            <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
+              Fetch real creator and channel statistics from YouTube based on your campaign requirements.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+            {campaignsList.length === 0 ? (
+              <Link to="/app/campaigns/new">
+                <Button size="lg" className="gap-2">
+                  <Plus className="h-4 w-4" /> Create Campaign to Start Discovery
+                </Button>
+              </Link>
+            ) : (
+              <Button
+                size="lg"
+                onClick={handleDiscoverCreators}
+                disabled={discovering}
+                className="gap-2"
+              >
+                {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                Discover Creators from YouTube
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!loading && influencersData.length > 0 && enriched.length === 0 && (
+        <div className="py-12 text-center text-text-secondary">
+          <p className="font-semibold text-text">No matching creators found</p>
+          <p className="text-xs mt-1">Try broadening your search query or reset your filters.</p>
+          <button
+            onClick={() => {
+              setQuery('')
+              setFilters(defaultFilters)
+            }}
+            className="mt-3 text-xs font-semibold text-primary hover:underline block mx-auto"
+          >
+            Clear search & filters
+          </button>
+        </div>
+      )}
+
+      {!loading && enriched.length > 0 && (
+        <>
+          <div className="flex items-center justify-between text-xs text-text-secondary px-1">
+            <span>Showing {enriched.length} verified creator profiles</span>
+            <span className="font-mono">Live PostgreSQL records</span>
+          </div>
+
+          {view === 'grid' ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {enriched.map((inf) => (
+                <InfluencerCard
+                  key={inf.id}
+                  influencer={inf}
+                  onShortlist={toggleShortlist}
+                />
+              ))}
+            </div>
+          ) : (
+            <Card className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-text-secondary border-b border-border">
+                    <th className="pb-3 pl-4 pt-3 font-semibold">Creator</th>
+                    <th className="pb-3 pt-3 font-semibold">Platform</th>
+                    <th className="pb-3 pt-3 font-semibold">Followers / Subs</th>
+                    <th className="pb-3 pt-3 font-semibold">Avg Views</th>
+                    <th className="pb-3 pt-3 font-semibold">Engagement</th>
+                    <th className="pb-3 pt-3 font-semibold">Location</th>
+                    <th className="pb-3 pt-3 font-semibold">Source</th>
+                    <th className="pb-3 pr-4 pt-3 font-semibold text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+                </thead>
+                <tbody>
+                  {enriched.map((inf) => (
+                    <tr key={inf.id} className="border-b border-border last:border-0 hover:bg-page/60 transition">
+                      <td className="py-3 pl-4">
+                        <div className="flex items-center gap-3">
+                          {inf.avatar ? (
+                            <img
+                              src={inf.avatar}
+                              alt={inf.name}
+                              className="h-9 w-9 rounded-full object-cover border border-border"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none'
+                              }}
+                            />
+                          ) : (
+                            <div className="h-9 w-9 rounded-full bg-primary-soft text-primary font-bold text-xs flex items-center justify-center">
+                              {inf.name[0]}
+                            </div>
+                          )}
+                          <div>
+                            <Link to={`/app/discovery/${inf.id}`} className="font-semibold text-text hover:text-primary transition">
+                              {inf.name}
+                            </Link>
+                            <p className="text-xs text-text-secondary">{inf.username}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 capitalize text-text-secondary">{inf.platform}</td>
+                      <td className="py-3 font-semibold">{formatNumber(inf.followers || 0)}</td>
+                      <td className="py-3 text-text-secondary">{formatNumber(inf.avgViews || 0)}</td>
+                      <td className="py-3 font-semibold text-primary">{inf.engagementRate || 0}%</td>
+                      <td className="py-3 text-text-secondary">{inf.location || inf.country || 'Global'}</td>
+                      <td className="py-3">
+                        <Badge variant="outline" className="text-[10px] uppercase font-mono py-0 px-1.5">
+                          {inf.data_source || inf.platform}
+                        </Badge>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <Button
+                          size="sm"
+                          variant={inf.shortlisted ? 'soft' : 'primary'}
+                          onClick={() => toggleShortlist(inf.id)}
+                        >
+                          {inf.shortlisted ? 'Shortlisted' : 'Shortlist'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </>
       )}
     </div>
   )

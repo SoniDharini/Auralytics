@@ -9,7 +9,6 @@ import {
   Megaphone,
   TrendingDown,
 } from 'lucide-react'
-import { notifications as initialNotifications } from '@/mock-data'
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Select, useToast } from '@/components/ui'
 import { cn } from '@/utils'
 import type { NotificationItem } from '@/types'
@@ -38,7 +37,7 @@ const filterOptions = [
 
 export function NotificationsPage() {
   const { toast } = useToast()
-  const [items, setItems] = useState<NotificationItem[]>(initialNotifications)
+  const [items, setItems] = useState<NotificationItem[]>([])
   const [typeFilter, setTypeFilter] = useState('all')
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read).length, [items])
@@ -108,10 +107,10 @@ export function NotificationsPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           {filtered.length === 0 ? (
-            <div className="text-center py-12 text-text-secondary">
-              <Bell className="h-10 w-10 mx-auto mb-3 opacity-40" />
-              <p className="font-semibold text-text">No notifications</p>
-              <p className="text-sm mt-1">Nothing matches this filter.</p>
+            <div className="text-center py-16 text-text-secondary">
+              <Bell className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="font-semibold text-text">No notifications yet</p>
+              <p className="text-sm mt-1">You will receive alerts here when AI agents require review or tasks complete.</p>
             </div>
           ) : (
             filtered.map((item) => (

@@ -7,8 +7,12 @@ import type {
   Agent,
   ApprovalItem,
   Campaign,
+  CampaignActivity,
   Contract,
+  DashboardSummary,
   Influencer,
+  InfluencerFetchResponse,
+  IntegrationStatus,
   OutreachStatus,
   TimelineEvent,
 } from '@/types'
@@ -170,6 +174,11 @@ export const api = {
       request<UserProfile>('/users/me', { method: 'PATCH', body: JSON.stringify(body) }),
   },
 
+  // Dashboard API
+  dashboard: {
+    getSummary: () => request<DashboardSummary>('/dashboard/summary'),
+  },
+
   // Campaigns API
   campaigns: {
     list: (status?: string) => request<Campaign[]>(`/campaigns${status ? `?status=${status}` : ''}`),
@@ -178,6 +187,21 @@ export const api = {
     update: (id: string, body: any) =>
       request<Campaign>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/campaigns/${id}`, { method: 'DELETE' }),
+    getActivities: (id: string) => request<CampaignActivity[]>(`/campaigns/${id}/activities`),
+    fetchInfluencers: (
+      id: string,
+      payload?: { platforms?: string[]; limit?: number; force_refresh?: boolean },
+    ) =>
+      request<InfluencerFetchResponse>(`/campaigns/${id}/fetch-influencers`, {
+        method: 'POST',
+        body: JSON.stringify(payload || {}),
+      }),
+  },
+
+  // Activities API
+  activities: {
+    list: (campaignId?: string, limit = 20) =>
+      request<CampaignActivity[]>(`/activities?limit=${limit}${campaignId ? `&campaign_id=${campaignId}` : ''}`),
   },
 
   // Influencers API
@@ -185,6 +209,12 @@ export const api = {
     list: (query?: string) => request<Influencer[]>(`/influencers${query ? `?${query}` : ''}`),
     get: (id: string) => request<Influencer>(`/influencers/${id}`),
     toggleShortlist: (id: string) => request<Influencer>(`/influencers/${id}/shortlist`, { method: 'POST' }),
+    refresh: (id: string) => request<Influencer>(`/influencers/${id}/refresh`, { method: 'POST' }),
+  },
+
+  // Integrations API
+  integrations: {
+    getStatus: () => request<IntegrationStatus>('/integrations/status'),
   },
 
   // Approvals API

@@ -11,11 +11,12 @@ import {
   Settings,
   LogOut,
 } from 'lucide-react'
-import { agents, notifications } from '@/mock-data'
-import { Avatar, Badge, Button, ProgressBar } from '@/components/ui'
+import { api } from '@/services/api'
+import { Avatar, Badge, Button } from '@/components/ui'
 import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/utils'
+import type { Agent, NotificationItem } from '@/types'
 
 interface HeaderProps {
   onMenuClick: () => void
@@ -28,13 +29,30 @@ export function Header({ onMenuClick }: HeaderProps) {
   const [notifOpen, setNotifOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
+  const [agentsList, setAgentsList] = useState<Agent[]>([])
+  const [notificationsList] = useState<NotificationItem[]>([])
   const profileRef = useRef<HTMLDivElement>(null)
 
-  const activeAgents = agents.filter((a) => a.status === 'active' || a.status === 'processing')
-  const unread = notifications.filter((n) => !n.read).length
 
-  const displayName = user?.full_name || 'Aaditya Sharma'
-  const displayEmail = user?.email || 'aaditya@glownaturals.com'
+  useEffect(() => {
+    let mounted = true
+    api.agents
+      .list()
+      .then((data) => {
+        if (mounted && data) setAgentsList(data)
+      })
+      .catch(() => {})
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const activeAgents = agentsList.filter((a) => a.status === 'active' || a.status === 'processing')
+  const unread = notificationsList.filter((n) => !n.read).length
+
+  const displayName = user?.full_name || 'Authenticated User'
+  const displayEmail = user?.email || 'user@influenceos.ai'
   const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
 
   useEffect(() => {
@@ -104,8 +122,18 @@ export function Header({ onMenuClick }: HeaderProps) {
             aria-label="AI activity"
           >
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full rounded-full bg-success opacity-60 animate-pulse-dot" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+              <span
+                className={cn(
+                  'absolute inline-flex h-full w-full rounded-full opacity-60',
+                  activeAgents.length > 0 ? 'bg-success animate-pulse-dot' : 'bg-gray-400',
+                )}
+              />
+              <span
+                className={cn(
+                  'relative inline-flex h-2 w-2 rounded-full',
+                  activeAgents.length > 0 ? 'bg-success' : 'bg-gray-400',
+                )}
+              />
             </span>
             <Bot className="h-3.5 w-3.5 text-ai hidden sm:block" />
             <span>{activeAgents.length} Agents Active</span>
@@ -119,36 +147,36 @@ export function Header({ onMenuClick }: HeaderProps) {
                   <X className="h-4 w-4 text-text-secondary" />
                 </button>
               </div>
-              <div className="space-y-2 max-h-[360px] overflow-y-auto">
-                {agents.slice(0, 4).map((agent) => (
-                  <div key={agent.id} className="rounded-[12px] border border-border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold">{agent.name}</p>
-                      <Badge
-                        variant={
-                          agent.status === 'active' || agent.status === 'processing'
-                            ? 'success'
-                            : agent.status === 'completed'
-                              ? 'primary'
-                              : 'default'
-                        }
-                        pulse={agent.status === 'active' || agent.status === 'processing'}
-                      >
-                        {agent.status}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-text-secondary mt-1">{agent.currentTask}</p>
-                    {agent.startedAt && (
-                      <p className="text-[11px] text-text-secondary mt-1">Started {agent.startedAt}</p>
-                    )}
-                    {typeof agent.progress === 'number' && (
-                      <div className="mt-2">
-                        <ProgressBar value={agent.progress} size="sm" />
+              {agentsList.length === 0 ? (
+                <div className="py-8 text-center text-xs text-text-secondary">
+                  <Bot className="h-8 w-8 mx-auto text-text-secondary/40 mb-2" />
+                  <p className="font-semibold text-text">No active agents</p>
+                  <p className="mt-1">Agents will coordinate when campaigns are active.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[360px] overflow-y-auto">
+                  {agentsList.slice(0, 4).map((agent) => (
+                    <div key={agent.id} className="rounded-[12px] border border-border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{agent.name}</p>
+                        <Badge
+                          variant={
+                            agent.status === 'active' || agent.status === 'processing'
+                              ? 'success'
+                              : agent.status === 'completed'
+                                ? 'primary'
+                                : 'default'
+                          }
+                          pulse={agent.status === 'active' || agent.status === 'processing'}
+                        >
+                          {agent.status}
+                        </Badge>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      <p className="text-xs text-text-secondary mt-1">{agent.currentTask}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
               <Link
                 to="/app/agents"
                 onClick={() => setAiOpen(false)}
@@ -191,21 +219,29 @@ export function Header({ onMenuClick }: HeaderProps) {
                   View all
                 </Link>
               </div>
-              <div className="space-y-2 max-h-[320px] overflow-y-auto">
-                {notifications.slice(0, 5).map((n) => (
-                  <div
-                    key={n.id}
-                    className={cn(
-                      'rounded-[12px] border p-3',
-                      n.read ? 'border-border bg-white' : 'border-primary/20 bg-primary-soft/40',
-                    )}
-                  >
-                    <p className="text-sm font-semibold">{n.title}</p>
-                    <p className="text-xs text-text-secondary mt-0.5">{n.body}</p>
-                    <p className="text-[11px] text-text-secondary mt-1.5">{n.timestamp}</p>
-                  </div>
-                ))}
-              </div>
+              {notificationsList.length === 0 ? (
+                <div className="py-8 text-center text-xs text-text-secondary">
+                  <Bell className="h-8 w-8 mx-auto text-text-secondary/40 mb-2" />
+                  <p className="font-semibold text-text">No unread notifications</p>
+                  <p className="mt-1">You're completely up to date.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[320px] overflow-y-auto">
+                  {notificationsList.slice(0, 5).map((n) => (
+                    <div
+                      key={n.id}
+                      className={cn(
+                        'rounded-[12px] border p-3',
+                        n.read ? 'border-border bg-white' : 'border-primary/20 bg-primary-soft/40',
+                      )}
+                    >
+                      <p className="text-sm font-semibold">{n.title}</p>
+                      <p className="text-xs text-text-secondary mt-0.5">{n.body}</p>
+                      <p className="text-[11px] text-text-secondary mt-1.5">{n.timestamp}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

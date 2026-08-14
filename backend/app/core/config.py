@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Optional, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -43,6 +43,17 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
         return v
+
+    # External Provider Configuration
+    YOUTUBE_API_KEY: Optional[str] = None
+    YOUTUBE_DISCOVERY_MAX_CREATORS: int = 30
+
+    INSTAGRAM_APP_ID: Optional[str] = None
+    INSTAGRAM_APP_SECRET: Optional[str] = None
+    INSTAGRAM_ACCESS_TOKEN: Optional[str] = None
+    INSTAGRAM_API_VERSION: str = "v19.0"
+
+    INFLUENCER_CACHE_TTL_HOURS: int = 6
 
 
 settings = Settings()

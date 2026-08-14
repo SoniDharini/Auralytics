@@ -9,7 +9,6 @@ import {
   Target,
   XCircle,
 } from 'lucide-react'
-import { approvals as initialApprovals, approvalHistory } from '@/mock-data'
 import { api } from '@/services/api'
 import {
   Badge,
@@ -45,15 +44,17 @@ const typeVariant: Record<ApprovalItem['type'], 'primary' | 'ai' | 'warning' | '
 export function ApprovalsPage() {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState('all')
-  const [items, setItems] = useState<ApprovalItem[]>(initialApprovals)
+  const [items, setItems] = useState<ApprovalItem[]>([])
+  const [history, setHistory] = useState<ApprovalItem[]>([])
 
   useEffect(() => {
     let mounted = true
     api.approvals
       .list()
       .then((data) => {
-        if (mounted && data && data.length > 0) {
-          setItems(data)
+        if (mounted && data) {
+          setItems(data.filter((a) => a.status === 'pending'))
+          setHistory(data.filter((a) => a.status !== 'pending'))
         }
       })
       .catch(() => {})
@@ -82,7 +83,11 @@ export function ApprovalsPage() {
   }, [items, activeTab])
 
   const updateStatus = async (id: string, status: ApprovalStatus) => {
-    setItems((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)))
+    const targetItem = items.find((a) => a.id === id)
+    if (!targetItem) return
+    const updated = { ...targetItem, status }
+    setItems((prev) => prev.filter((a) => a.id !== id))
+    setHistory((prev) => [updated, ...prev])
     try {
       const decision = status === 'approved' ? 'approve' : status === 'rejected' ? 'reject' : 'edit'
       await api.approvals.decide(id, decision)
@@ -135,8 +140,8 @@ export function ApprovalsPage() {
               {filtered.length} item{filtered.length !== 1 ? 's' : ''} awaiting your decision
             </p>
           </div>
-          <Badge variant="warning" pulse>
-            {items.filter((a) => a.status === 'pending').length} pending
+          <Badge variant={filtered.length > 0 ? 'warning' : 'default'} pulse={filtered.length > 0}>
+            {filtered.length} pending
           </Badge>
         </CardHeader>
         <CardContent className="pt-4">
@@ -144,9 +149,9 @@ export function ApprovalsPage() {
 
           {filtered.length === 0 ? (
             <div className="text-center py-12 text-text-secondary">
-              <CheckCircle2 className="h-10 w-10 mx-auto text-success mb-3" />
-              <p className="font-semibold text-text">All caught up</p>
-              <p className="text-sm mt-1">No pending approvals in this category.</p>
+              <CheckCircle2 className="h-10 w-10 mx-auto text-success/60 mb-3" />
+              <p className="font-semibold text-text">No pending approvals</p>
+              <p className="text-sm mt-1">All agent proposals and budget adjustments are up to date.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -169,27 +174,36 @@ export function ApprovalsPage() {
           <CardTitle>Approval History</CardTitle>
           <p className="text-sm text-text-secondary mt-0.5">Recent decisions across all agents</p>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {approvalHistory.map((item) => (
-            <div
-              key={item.id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-page/50"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="text-sm font-semibold">{item.action}</span>
-                  <StatusChip status={item.status} />
-                </div>
-                <p className="text-xs text-text-secondary">
-                  {item.agent} · {item.campaign} · {item.timestamp}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-text-secondary shrink-0">
-                <Sparkles className="h-3.5 w-3.5 text-ai" />
-                {item.confidence}% confidence
-              </div>
+        <CardContent>
+          {history.length === 0 ? (
+            <div className="text-center py-8 text-text-secondary">
+              <p className="font-semibold text-text">No approval history yet</p>
+              <p className="text-xs mt-1">Decisions made on AI proposals will be logged here.</p>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-3">
+              {history.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border bg-page/50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold">{item.action}</span>
+                      <StatusChip status={item.status} />
+                    </div>
+                    <p className="text-xs text-text-secondary">
+                      {item.agent} · {item.campaign} · {item.timestamp}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-text-secondary shrink-0">
+                    <Sparkles className="h-3.5 w-3.5 text-ai" />
+                    {item.confidence}% confidence
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

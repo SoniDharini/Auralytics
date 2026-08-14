@@ -1,53 +1,42 @@
-import { useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
-  BarChart3,
-  Bot,
   Calendar,
+  Clock,
   Edit3,
   FileText,
+  Loader2,
   Mail,
-  RefreshCw,
   Sparkles,
+  Target,
+  Trash2,
   TrendingUp,
   Users,
   Wallet,
+  Zap,
 } from 'lucide-react'
+import { api } from '@/services/api'
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import {
-  agentTimeline,
-  campaignFunnel,
-  campaigns,
-  contracts,
-  creatorPerformance,
-  influencers,
-  revenueSpendData,
-} from '@/mock-data'
-import {
-  Avatar,
   Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  InfluencerCard,
+  Input,
+  Modal,
   ProgressBar,
+  Select,
   StatusChip,
   Tabs,
+  Textarea,
+  useToast,
 } from '@/components/ui'
-import { cn, formatINR, formatNumber, statusLabel } from '@/utils'
+import { formatINR, statusLabel } from '@/utils'
+import type { Campaign, CampaignActivity, CampaignStatus, Influencer } from '@/types'
+
 
 const tabIds = [
   'overview',
@@ -56,194 +45,424 @@ const tabIds = [
   'outreach',
   'contracts',
   'performance',
-  'agents',
+  'activities',
 ] as const
 
 type TabId = (typeof tabIds)[number]
 
-const performanceColors: Record<string, string> = {
-  excellent: '#16A34A',
-  healthy: '#5B5FEF',
-  needs_attention: '#EF4444',
-}
+const statusOptions: { value: CampaignStatus; label: string }[] = [
+  { value: 'active', label: 'Active' },
+  { value: 'planning', label: 'Planning' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'needs_attention', label: 'Needs Attention' },
+]
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { toast } = useToast()
+
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [activities, setActivities] = useState<CampaignActivity[]>([])
+  const [influencers, setInfluencers] = useState<Influencer[]>([])
+  const [loading, setLoading] = useState(true)
+  const [discoveringCreators, setDiscoveringCreators] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
-  const campaign = useMemo(
-    () => campaigns.find((c) => c.id === id) ?? campaigns[0],
-    [id],
-  )
+  // Edit Modal State
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editBrand, setEditBrand] = useState('')
+  const [editBudget, setEditBudget] = useState(0)
+  const [editStatus, setEditStatus] = useState<CampaignStatus>('active')
+  const [editObjective, setEditObjective] = useState('')
+  const [editStartDate, setEditStartDate] = useState('')
+  const [editEndDate, setEditEndDate] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
-  const shortlisted = useMemo(
-    () => influencers.filter((i) => i.shortlisted),
-    [],
-  )
+  // Delete Modal State
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
-  const campaignContracts = useMemo(
-    () => contracts.filter((c) => c.campaign === campaign.name),
-    [campaign.name],
-  )
+  const loadData = () => {
+    if (!id) return
+    setLoading(true)
+    setError(null)
 
-  const outreachCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    shortlisted.forEach((i) => {
-      const s = i.status ?? 'not_contacted'
-      counts[s] = (counts[s] ?? 0) + 1
-    })
-    return counts
-  }, [shortlisted])
+    Promise.all([
+      api.campaigns.get(id),
+      api.campaigns.getActivities(id).catch(() => []),
+      api.influencers.list().catch(() => []),
+    ])
+      .then(([camp, acts, infs]) => {
+        setCampaign(camp)
+        setActivities(acts)
+        setInfluencers(infs || [])
+        // Preload edit form
+        setEditName(camp.name)
+        setEditBrand(camp.brand)
+        setEditBudget(camp.budget)
+        setEditStatus(camp.status)
+        setEditObjective(camp.objective)
+        setEditStartDate(camp.startDate)
+        setEditEndDate(camp.endDate)
+        setEditDescription(camp.description || '')
+      })
+      .catch((err) => {
+        setError(err.message || 'Campaign not found or inaccessible.')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    loadData()
+  }, [id])
+
+  const handleDiscoverForCampaign = async () => {
+    if (!id || !campaign) return
+    setDiscoveringCreators(true)
+    try {
+      const res = await api.campaigns.fetchInfluencers(id, {
+        limit: 25,
+        force_refresh: true,
+      })
+      const fetchedCount = res.providers?.youtube?.fetched || 0
+      if (fetchedCount > 0) {
+        toast({
+          type: 'success',
+          title: 'Creators discovered',
+          description: `Acquired ${fetchedCount} creator profiles from YouTube matching "${campaign.name}".`,
+        })
+      } else {
+        toast({
+          type: 'info',
+          title: 'Discovery finished',
+          description: 'No new creators found for this brief.',
+        })
+      }
+      loadData()
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Discovery failed',
+        description: err.message || 'Could not fetch creator data.',
+      })
+    } finally {
+      setDiscoveringCreators(false)
+    }
+  }
+
+  const handleEditSave = async () => {
+    if (!id || !campaign) return
+    setSavingEdit(true)
+    try {
+      const updated = await api.campaigns.update(id, {
+        name: editName.trim() || campaign.name,
+        brand: editBrand.trim() || campaign.brand,
+        budget: Number(editBudget) || campaign.budget,
+        status: editStatus,
+        objective: editObjective.trim() || campaign.objective,
+        start_date: editStartDate || campaign.startDate,
+        end_date: editEndDate || campaign.endDate,
+        description: editDescription.trim() || undefined,
+      })
+      setCampaign(updated)
+      toast({
+        type: 'success',
+        title: 'Campaign updated',
+        description: 'Changes saved successfully to database.',
+      })
+      setEditModalOpen(false)
+      // Refresh activities
+      api.campaigns.getActivities(id).then(setActivities).catch(() => {})
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Update failed',
+        description: err.message || 'Could not update campaign.',
+      })
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!id) return
+    setDeleting(true)
+    try {
+      await api.campaigns.delete(id)
+      toast({
+        type: 'success',
+        title: 'Campaign deleted',
+        description: 'Campaign was permanently removed.',
+      })
+      navigate('/app/campaigns')
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Delete failed',
+        description: err.message || 'Could not delete campaign.',
+      })
+      setDeleting(false)
+    }
+
+  }
+
+  if (loading) {
+    return (
+      <div className="py-24 flex flex-col justify-center items-center gap-3 text-text-secondary text-sm">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p>Loading campaign details...</p>
+      </div>
+    )
+  }
+
+  if (error || !campaign) {
+    return (
+      <div className="py-16 text-center space-y-4 max-w-md mx-auto">
+        <div className="h-12 w-12 rounded-full bg-red-100 text-danger flex items-center justify-center mx-auto">
+          <Target className="h-6 w-6" />
+        </div>
+        <h2 className="text-xl font-bold">Campaign Not Found</h2>
+        <p className="text-sm text-text-secondary">
+          {error || 'The requested campaign does not exist or you do not have permission to view it.'}
+        </p>
+        <Link to="/app/campaigns">
+          <Button variant="secondary" className="gap-2 mt-2">
+            <ArrowLeft className="h-4 w-4" /> Back to Campaigns
+          </Button>
+        </Link>
+      </div>
+    )
+  }
 
   const budgetUsedPct = campaign.budget > 0 ? (campaign.spend / campaign.budget) * 100 : 0
-  const timelinePct = campaign.progress
+  const formatDate = (d: string) => {
+    try {
+      return new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
+    } catch {
+      return d
+    }
+  }
+
+  const formatActivityTime = (isoString: string) => {
+    try {
+      const date = new Date(isoString)
+      const now = new Date()
+      const diffMs = now.getTime() - date.getTime()
+      const diffMins = Math.floor(diffMs / 60000)
+      if (diffMins < 1) return 'Just now'
+      if (diffMins < 60) return `${diffMins}m ago`
+      const diffHours = Math.floor(diffMins / 60)
+      if (diffHours < 24) return `${diffHours}h ago`
+      return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return 'Recently'
+    }
+  }
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'strategy', label: 'AI Strategy' },
-    { id: 'influencers', label: 'Influencers', count: shortlisted.length },
-    { id: 'outreach', label: 'Outreach', count: shortlisted.length },
-    { id: 'contracts', label: 'Contracts', count: campaignContracts.length },
+    { id: 'influencers', label: 'Influencers', count: campaign.influencers || 0 },
+    { id: 'outreach', label: 'Outreach', count: 0 },
+    { id: 'contracts', label: 'Contracts', count: 0 },
     { id: 'performance', label: 'Performance' },
-    { id: 'agents', label: 'Agent Activity' },
+    { id: 'activities', label: 'Activity History', count: activities.length },
   ]
-
-  const formatDate = (d: string) =>
-    new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
-
-  const maxFunnel = Math.max(...campaignFunnel.map((f) => f.value))
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-start gap-3">
-        <Link to="/app/campaigns">
-          <Button variant="ghost" size="icon" aria-label="Back to campaigns">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight truncate">
-              {campaign.name}
-            </h1>
-            <StatusChip status={campaign.status} />
-            <Badge variant={campaign.health === 'excellent' ? 'success' : campaign.health === 'healthy' ? 'primary' : 'danger'}>
-              {statusLabel(campaign.health)}
-            </Badge>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-text-secondary">
-            <span className="flex items-center gap-1.5">
-              <Calendar className="h-4 w-4" />
-              {formatDate(campaign.startDate)} – {formatDate(campaign.endDate)}
-            </span>
-            <span>{campaign.brand}</span>
-            <span className="bg-muted px-2 py-0.5 rounded-md text-xs font-semibold">{campaign.objective}</span>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <Link to="/app/campaigns">
+            <Button variant="ghost" size="icon" aria-label="Back to campaigns">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight truncate">
+                {campaign.name}
+              </h1>
+              <StatusChip status={campaign.status} />
+              <Badge variant={campaign.health === 'excellent' ? 'success' : campaign.health === 'healthy' ? 'primary' : 'danger'}>
+                {statusLabel(campaign.health)}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-text-secondary">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="h-4 w-4" />
+                {formatDate(campaign.startDate)} – {formatDate(campaign.endDate)}
+              </span>
+              <span>{campaign.brand}</span>
+              <span className="bg-muted px-2 py-0.5 rounded-md text-xs font-semibold">{campaign.objective}</span>
+            </div>
           </div>
         </div>
-        <Button variant="secondary" className="gap-2 shrink-0 hidden sm:inline-flex">
-          <Edit3 className="h-4 w-4" /> Edit
-        </Button>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            className="gap-2"
+            onClick={() => setEditModalOpen(true)}
+          >
+            <Edit3 className="h-4 w-4" /> Edit
+          </Button>
+          <Button
+            variant="danger"
+            className="gap-2"
+            onClick={() => setDeleteModalOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" /> Delete
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        {[
-          { label: 'Budget', value: formatINR(campaign.budget, true), icon: Wallet, sub: `${Math.round(budgetUsedPct)}% used` },
-          { label: 'Spend', value: formatINR(campaign.spend, true), icon: Wallet },
-          { label: 'Revenue', value: formatINR(campaign.revenue, true), icon: TrendingUp, accent: 'text-success' },
-          { label: 'ROAS', value: campaign.roas ? `${campaign.roas}x` : '—', icon: BarChart3, accent: 'text-primary' },
-          { label: 'Creators', value: campaign.influencers.toString(), icon: Users, sub: `${formatNumber(campaign.reach)} reach` },
-        ].map((m) => (
-          <Card key={m.label}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">{m.label}</p>
-                <m.icon className="h-4 w-4 text-text-secondary" />
-              </div>
-              <p className={cn('text-xl font-bold', m.accent)}>{m.value}</p>
-              {m.sub && <p className="text-xs text-text-secondary mt-0.5">{m.sub}</p>}
-            </CardContent>
-          </Card>
-        ))}
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-secondary">Total Budget</p>
+            <Wallet className="h-4 w-4 text-text-secondary" />
+          </div>
+          <p className="text-xl font-bold mt-1">{formatINR(campaign.budget)}</p>
+          <p className="text-xs text-text-secondary mt-1">{Math.round(budgetUsedPct)}% spent</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-secondary">Spend</p>
+            <Wallet className="h-4 w-4 text-text-secondary" />
+          </div>
+          <p className="text-xl font-bold mt-1 text-text">{formatINR(campaign.spend || 0)}</p>
+          <p className="text-xs text-text-secondary mt-1">Live expenditure</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-secondary">Revenue</p>
+            <TrendingUp className="h-4 w-4 text-success" />
+          </div>
+          <p className="text-xl font-bold mt-1 text-success">{formatINR(campaign.revenue || 0)}</p>
+          <p className="text-xs text-text-secondary mt-1">Direct & attributed</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-secondary">ROAS</p>
+            <Sparkles className="h-4 w-4 text-primary" />
+          </div>
+          <p className="text-xl font-bold mt-1 text-primary">{(campaign.roas || 0).toFixed(2)}x</p>
+          <p className="text-xs text-text-secondary mt-1">Target {campaign.target_roas || 2.5}x</p>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-text-secondary">Creators</p>
+            <Users className="h-4 w-4 text-text-secondary" />
+          </div>
+          <p className="text-xl font-bold mt-1 text-text">{campaign.influencers || 0}</p>
+          <p className="text-xs text-text-secondary mt-1">Partners active</p>
+        </Card>
       </div>
 
-      <Tabs tabs={tabs} active={activeTab} onChange={(t) => setActiveTab(t as TabId)} />
+      <Tabs tabs={tabs} active={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
       {activeTab === 'overview' && (
-        <div className="space-y-4 animate-fade-in">
-          <div className="grid lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Budget Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ProgressBar value={budgetUsedPct} showLabel barClassName="bg-primary" />
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">Spent {formatINR(campaign.spend)}</span>
-                  <span className="font-semibold">{formatINR(campaign.budget - campaign.spend)} remaining</span>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Timeline Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ProgressBar value={timelinePct} showLabel barClassName="bg-accent" />
-                <div className="flex justify-between text-sm">
-                  <span className="text-text-secondary">{formatDate(campaign.startDate)}</span>
-                  <span className="text-text-secondary">{formatDate(campaign.endDate)}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+        <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Campaign Brief</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Description</p>
+                <p className="text-sm text-text mt-1 leading-relaxed">
+                  {campaign.description || 'No description provided for this campaign.'}
+                </p>
+              </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { label: 'Conversions', value: formatNumber(campaign.conversions) },
-              { label: 'Reach', value: formatNumber(campaign.reach) },
-              { label: 'Avg. CPA', value: campaign.conversions ? formatINR(Math.round(campaign.spend / campaign.conversions)) : '—' },
-              { label: 'Progress', value: `${campaign.progress}%` },
-            ].map((k) => (
-              <Card key={k.label}>
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">{k.label}</p>
-                  <p className="text-2xl font-bold mt-1">{k.value}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+              <div className="grid sm:grid-cols-2 gap-4 pt-3 border-t border-border">
+                <div>
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Target Audience</p>
+                  <p className="text-sm font-medium mt-1">
+                    {campaign.target_locations || 'All locations'} · Ages {campaign.target_age_min || 18}–{campaign.target_age_max || 45}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Primary Objective</p>
+                  <p className="text-sm font-medium mt-1">{campaign.objective}</p>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-border">
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">Platforms & Channels</p>
+                <div className="flex flex-wrap gap-2">
+                  {campaign.platforms && campaign.platforms.length > 0 ? (
+                    campaign.platforms.map((p) => (
+                      <span
+                        key={p}
+                        className="px-3 py-1 rounded-full text-xs font-semibold bg-primary-soft text-primary border border-primary/20 capitalize"
+                      >
+                        {p}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-text-secondary">Instagram, YouTube</span>
+                  )}
+                </div>
+              </div>
+
+              {campaign.budget_allocation && campaign.budget_allocation.length > 0 && (
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
+                    Approved Budget Allocation
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {campaign.budget_allocation.map((b) => (
+                      <div key={b.id || b.label} className="p-2.5 rounded-lg border border-border bg-page/40">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span>{b.label}</span>
+                          <span className="text-primary">{formatINR(b.amount)}</span>
+                        </div>
+                        {b.rationale && <p className="text-[11px] text-text-secondary mt-0.5">{b.rationale}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Campaign Funnel</CardTitle>
-              <p className="text-sm text-text-secondary mt-0.5">Creator pipeline from discovery to completion</p>
+              <CardTitle>Key Performance Indicators</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {campaignFunnel.map((stage, i) => {
-                  const pct = (stage.value / maxFunnel) * 100
-                  const prev = i > 0 ? campaignFunnel[i - 1].value : null
-                  const dropoff = prev ? Math.round(((prev - stage.value) / prev) * 100) : null
-                  return (
-                    <div key={stage.label}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-medium">{stage.label}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-bold">{stage.value}</span>
-                          {dropoff !== null && dropoff > 0 && (
-                            <span className="text-xs text-text-secondary">−{dropoff}%</span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all duration-500"
-                          style={{ width: `${pct}%`, opacity: 1 - i * 0.08 }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
+            <CardContent className="space-y-4">
+              <div className="rounded-xl border border-border p-4 bg-page/50">
+                <p className="text-xs text-text-secondary">Primary KPI</p>
+                <p className="text-lg font-bold text-text mt-0.5">{campaign.primary_kpi || 'ROAS'}</p>
+                <p className="text-xs text-text-secondary mt-1">
+                  Target: {campaign.target_roas || 3.0}x ROAS
+                </p>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-text-secondary">Budget Utilization</span>
+                  <span className="font-semibold">{Math.round(budgetUsedPct)}%</span>
+                </div>
+                <ProgressBar value={Math.round(budgetUsedPct)} size="sm" />
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <div className="flex justify-between text-xs">
+                  <span className="text-text-secondary">Campaign Progress</span>
+                  <span className="font-semibold">{campaign.progress || 0}%</span>
+                </div>
+                <ProgressBar value={campaign.progress || 0} size="sm" />
               </div>
             </CardContent>
           </Card>
@@ -251,430 +470,286 @@ export function CampaignDetailPage() {
       )}
 
       {activeTab === 'strategy' && (
-        <div className="animate-fade-in">
-          <Card>
-            <CardHeader>
-              <div>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-ai" />
-                  <CardTitle>Strategy Report</CardTitle>
-                </div>
-                <p className="text-sm text-text-secondary mt-1">
-                  Generated by Strategy Agent · Aug 10, 2026 at 10:32 AM
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" className="gap-1.5">
-                  <RefreshCw className="h-3.5 w-3.5" /> Regenerate
-                </Button>
-                <Button variant="soft" size="sm" className="gap-1.5">
-                  <Edit3 className="h-3.5 w-3.5" /> Edit
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid sm:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Objective</p>
-                    <p className="text-sm font-medium">
-                      Drive product launch awareness and conversions for GlowNaturals Summer Serum collection
-                      targeting women 25–34 interested in clean beauty.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Audience</p>
-                    <p className="text-sm font-medium">
-                      Female-skewed, ages 22–34, metro India (Mumbai, Delhi, Bangalore). Interests: skincare,
-                      clean beauty, wellness.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Creator Mix</p>
-                    <div className="flex gap-3 mt-2">
-                      <div className="flex-1 rounded-[10px] border border-border p-3 text-center bg-primary-soft/50">
-                        <p className="text-2xl font-bold text-primary">8</p>
-                        <p className="text-xs font-semibold text-text-secondary">Micro</p>
-                      </div>
-                      <div className="flex-1 rounded-[10px] border border-border p-3 text-center bg-violet-50">
-                        <p className="text-2xl font-bold text-accent">3</p>
-                        <p className="text-xs font-semibold text-text-secondary">Mid-tier</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Platform Split</p>
-                    <div className="space-y-2 mt-2">
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium">Instagram</span>
-                          <span className="font-semibold">70%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full bg-primary rounded-full" style={{ width: '70%' }} />
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span className="font-medium">YouTube</span>
-                          <span className="font-semibold">30%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full bg-accent rounded-full" style={{ width: '30%' }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Content Strategy</p>
-                    <p className="text-sm font-medium">
-                      Prioritize Instagram Reels (routine demos, before/after) and YouTube Shorts for ingredient
-                      education. UGC-style authentic testimonials over polished ads.
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-1">Posting Frequency</p>
-                    <p className="text-sm font-medium">2–3 posts/week per creator · Peak windows: Tue–Thu 6–9 PM IST</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="border-t border-border pt-5">
-                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">KPI Targets</p>
-                <div className="flex flex-wrap gap-2">
-                  {['ROAS 3.0x', 'CPA ₹150', 'Engagement 5.5%', '400 conversions', '1.8M reach'].map((k) => (
-                    <Badge key={k} variant="primary">{k}</Badge>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-[12px] border border-warning/30 bg-amber-50/50 p-4">
-                <p className="text-xs font-semibold text-warning uppercase tracking-wide mb-2">Risks & Mitigations</p>
-                <ul className="space-y-2 text-sm">
-                  <li className="flex gap-2">
-                    <span className="text-warning font-bold">•</span>
-                    Seasonal competition may increase CPMs in September — reserve fund allocated for bid adjustments.
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="text-warning font-bold">•</span>
-                    1 creator showing below-threshold niche match — Optimization Agent monitoring allocation.
-                  </li>
-                  <li className="flex gap-2">
-                    <span className="text-warning font-bold">•</span>
-                    Contract posting deadlines tight for 2 creators — Contract Agent flagged for review.
-                  </li>
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {activeTab === 'influencers' && (
         <Card className="animate-fade-in">
-          <CardHeader>
-            <CardTitle>Shortlisted Influencers</CardTitle>
-            <p className="text-sm text-text-secondary mt-0.5">{shortlisted.length} creators in pipeline</p>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-text-secondary border-b border-border">
-                  <th className="pb-3 font-semibold">Creator</th>
-                  <th className="pb-3 font-semibold">Platform</th>
-                  <th className="pb-3 font-semibold">Followers</th>
-                  <th className="pb-3 font-semibold">Eng. Rate</th>
-                  <th className="pb-3 font-semibold">AI Match</th>
-                  <th className="pb-3 font-semibold">Est. Cost</th>
-                  <th className="pb-3 font-semibold">Pred. ROAS</th>
-                  <th className="pb-3 font-semibold">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shortlisted.map((inf) => (
-                  <tr key={inf.id} className="border-b border-border last:border-0 hover:bg-page/80">
-                    <td className="py-3.5 pr-3">
-                      <div className="flex items-center gap-3 min-w-[160px]">
-                        <Avatar name={inf.name} size="sm" />
-                        <div>
-                          <p className="font-semibold">{inf.name}</p>
-                          <p className="text-xs text-text-secondary">@{inf.username}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 pr-3 capitalize">{inf.platform}</td>
-                    <td className="py-3.5 pr-3">{formatNumber(inf.followers)}</td>
-                    <td className="py-3.5 pr-3 font-medium">{inf.engagementRate}%</td>
-                    <td className="py-3.5 pr-3">
-                      <span className={cn('font-bold', inf.aiMatchScore >= 90 ? 'text-success' : inf.aiMatchScore >= 75 ? 'text-primary' : 'text-warning')}>
-                        {inf.aiMatchScore}
-                      </span>
-                    </td>
-                    <td className="py-3.5 pr-3">{formatINR(inf.estimatedCost)}</td>
-                    <td className="py-3.5 pr-3 font-semibold text-primary">{inf.predictedRoas}x</td>
-                    <td className="py-3.5">
-                      {inf.status && <StatusChip status={inf.status} />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <CardContent className="py-12 text-center text-text-secondary">
+            <Sparkles className="h-10 w-10 mx-auto text-ai/40 mb-3" />
+            <h3 className="text-base font-semibold text-text">AI strategy not generated yet</h3>
+            <p className="text-xs mt-1 max-w-sm mx-auto">
+              Strategy Agent will evaluate creator mix, ROAS forecast, and pacing once active agent workflows begin.
+            </p>
           </CardContent>
         </Card>
       )}
 
-      {activeTab === 'outreach' && (
+      {activeTab === 'influencers' && (
         <div className="space-y-4 animate-fade-in">
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {Object.entries(outreachCounts).map(([status, count]) => (
-              <Card key={status}>
-                <CardContent className="pt-4 pb-4">
-                  <StatusChip status={status} className="mb-2" />
-                  <p className="text-3xl font-bold">{count}</p>
-                  <p className="text-xs text-text-secondary mt-1">creators</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-text-secondary" />
-                Outreach Summary
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid sm:grid-cols-3 gap-6">
-                <div className="text-center p-4 rounded-[12px] bg-page">
-                  <p className="text-3xl font-bold text-primary">{outreachCounts.sent ?? 0}</p>
-                  <p className="text-sm text-text-secondary mt-1">Messages Sent</p>
+          {influencers.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-text-secondary space-y-3">
+                <Users className="h-10 w-10 mx-auto text-text-secondary/40" />
+                <div>
+                  <h3 className="text-base font-semibold text-text">No creators discovered for this campaign yet</h3>
+                  <p className="text-xs mt-1 max-w-md mx-auto">
+                    Acquire real creator data from YouTube based on this campaign's target niche ({campaign.interests?.join(', ') || campaign.objective || 'Skincare'}).
+                  </p>
                 </div>
-                <div className="text-center p-4 rounded-[12px] bg-page">
-                  <p className="text-3xl font-bold text-accent">{outreachCounts.replied ?? 0}</p>
-                  <p className="text-sm text-text-secondary mt-1">Replies Received</p>
+                <div className="pt-2 flex items-center justify-center gap-3">
+                  <Button
+                    size="sm"
+                    onClick={handleDiscoverForCampaign}
+                    disabled={discoveringCreators}
+                    className="gap-1.5"
+                  >
+                    {discoveringCreators ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Discovering YouTube Creators...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5" />
+                        <span>Discover Creators from YouTube</span>
+                      </>
+                    )}
+                  </Button>
+                  <Link to="/app/discovery">
+                    <Button size="sm" variant="secondary" className="gap-1.5">
+                      <Users className="h-3.5 w-3.5" /> Discovery Center
+                    </Button>
+                  </Link>
                 </div>
-                <div className="text-center p-4 rounded-[12px] bg-page">
-                  <p className="text-3xl font-bold text-success">{outreachCounts.accepted ?? 0}</p>
-                  <p className="text-sm text-text-secondary mt-1">Accepted</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-text">Discovered Creators ({influencers.length})</h3>
+                  <p className="text-xs text-text-secondary">Matching campaign audience and target keywords</p>
                 </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={handleDiscoverForCampaign}
+                  disabled={discoveringCreators}
+                  className="gap-1.5"
+                >
+                  {discoveringCreators ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" />
+                  )}
+                  <span>Re-scan YouTube</span>
+                </Button>
               </div>
-              <p className="text-sm text-text-secondary mt-6">
-                Outreach Agent has personalized {shortlisted.length} messages based on creator content history
-                and audience demographics. {outreachCounts.awaiting_approval ?? 0} awaiting your approval.
-              </p>
-            </CardContent>
-          </Card>
+
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {influencers.map((inf) => (
+                  <InfluencerCard
+                    key={inf.id}
+                    influencer={inf}
+                    onShortlist={async (infId) => {
+                      try {
+                        await api.influencers.toggleShortlist(infId)
+                        loadData()
+                      } catch {}
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
+      )}
+
+      {activeTab === 'outreach' && (
+        <Card className="animate-fade-in">
+          <CardContent className="py-12 text-center text-text-secondary">
+            <Mail className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
+            <h3 className="text-base font-semibold text-text">No outreach activity yet</h3>
+            <p className="text-xs mt-1 max-w-sm mx-auto">
+              Outreach Agent will prepare pitches and track negotiations once creators are shortlisted.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {activeTab === 'contracts' && (
         <Card className="animate-fade-in">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-text-secondary" />
-              Contracts
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {campaignContracts.length === 0 ? (
-              <p className="text-sm text-text-secondary py-8 text-center">No contracts for this campaign yet.</p>
-            ) : (
-              campaignContracts.map((ct) => (
-                <div
-                  key={ct.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-[12px] border border-border hover:bg-page/50 transition"
-                >
-                  <div className="flex items-start gap-3">
-                    <Avatar name={ct.creator} size="md" />
-                    <div>
-                      <p className="font-semibold">{ct.creator}</p>
-                      <p className="text-xs text-text-secondary">@{ct.username}</p>
-                      <p className="text-xs text-text-secondary mt-1">
-                        {formatDate(ct.startDate)} – {formatDate(ct.endDate)}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {ct.deliverables.map((d) => (
-                          <Badge key={d} variant="outline">{d}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
-                    <p className="text-lg font-bold">{formatINR(ct.value)}</p>
-                    <StatusChip status={ct.status} />
-                    <Badge variant={ct.risk === 'Low' ? 'success' : ct.risk === 'Medium' ? 'warning' : 'danger'}>
-                      {ct.risk} risk
-                    </Badge>
-                    {ct.aiRisks.length > 0 && (
-                      <p className="text-xs text-danger max-w-[200px] text-right">{ct.aiRisks[0]}</p>
-                    )}
-                  </div>
-                </div>
-              ))
-            )}
+          <CardContent className="py-12 text-center text-text-secondary">
+            <FileText className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
+            <h3 className="text-base font-semibold text-text">No contracts generated yet</h3>
+            <p className="text-xs mt-1 max-w-sm mx-auto">
+              Contract Agent will draft agreements with AI risk protection when creators accept terms.
+            </p>
           </CardContent>
         </Card>
       )}
 
       {activeTab === 'performance' && (
-        <div className="space-y-4 animate-fade-in">
-          <div className="grid lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue vs Spend</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={revenueSpendData}>
-                      <defs>
-                        <linearGradient id="detailRev" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#5B5FEF" stopOpacity={0.25} />
-                          <stop offset="100%" stopColor="#5B5FEF" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="detailSpend" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.2} />
-                          <stop offset="100%" stopColor="#8B5CF6" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                      <YAxis
-                        tick={{ fontSize: 11, fill: '#6B7280' }}
-                        axisLine={false}
-                        tickLine={false}
-                        tickFormatter={(v) => `₹${v / 1000}k`}
-                      />
-                      <Tooltip
-                        contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 12 }}
-                        formatter={(value) => formatINR(Number(value))}
-                      />
-                      <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#5B5FEF" fill="url(#detailRev)" strokeWidth={2} />
-                      <Area type="monotone" dataKey="spend" name="Spend" stroke="#8B5CF6" fill="url(#detailSpend)" strokeWidth={2} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Creator ROAS Comparison</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={creatorPerformance} layout="vertical" margin={{ left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
-                      <XAxis type="number" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                      <YAxis
-                        type="category"
-                        dataKey="influencer"
-                        tick={{ fontSize: 11, fill: '#6B7280' }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={90}
-                      />
-                      <Tooltip
-                        contentStyle={{ borderRadius: 12, border: '1px solid #E5E7EB', fontSize: 12 }}
-                        formatter={(value) => [`${value}x`, 'ROAS']}
-                      />
-                      <Bar dataKey="roas" radius={[0, 6, 6, 0]} barSize={16}>
-                        {creatorPerformance.map((entry) => (
-                          <Cell key={entry.influencer} fill={performanceColors[entry.performance]} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Creator Performance</CardTitle>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-text-secondary border-b border-border">
-                    <th className="pb-3 font-semibold">Creator</th>
-                    <th className="pb-3 font-semibold">Spend</th>
-                    <th className="pb-3 font-semibold">Reach</th>
-                    <th className="pb-3 font-semibold">Conversions</th>
-                    <th className="pb-3 font-semibold">Revenue</th>
-                    <th className="pb-3 font-semibold">ROAS</th>
-                    <th className="pb-3 font-semibold">CPA</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {creatorPerformance.map((row) => (
-                    <tr key={row.influencer} className="border-b border-border last:border-0">
-                      <td className="py-3 font-semibold">@{row.influencer}</td>
-                      <td className="py-3">{formatINR(row.spend)}</td>
-                      <td className="py-3">{formatNumber(row.reach)}</td>
-                      <td className="py-3">{row.conversions}</td>
-                      <td className="py-3">{formatINR(row.revenue)}</td>
-                      <td className="py-3">
-                        <span className={cn('font-bold', row.roas >= 3 ? 'text-success' : row.roas >= 2 ? 'text-primary' : 'text-danger')}>
-                          {row.roas}x
-                        </span>
-                      </td>
-                      <td className="py-3">₹{row.cpa}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {activeTab === 'agents' && (
         <Card className="animate-fade-in">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-ai" />
-              Agent Activity Timeline
-            </CardTitle>
-            <p className="text-sm text-text-secondary mt-0.5">Real-time workflow events from your AI team</p>
-          </CardHeader>
-          <CardContent>
-            <div className="relative">
-              <div className="absolute left-[19px] top-2 bottom-2 w-px bg-border" />
-              <div className="space-y-4">
-                {agentTimeline.map((event) => {
-                  const dotColor =
-                    event.type === 'success'
-                      ? 'bg-success'
-                      : event.type === 'action'
-                        ? 'bg-primary'
-                        : event.type === 'human'
-                          ? 'bg-accent'
-                          : 'bg-text-secondary'
-                  return (
-                    <div key={event.id} className="flex gap-4 relative">
-                      <div className={cn('h-2.5 w-2.5 rounded-full shrink-0 mt-2 ring-4 ring-white z-10', dotColor)} />
-                      <div className="flex-1 pb-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-mono text-text-secondary">{event.time}</span>
-                          <Badge variant={event.type === 'human' ? 'ai' : event.agent.includes('Supervisor') ? 'primary' : 'outline'}>
-                            {event.agent}
-                          </Badge>
-                        </div>
-                        <p className="text-sm font-medium mt-1">{event.message}</p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
+          <CardContent className="py-12 text-center text-text-secondary">
+            <TrendingUp className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
+            <h3 className="text-base font-semibold text-text">No live performance metrics yet</h3>
+            <p className="text-xs mt-1 max-w-sm mx-auto">
+              Performance metrics (ROAS, conversions, reel impressions) will be tracked live as creators publish content.
+            </p>
           </CardContent>
         </Card>
       )}
+
+      {activeTab === 'activities' && (
+        <Card className="animate-fade-in">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Campaign Activity History</CardTitle>
+              <span className="text-xs text-text-secondary font-mono">{activities.length} recorded events</span>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {activities.length === 0 ? (
+              <div className="text-center py-8 text-text-secondary">
+                <Clock className="h-8 w-8 mx-auto text-text-secondary/40 mb-2" />
+                <p className="text-sm font-semibold text-text">No activity recorded yet</p>
+                <p className="text-xs mt-1">Actions performed on this campaign will appear in this timeline.</p>
+              </div>
+            ) : (
+              <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
+                {activities.map((act) => (
+                  <div key={act.id} className="relative flex items-start gap-3">
+                    <div className="absolute -left-6 mt-1 h-5 w-5 rounded-full border-2 border-white bg-primary flex items-center justify-center">
+                      <Zap className="h-2.5 w-2.5 text-white" />
+                    </div>
+                    <div className="flex-1 rounded-xl border border-border bg-page/40 p-3 text-xs">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-semibold text-text">{act.title}</span>
+                        <span className="text-[11px] text-text-secondary font-mono">
+                          {formatActivityTime(act.created_at)}
+                        </span>
+                      </div>
+                      {act.description && <p className="text-text-secondary">{act.description}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit Campaign Modal */}
+      <Modal
+        open={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        title="Edit Campaign"
+        className="max-w-xl"
+      >
+        <div className="space-y-4 pt-1">
+          <Input
+            label="Campaign Name"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Brand"
+              value={editBrand}
+              onChange={(e) => setEditBrand(e.target.value)}
+            />
+            <Select
+              label="Status"
+              options={statusOptions}
+              value={editStatus}
+              onChange={(e) => setEditStatus(e.target.value as CampaignStatus)}
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Budget (INR)"
+              type="number"
+              min={0}
+              value={editBudget}
+              onChange={(e) => setEditBudget(Number(e.target.value) || 0)}
+            />
+            <Input
+              label="Primary Objective"
+              value={editObjective}
+              onChange={(e) => setEditObjective(e.target.value)}
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Start Date"
+              type="date"
+              value={editStartDate}
+              onChange={(e) => setEditStartDate(e.target.value)}
+            />
+            <Input
+              label="End Date"
+              type="date"
+              value={editEndDate}
+              onChange={(e) => setEditEndDate(e.target.value)}
+            />
+          </div>
+          <Textarea
+            label="Description"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+            rows={3}
+          />
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+            <Button
+              variant="secondary"
+              onClick={() => setEditModalOpen(false)}
+              disabled={savingEdit}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditSave}
+              disabled={savingEdit}
+              className="gap-2"
+            >
+              {savingEdit && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        open={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        title="Delete Campaign?"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            Are you sure you want to delete <span className="font-semibold text-text">{campaign.name}</span>?
+            This action cannot be undone. All recorded campaign activity will also be removed.
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setDeleteModalOpen(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteConfirm}
+              disabled={deleting}
+              className="gap-2"
+            >
+              {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
+              Delete Campaign
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

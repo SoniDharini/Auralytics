@@ -1,5 +1,5 @@
 # ==========================================
-# InfluenceOS Git Ignore
+# InfluenceOS .gitignore
 # ==========================================
 
 # Environment variables & secrets
@@ -7,6 +7,12 @@
 .env.*
 !.env.example
 *.env
+backend/.env
+frontend/.env
+*.env.local
+*.env.development.local
+*.env.test.local
+*.env.production.local
 
 # Python Virtual Environments
 venv/
@@ -16,6 +22,9 @@ ENV/
 backend/venv/
 backend/env/
 backend/.venv/
+frontend/venv/
+env.bak/
+venv.bak/
 
 # Python Bytecode & Cache
 __pycache__/
@@ -35,9 +44,12 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Testing & Coverage
 .pytest_cache/
@@ -50,20 +62,25 @@ nosetests.xml
 coverage.xml
 *.cover
 *.py,cover
+.hypothesis/
 
 # Node / Frontend
 node_modules/
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
+frontend/.vite/
+.vite/
+dist/
+dist-ssr/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .eslintcache
-.vite/
-frontend/.vite/
+.stylelintcache
+.turbo/
 
 # PostgreSQL Standalone Binaries & Data
 pgsql/
@@ -73,18 +90,24 @@ pgsql/lib/
 pgsql/share/
 pgsql/include/
 *.log
+*.log.*
 pg.log
 logfile
+logfile.log
 
 # Database files
 *.db
 *.sqlite
 *.sqlite3
 *.db-journal
+influenceos.db
+backend/*.db
+backend/*.sqlite3
 
 # IDE & Editor Configs
-.vscode/*
+.vscode/
 !.vscode/extensions.json
+!.vscode/launch.json
 .idea/
 *.swp
 *.swo
@@ -92,6 +115,15 @@ logfile
 *.ntvs*
 *.njsproj
 *.sln
+.history/
+*.sublime-workspace
+*.sublime-project
+
+# AI Agent & IDE artifacts
+.gemini/
+.system_generated/
+scratch/
+.agent/
 
 # OS Generated Files
 .DS_Store
@@ -101,4 +133,5 @@ logfile
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
 Desktop.ini

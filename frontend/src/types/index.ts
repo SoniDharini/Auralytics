@@ -66,38 +66,115 @@ export interface Campaign {
   conversions: number
   reach: number
   objective: string
+  description?: string
+  campaign_types?: string[]
+  target_locations?: string
+  target_age_min?: number
+  target_age_max?: number
+  target_gender?: string
+  interests?: string[]
+  languages?: string[]
+  platforms?: Platform[]
+  creator_tiers?: CreatorTier[]
+  budget_allocation?: { id: string; label: string; amount: number; color?: string; rationale?: string }[]
+  primary_kpi?: string
+  target_roas?: number
+  target_cpa?: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface CampaignActivity {
+  id: string
+  user_id: string
+  campaign_id?: string | null
+  activity_type: string
+  title: string
+  description?: string | null
+  metadata_json?: Record<string, any> | null
+  created_at: string
+}
+
+export interface DashboardSummary {
+  total_campaigns: number
+  active_campaigns: number
+  pending_campaigns: number
+  completed_campaigns: number
+  total_spend: number
+  total_revenue: number
+  average_roas: number
+  pending_approvals: number
 }
 
 export interface Influencer {
   id: string
+  external_id?: string | null
   name: string
   username: string
-  avatar: string
-  platform: Platform
+  description?: string | null
+  avatar?: string | null
+  profile_url?: string | null
+  thumbnail_url?: string | null
+  platform: Platform | string
   verified: boolean
   niches: string[]
   followers: number
+  total_views?: number
+  content_count?: number
   engagementRate: number
   avgViews: number
   avgLikes: number
   avgComments: number
-  estimatedCost: number
-  location: string
-  aiMatchScore: number
-  predictedRoas: number
-  audienceFit: number
-  authenticity: number
-  brandSafety: number
-  nicheMatch: number
-  budgetFit: number
-  audienceGender: { male: number; female: number; other: number }
-  audienceAge: { range: string; percent: number }[]
-  topCountries: { country: string; percent: number }[]
-  topCities: string[]
-  interests: string[]
-  whyRecommended: string
+  estimatedCost?: number | null
+  location?: string | null
+  country?: string | null
+  aiMatchScore?: number | null
+  predictedRoas?: number | null
+  audienceFit?: number | null
+  authenticity?: number | null
+  brandSafety?: number | null
+  nicheMatch?: number | null
+  budgetFit?: number | null
+  audienceGender?: { male: number; female: number; other: number } | null
+  audienceAge?: { range: string; percent: number }[] | null
+  topCountries?: { country: string; percent: number }[] | null
+  topCities?: string[] | null
+  interests?: string[]
+  whyRecommended?: string | null
   shortlisted?: boolean
   status?: OutreachStatus
+  data_source?: string
+  source_fetched_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface IntegrationStatus {
+  youtube: {
+    configured: boolean
+    max_creators?: number
+  }
+  instagram: {
+    configured: boolean
+    api_version?: string
+  }
+}
+
+export interface InfluencerFetchResponse {
+  campaign_id: string
+  status: string
+  total_discovered: number
+  providers: Record<
+    string,
+    {
+      status: string
+      fetched: number
+      created: number
+      updated: number
+      message?: string | null
+    }
+  >
+  influencers?: Influencer[]
 }
 
 export interface ApprovalItem {

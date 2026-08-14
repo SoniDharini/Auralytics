@@ -68,3 +68,9 @@ class Campaign(Base):
 
     # Relationships
     owner: Mapped["User"] = relationship("User", back_populates="campaigns")
+    activities: Mapped[List["CampaignActivity"]] = relationship(
+        "CampaignActivity",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="CampaignActivity.created_at.desc()",
+    )
