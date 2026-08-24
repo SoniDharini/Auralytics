@@ -1,6 +1,6 @@
 import { CheckCircle2, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { cn, formatINR, formatNumber } from '@/utils'
+import { cn, formatNumber } from '@/utils'
 import type { Influencer } from '@/types'
 import { Avatar } from './Avatar'
 import { Badge } from './Badge'
@@ -13,7 +13,14 @@ interface InfluencerCardProps {
   influencer: Influencer
   onShortlist?: (id: string) => void
   className?: string
+  /** Campaign-specific match score, shown in place of the global AI score. */
+  matchScore?: number | null
+  /** Link target for the profile button, so campaign context can be preserved. */
+  profileHref?: string
+  shortlistLabel?: string
 }
+
+const NOT_AVAILABLE = 'N/A'
 
 function formatFreshness(isoString?: string | null): string {
   if (!isoString) return 'Recent'
@@ -34,8 +41,17 @@ export function InfluencerCard({
   influencer,
   onShortlist,
   className,
+  matchScore,
+  profileHref,
+  shortlistLabel,
 }: InfluencerCardProps) {
   const isYouTube = (influencer.platform || '').toLowerCase() === 'youtube'
+  const score = matchScore ?? influencer.aiMatchScore
+  // Engagement is only meaningful when it was derived from a real video sample.
+  const hasEngagement = (influencer.metricsSampleSize ?? 0) > 0 && !!influencer.engagementRate
+  const hasAvgViews = (influencer.avgViews ?? 0) > 0
+  const hasSubscribers = (influencer.followers ?? 0) > 0
+  const detailHref = profileHref ?? `/app/discovery/${influencer.id}`
 
   return (
     <Card className={cn('p-4 hover:border-primary/35 hover:shadow-sm transition-all group flex flex-col justify-between', className)}>
@@ -73,8 +89,11 @@ export function InfluencerCard({
             </div>
           </div>
 
-          {influencer.aiMatchScore ? (
-            <ProgressRing value={influencer.aiMatchScore} size={44} stroke={4} color="#7C3AED" />
+          {typeof score === 'number' ? (
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <ProgressRing value={score} size={44} stroke={4} color="#7C3AED" />
+              <span className="text-[10px] text-text-secondary font-medium">Match</span>
+            </div>
           ) : (
             <span className="text-[11px] text-text-secondary font-mono bg-page px-2 py-1 rounded-md border border-border">
               {formatFreshness(influencer.source_fetched_at)}
@@ -95,29 +114,33 @@ export function InfluencerCard({
         <div className="mt-4 grid grid-cols-2 gap-y-2.5 gap-x-3 text-xs">
           <div>
             <p className="text-text-secondary">{isYouTube ? 'Subscribers' : 'Followers'}</p>
-            <p className="font-semibold">{formatNumber(influencer.followers || 0)}</p>
+            <p className="font-semibold">
+              {hasSubscribers ? formatNumber(influencer.followers) : NOT_AVAILABLE}
+            </p>
           </div>
           <div>
             <p className="text-text-secondary">Engagement</p>
-            <p className="font-semibold text-primary">{influencer.engagementRate || 0}%</p>
+            <p className={cn('font-semibold', hasEngagement ? 'text-primary' : 'text-text-secondary')}>
+              {hasEngagement ? `${influencer.engagementRate}%` : NOT_AVAILABLE}
+            </p>
           </div>
           <div>
             <p className="text-text-secondary">Avg views</p>
-            <p className="font-semibold">{formatNumber(influencer.avgViews || 0)}</p>
+            <p className="font-semibold">
+              {hasAvgViews ? formatNumber(influencer.avgViews) : NOT_AVAILABLE}
+            </p>
           </div>
           <div>
-            <p className="text-text-secondary">Est. cost</p>
-            <p className="font-semibold text-text-secondary">
-              {influencer.estimatedCost && influencer.estimatedCost > 0
-                ? formatINR(influencer.estimatedCost, true)
-                : 'Not Available'}
+            <p className="text-text-secondary">Videos</p>
+            <p className="font-semibold">
+              {influencer.content_count ? formatNumber(influencer.content_count) : NOT_AVAILABLE}
             </p>
           </div>
         </div>
 
         <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-border">
           <span className="text-text-secondary truncate max-w-[140px]">
-            {influencer.location || influencer.country || 'Global'}
+            {influencer.country || influencer.location || 'Location N/A'}
           </span>
           {influencer.profile_url && (
             <a
@@ -133,7 +156,7 @@ export function InfluencerCard({
       </div>
 
       <div className="mt-4 flex gap-2">
-        <Link to={`/app/discovery/${influencer.id}`} className="flex-1">
+        <Link to={detailHref} className="flex-1">
           <Button variant="secondary" size="sm" className="w-full">
             View Profile
           </Button>
@@ -144,7 +167,7 @@ export function InfluencerCard({
           variant={influencer.shortlisted ? 'soft' : 'primary'}
           onClick={() => onShortlist?.(influencer.id)}
         >
-          {influencer.shortlisted ? 'Shortlisted' : 'Shortlist'}
+          {shortlistLabel ?? (influencer.shortlisted ? 'Shortlisted' : 'Shortlist')}
         </Button>
       </div>
     </Card>

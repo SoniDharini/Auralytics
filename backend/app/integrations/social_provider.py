@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -33,6 +34,13 @@ class NormalizedCreator(BaseModel):
     engagement_rate: float = 0.0
     data_source: str
     raw_payload: Optional[Dict[str, Any]] = None
+
+    # Provenance of the averages above. None when no derived metric could be computed.
+    metrics_source: Optional[str] = None
+    metrics_sample_size: int = 0
+    last_upload_at: Optional[datetime] = None
+    # Search term that surfaced this creator, for discovery traceability.
+    discovery_query: Optional[str] = None
 
 
 class SocialProvider(ABC):

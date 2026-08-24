@@ -10,7 +10,7 @@ import {
 import { api } from '@/services/api'
 import { AgentCard, Badge, Card, CardContent, CardHeader, CardTitle } from '@/components/ui'
 import { cn } from '@/utils'
-import type { Agent, TimelineEvent } from '@/types'
+import type { Agent, AgentRun, TimelineEvent } from '@/types'
 
 const defaultAgents: Agent[] = [
   {
@@ -100,6 +100,7 @@ const timelineStyles: Record<
 export function AgentsPage() {
   const [agentsList, setAgentsList] = useState<Agent[]>(defaultAgents)
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [runs, setRuns] = useState<AgentRun[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -120,6 +121,15 @@ export function AgentsPage() {
         }
       })
       .catch(() => {})
+
+    api.agents
+      .listRuns(30)
+      .then((data) => {
+        if (mounted) setRuns(data || [])
+      })
+      .catch(() => {
+        if (mounted) setRuns([])
+      })
 
     return () => {
       mounted = false
@@ -174,6 +184,56 @@ export function AgentsPage() {
           <AgentCard key={agent.id} agent={agent} />
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Agent Runs</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {runs.length === 0 ? (
+            <div className="text-center py-8 text-text-secondary">
+              <p className="font-semibold text-text">No agent activity yet</p>
+              <p className="text-xs mt-1">
+                Start a campaign workflow from Campaign → AI Strategy to create a real Strategy Agent run.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {runs.map((run) => (
+                <div
+                  key={run.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-border bg-page px-3 py-2.5 text-xs"
+                >
+                  <div>
+                    <p className="font-semibold text-text capitalize">{run.agentName} Agent</p>
+                    <p className="text-text-secondary mt-0.5">
+                      {run.inputSummary || run.errorMessage || 'Run recorded'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge
+                      variant={
+                        run.status === 'COMPLETED'
+                          ? 'success'
+                          : run.status === 'FAILED'
+                            ? 'danger'
+                            : run.status === 'WAITING_APPROVAL'
+                              ? 'warning'
+                              : 'default'
+                      }
+                    >
+                      {run.status}
+                    </Badge>
+                    <span className="font-mono text-text-secondary">
+                      {run.createdAt ? new Date(run.createdAt).toLocaleString() : '—'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

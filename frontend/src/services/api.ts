@@ -8,12 +8,20 @@ import type {
   ApprovalItem,
   Campaign,
   CampaignActivity,
+  CampaignCreator,
+  CampaignCreatorListResponse,
+  CampaignCreatorStatus,
+  CampaignStrategy,
   Contract,
   DashboardSummary,
+  DiscoveryResponse,
   Influencer,
   InfluencerFetchResponse,
   IntegrationStatus,
+  AgentRun,
+  AIStatus,
   OutreachStatus,
+  SupervisorStartResponse,
   TimelineEvent,
 } from '@/types'
 
@@ -198,6 +206,55 @@ export const api = {
       }),
   },
 
+  // Campaign-scoped creator discovery.
+  // `discover` is the only call that contacts YouTube; everything else reads PostgreSQL.
+  discovery: {
+    discover: (campaignId: string, options?: { refresh?: boolean; limit?: number }) => {
+      const params = new URLSearchParams()
+      if (options?.refresh) params.set('refresh', 'true')
+      if (options?.limit) params.set('limit', String(options.limit))
+      const qs = params.toString()
+      return request<DiscoveryResponse>(
+        `/campaigns/${campaignId}/discover-creators${qs ? `?${qs}` : ''}`,
+        { method: 'POST' },
+      )
+    },
+
+    listCreators: (
+      campaignId: string,
+      params?: {
+        page?: number
+        limit?: number
+        sort?: string
+        status?: string
+        min_subscribers?: number
+        max_subscribers?: number
+        min_engagement?: number
+        search?: string
+      },
+    ) => {
+      const search = new URLSearchParams()
+      Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          search.set(key, String(value))
+        }
+      })
+      const qs = search.toString()
+      return request<CampaignCreatorListResponse>(
+        `/campaigns/${campaignId}/influencers${qs ? `?${qs}` : ''}`,
+      )
+    },
+
+    getCreator: (campaignId: string, influencerId: string) =>
+      request<CampaignCreator>(`/campaigns/${campaignId}/influencers/${influencerId}`),
+
+    setStatus: (campaignId: string, influencerId: string, status: CampaignCreatorStatus) =>
+      request<CampaignCreator>(`/campaigns/${campaignId}/influencers/${influencerId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      }),
+  },
+
   // Activities API
   activities: {
     list: (campaignId?: string, limit = 20) =>
@@ -231,6 +288,22 @@ export const api = {
   agents: {
     list: () => request<Agent[]>('/agents'),
     getTimeline: () => request<TimelineEvent[]>('/agents/timeline'),
+    listRuns: (limit = 50) => request<AgentRun[]>(`/agent-runs?limit=${limit}`),
+    getRun: (id: string) => request<AgentRun>(`/agent-runs/${id}`),
+    start: (campaignId: string) =>
+      request<SupervisorStartResponse>(`/campaigns/${campaignId}/agents/start`, { method: 'POST' }),
+    runStrategy: (campaignId: string) =>
+      request<SupervisorStartResponse>(`/campaigns/${campaignId}/agents/strategy`, { method: 'POST' }),
+    runDiscovery: (campaignId: string) =>
+      request<SupervisorStartResponse>(`/campaigns/${campaignId}/agents/discovery`, { method: 'POST' }),
+    getStrategy: (campaignId: string) =>
+      request<CampaignStrategy | null>(`/campaigns/${campaignId}/agents/strategy`),
+    listCampaignRuns: (campaignId: string) =>
+      request<AgentRun[]>(`/campaigns/${campaignId}/agents/runs`),
+  },
+
+  ai: {
+    status: (probe = true) => request<AIStatus>(`/ai/status?probe=${probe ? 'true' : 'false'}`),
   },
 
   // Contracts API

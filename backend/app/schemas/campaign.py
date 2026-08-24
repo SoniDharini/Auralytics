@@ -29,6 +29,11 @@ class CampaignCreate(BaseModel):
     target_roas: Optional[float] = None
     target_cpa: Optional[float] = None
 
+    # Creator discovery criteria
+    keywords: Optional[List[str]] = None
+    min_followers: Optional[int] = Field(default=None, ge=0)
+    max_followers: Optional[int] = Field(default=None, ge=0)
+
 
 class CampaignUpdate(BaseModel):
     name: Optional[str] = None
@@ -60,6 +65,9 @@ class CampaignUpdate(BaseModel):
     primary_kpi: Optional[str] = None
     target_roas: Optional[float] = None
     target_cpa: Optional[float] = None
+    keywords: Optional[List[str]] = None
+    min_followers: Optional[int] = None
+    max_followers: Optional[int] = None
 
 
 class CampaignActivityResponse(BaseModel):
@@ -89,8 +97,8 @@ class CampaignResponse(BaseModel):
     roas: float
     influencers: int
     progress: int
-    startDate: str = Field(..., alias="start_date")
-    endDate: str = Field(..., alias="end_date")
+    startDate: str = Field(..., validation_alias="start_date", serialization_alias="startDate")
+    endDate: str = Field(..., validation_alias="end_date", serialization_alias="endDate")
     conversions: int
     reach: int
     objective: str
@@ -108,6 +116,11 @@ class CampaignResponse(BaseModel):
     primary_kpi: Optional[str] = None
     target_roas: Optional[float] = None
     target_cpa: Optional[float] = None
+    keywords: Optional[List[str]] = None
+    min_followers: Optional[int] = None
+    max_followers: Optional[int] = None
+    last_discovery_at: Optional[datetime] = None
+    workflow_state: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

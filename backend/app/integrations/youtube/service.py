@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 from app.integrations.social_provider import ContentMetrics, NormalizedCreator, SocialProvider
 from app.integrations.youtube.client import YouTubeClient, YouTubeAPIError
 from app.integrations.youtube.mapper import map_youtube_channel_to_creator
+from app.integrations.youtube.schemas import YouTubeChannelItem
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,76 @@ class YouTubeProvider(SocialProvider):
             normalized_creators.append(creator)
 
         return normalized_creators
+
+    # --- Staged discovery API -------------------------------------------------
+    # search.list costs 100 quota units per call while channels/playlistItems/videos
+    # cost 1 each. Splitting discovery into stages lets the caller drop candidates
+    # against campaign rules before spending quota on per-channel video lookups.
+
+    async def search_channel_candidates(
+        self,
+        queries: List[str],
+        max_per_query: int = 15,
+        region_code: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Stage one. Returns a channel_id -> originating search query map."""
+        candidates: Dict[str, str] = {}
+
+        for q in queries:
+            try:
+                search_res = await self.client.search_channels(
+                    query=q,
+                    max_results=max_per_query,
+                    region_code=region_code if region_code and len(region_code) == 2 else None,
+                )
+            except YouTubeAPIError as exc:
+                logger.error("YouTube search failed for query '%s': %s", q, exc)
+                # Quota exhaustion will affect every remaining query, so stop early.
+                if exc.status_code == 429:
+                    raise
+                continue
+
+            for item in search_res.items:
+                cid = item.id.channelId
+                if cid and cid not in candidates:
+                    candidates[cid] = q
+
+        return candidates
+
+    async def fetch_channels(self, channel_ids: List[str]) -> List[YouTubeChannelItem]:
+        """Stage two. Batched channel enrichment (up to 50 IDs per API call)."""
+        if not channel_ids:
+            return []
+        response = await self.client.get_channels_by_id(channel_ids)
+        return response.items
+
+    async def fetch_recent_video_stats(
+        self,
+        channel: YouTubeChannelItem,
+        max_videos: int = 8,
+    ) -> List[Dict[str, Any]]:
+        """Stage three. A small sample of recent uploads for derived metrics."""
+        uploads_playlist = (
+            channel.contentDetails.relatedPlaylists.uploads
+            if channel.contentDetails and channel.contentDetails.relatedPlaylists
+            else None
+        )
+        if not uploads_playlist:
+            return []
+
+        try:
+            video_ids = await self.client.get_playlist_items(uploads_playlist, max_results=max_videos)
+            if not video_ids:
+                return []
+            return await self.client.get_videos_statistics(video_ids[:max_videos])
+        except YouTubeAPIError as exc:
+            if exc.status_code == 429:
+                raise
+            logger.debug("Recent video statistics unavailable for channel %s: %s", channel.id, exc)
+            return []
+        except Exception as exc:
+            logger.debug("Recent video statistics unavailable for channel %s: %s", channel.id, exc)
+            return []
 
     async def get_creator(self, external_id: str) -> Optional[NormalizedCreator]:
         if not self.is_configured():

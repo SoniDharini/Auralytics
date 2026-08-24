@@ -77,6 +77,12 @@ export interface Campaign {
   platforms?: Platform[]
   creator_tiers?: CreatorTier[]
   budget_allocation?: { id: string; label: string; amount: number; color?: string; rationale?: string }[]
+  workflow_state?: string
+  workflowState?: string
+  keywords?: string[]
+  min_followers?: number
+  max_followers?: number
+  last_discovery_at?: string
   primary_kpi?: string
   target_roas?: number
   target_cpa?: number
@@ -147,6 +153,67 @@ export interface Influencer {
   source_fetched_at?: string | null
   created_at?: string
   updated_at?: string
+  businessEmail?: string | null
+  emailSource?: string | null
+  emailVerified?: boolean
+  lastUploadAt?: string | null
+  metricsSampleSize?: number
+  metricsSource?: string | null
+}
+
+export type CampaignCreatorStatus = 'DISCOVERED' | 'SHORTLISTED' | 'REJECTED' | 'CONTACTED'
+
+/** One weighted, explainable input to a campaign match score. */
+export interface MatchFactor {
+  key: string
+  label: string
+  weight: number
+  score: number | null
+  available: boolean
+  detail: string
+}
+
+/** A creator as seen from inside one campaign. */
+export interface CampaignCreator {
+  link_id: string
+  campaign_id: string
+  status: CampaignCreatorStatus
+  match_score?: number | null
+  match_reasons?: MatchFactor[] | null
+  discovery_query?: string | null
+  discovered_at: string
+  creator: Influencer
+}
+
+export interface CampaignCreatorListResponse {
+  campaign_id: string
+  source: string
+  count: number
+  total: number
+  page: number
+  limit: number
+  creators: CampaignCreator[]
+}
+
+export interface DiscoveryStats {
+  queries: string[]
+  raw_candidates: number
+  unique_channels: number
+  enriched_channels: number
+  passed_filters: number
+  filtered_out: number
+  created: number
+  updated: number
+  reused_from_cache: number
+}
+
+export interface DiscoveryResponse {
+  campaign_id: string
+  source: string
+  status: string
+  count: number
+  stats: DiscoveryStats
+  creators: CampaignCreator[]
 }
 
 export interface IntegrationStatus {
@@ -233,6 +300,54 @@ export interface TimelineEvent {
   agent: string
   message: string
   type: 'info' | 'success' | 'action' | 'human'
+}
+
+export interface AgentRun {
+  id: string
+  userId: string
+  campaignId: string
+  agentName: string
+  agentVersion: string
+  status: string
+  trigger: string
+  inputSummary?: string | null
+  outputJson?: Record<string, unknown> | null
+  confidence?: number | null
+  requiresApproval: boolean
+  errorMessage?: string | null
+  provider?: string | null
+  model?: string | null
+  providerLatencyMs?: number | null
+  startedAt?: string | null
+  completedAt?: string | null
+  createdAt: string
+}
+
+export interface CampaignStrategy {
+  id: string
+  campaignId: string
+  agentRunId?: string | null
+  strategyJson: Record<string, any>
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SupervisorStartResponse {
+  campaignId: string
+  workflowState: string
+  next?: string | null
+  message: string
+  agentRun?: AgentRun | null
+}
+
+export interface AIStatus {
+  provider: string
+  configured: boolean
+  reachable: boolean
+  model_configured: boolean
+  model?: string | null
+  detail?: string | null
 }
 
 export interface OptimizationRec {

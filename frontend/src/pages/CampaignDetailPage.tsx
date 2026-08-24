@@ -35,7 +35,7 @@ import {
   useToast,
 } from '@/components/ui'
 import { formatINR, statusLabel } from '@/utils'
-import type { Campaign, CampaignActivity, CampaignStatus, Influencer } from '@/types'
+import type { Campaign, CampaignActivity, CampaignCreator, CampaignStatus, CampaignStrategy, Influencer } from '@/types'
 
 
 const tabIds = [
@@ -67,10 +67,14 @@ export function CampaignDetailPage() {
   const [campaign, setCampaign] = useState<Campaign | null>(null)
   const [activities, setActivities] = useState<CampaignActivity[]>([])
   const [influencers, setInfluencers] = useState<Influencer[]>([])
+  const [campaignCreators, setCampaignCreators] = useState<CampaignCreator[]>([])
   const [loading, setLoading] = useState(true)
   const [discoveringCreators, setDiscoveringCreators] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [strategy, setStrategy] = useState<CampaignStrategy | null>(null)
+  const [strategyLoading, setStrategyLoading] = useState(false)
+  const [strategyRunning, setStrategyRunning] = useState(false)
 
   // Edit Modal State
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -88,36 +92,72 @@ export function CampaignDetailPage() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const loadData = () => {
+  const loadData = async () => {
     if (!id) return
     setLoading(true)
     setError(null)
+    setStrategyLoading(true)
 
-    Promise.all([
-      api.campaigns.get(id),
-      api.campaigns.getActivities(id).catch(() => []),
-      api.influencers.list().catch(() => []),
-    ])
-      .then(([camp, acts, infs]) => {
-        setCampaign(camp)
-        setActivities(acts)
-        setInfluencers(infs || [])
-        // Preload edit form
-        setEditName(camp.name)
-        setEditBrand(camp.brand)
-        setEditBudget(camp.budget)
-        setEditStatus(camp.status)
-        setEditObjective(camp.objective)
-        setEditStartDate(camp.startDate)
-        setEditEndDate(camp.endDate)
-        setEditDescription(camp.description || '')
+    try {
+      const [camp, acts, creatorsRes, strat] = await Promise.all([
+        api.campaigns.get(id),
+        api.campaigns.getActivities(id).catch(() => []),
+        api.discovery.listCreators(id).catch(() => ({ creators: [] as CampaignCreator[] })),
+        api.agents.getStrategy(id).catch(() => null),
+      ])
+      const creators = creatorsRes.creators || []
+      setCampaign(camp)
+      setActivities(acts)
+      setCampaignCreators(creators)
+      setInfluencers(creators.map((link) => link.creator))
+      setStrategy(strat)
+      setEditName(camp.name)
+      setEditBrand(camp.brand)
+      setEditBudget(camp.budget)
+      setEditStatus(camp.status)
+      setEditObjective(camp.objective)
+      setEditStartDate(camp.startDate)
+      setEditEndDate(camp.endDate)
+      setEditDescription(camp.description || '')
+    } catch (err: any) {
+      setError(err.message || 'Failed to load campaign')
+    } finally {
+      setLoading(false)
+      setStrategyLoading(false)
+    }
+  }
+
+  const handleGenerateStrategy = async () => {
+    if (!id) return
+    setStrategyRunning(true)
+    try {
+      const result = await api.agents.start(id)
+      if (result.agentRun?.status === 'FAILED') {
+        toast({
+          type: 'error',
+          title: 'Strategy Agent failed',
+          description: result.agentRun.errorMessage || result.message,
+        })
+      } else {
+        toast({
+          type: 'success',
+          title: 'Strategy generated',
+          description: result.message,
+        })
+      }
+      const strat = await api.agents.getStrategy(id).catch(() => null)
+      setStrategy(strat)
+      const camp = await api.campaigns.get(id)
+      setCampaign(camp)
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Could not run Strategy Agent',
+        description: err?.message || 'Check GROQ_API_KEY and try again.',
       })
-      .catch((err) => {
-        setError(err.message || 'Campaign not found or inaccessible.')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+    } finally {
+      setStrategyRunning(false)
+    }
   }
 
   useEffect(() => {
@@ -128,17 +168,39 @@ export function CampaignDetailPage() {
     if (!id || !campaign) return
     setDiscoveringCreators(true)
     try {
-      const res = await api.campaigns.fetchInfluencers(id, {
-        limit: 25,
-        force_refresh: true,
-      })
-      const fetchedCount = res.providers?.youtube?.fetched || 0
-      if (fetchedCount > 0) {
+      const res = await api.discovery.discover(id, { refresh: true, limit: 25 })
+      if (res.count > 0) {
         toast({
           type: 'success',
           title: 'Creators discovered',
-          description: `Acquired ${fetchedCount} creator profiles from YouTube matching "${campaign.name}".`,
+          description: `Acquired ${res.count} creator profiles from YouTube for "${campaign.name}".`,
         })
+
+        const currentStrategy = strategy ?? (await api.agents.getStrategy(id).catch(() => null))
+        if (currentStrategy) {
+          try {
+            const aiResult = await api.agents.runDiscovery(id)
+            if (aiResult.agentRun?.status === 'FAILED') {
+              toast({
+                type: 'error',
+                title: 'AI Discovery Agent failed',
+                description: aiResult.agentRun.errorMessage || aiResult.message,
+              })
+            } else {
+              toast({
+                type: 'success',
+                title: 'AI ranking complete',
+                description: 'Creators ranked using your campaign strategy.',
+              })
+            }
+          } catch (aiErr: any) {
+            toast({
+              type: 'error',
+              title: 'AI Discovery Agent failed',
+              description: aiErr?.message || 'Could not rank creators with strategy.',
+            })
+          }
+        }
       } else {
         toast({
           type: 'info',
@@ -146,7 +208,7 @@ export function CampaignDetailPage() {
           description: 'No new creators found for this brief.',
         })
       }
-      loadData()
+      await loadData()
     } catch (err: any) {
       toast({
         type: 'error',
@@ -243,12 +305,15 @@ export function CampaignDetailPage() {
   }
 
   const budgetUsedPct = campaign.budget > 0 ? (campaign.spend / campaign.budget) * 100 : 0
+  const campaignStart =
+    campaign.startDate || (campaign as { start_date?: string }).start_date || ''
+  const campaignEnd =
+    campaign.endDate || (campaign as { end_date?: string }).end_date || ''
   const formatDate = (d: string) => {
-    try {
-      return new Date(d).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
-    } catch {
-      return d
-    }
+    if (!d) return 'N/A'
+    const parsed = new Date(d.includes('T') ? d : `${d}T00:00:00`)
+    if (Number.isNaN(parsed.getTime())) return d
+    return parsed.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
   const formatActivityTime = (isoString: string) => {
@@ -299,7 +364,7 @@ export function CampaignDetailPage() {
             <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-text-secondary">
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-4 w-4" />
-                {formatDate(campaign.startDate)} – {formatDate(campaign.endDate)}
+                {formatDate(campaignStart)} – {formatDate(campaignEnd)}
               </span>
               <span>{campaign.brand}</span>
               <span className="bg-muted px-2 py-0.5 rounded-md text-xs font-semibold">{campaign.objective}</span>
@@ -471,19 +536,99 @@ export function CampaignDetailPage() {
 
       {activeTab === 'strategy' && (
         <Card className="animate-fade-in">
-          <CardContent className="py-12 text-center text-text-secondary">
-            <Sparkles className="h-10 w-10 mx-auto text-ai/40 mb-3" />
-            <h3 className="text-base font-semibold text-text">AI strategy not generated yet</h3>
-            <p className="text-xs mt-1 max-w-sm mx-auto">
-              Strategy Agent will evaluate creator mix, ROAS forecast, and pacing once active agent workflows begin.
-            </p>
+          <CardContent className="py-8 space-y-4">
+            {strategyLoading ? (
+              <div className="py-8 text-center text-text-secondary">
+                <Loader2 className="h-6 w-6 mx-auto animate-spin mb-2" />
+                Loading strategy…
+              </div>
+            ) : strategy?.strategyJson ? (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-ai" />
+                      <h3 className="text-base font-semibold text-text">AI Strategy</h3>
+                      <Badge variant="ai">v{strategy.version}</Badge>
+                    </div>
+                    <p className="text-xs text-text-secondary mt-1">
+                      Workflow: {campaign.workflow_state || campaign.workflowState || '—'} · Generated by Strategy Agent
+                    </p>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={handleGenerateStrategy} disabled={strategyRunning}>
+                    {strategyRunning ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Regenerating…
+                      </>
+                    ) : (
+                      'Regenerate Strategy'
+                    )}
+                  </Button>
+                </div>
+                <p className="text-sm text-text">{String(strategy.strategyJson.campaign_summary || '')}</p>
+                {Array.isArray(strategy.strategyJson.recommended_platform_mix) && (
+                  <div>
+                    <p className="text-xs font-semibold text-text mb-2">Platform mix</p>
+                    <div className="flex flex-wrap gap-2">
+                      {strategy.strategyJson.recommended_platform_mix.map((item: any, idx: number) => (
+                        <Badge key={idx} variant="outline">
+                          {item.platform}: {item.percentage}%
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {Array.isArray(strategy.strategyJson.content_strategy) && strategy.strategyJson.content_strategy.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-text mb-2">Content strategy</p>
+                    <ul className="list-disc pl-5 text-sm text-text-secondary space-y-1">
+                      {strategy.strategyJson.content_strategy.map((line: string, idx: number) => (
+                        <li key={idx}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {Array.isArray(strategy.strategyJson.risks) && strategy.strategyJson.risks.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-text mb-2">Risks</p>
+                    <ul className="list-disc pl-5 text-sm text-text-secondary space-y-1">
+                      {strategy.strategyJson.risks.map((line: string, idx: number) => (
+                        <li key={idx}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {strategy.strategyJson.reasoning && (
+                  <p className="text-xs text-text-secondary border-t border-border pt-3">
+                    {String(strategy.strategyJson.reasoning)}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-text-secondary space-y-3">
+                <Sparkles className="h-10 w-10 mx-auto text-ai/40" />
+                <h3 className="text-base font-semibold text-text">AI strategy not generated yet</h3>
+                <p className="text-xs mt-1 max-w-sm mx-auto">
+                  Supervisor will run the Strategy Agent using your real campaign brief and Groq. No fabricated metrics.
+                </p>
+                <Button size="sm" onClick={handleGenerateStrategy} disabled={strategyRunning}>
+                  {strategyRunning ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating strategy…
+                    </>
+                  ) : (
+                    'Generate Strategy'
+                  )}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
       {activeTab === 'influencers' && (
         <div className="space-y-4 animate-fade-in">
-          {influencers.length === 0 ? (
+          {campaignCreators.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-text-secondary space-y-3">
                 <Users className="h-10 w-10 mx-auto text-text-secondary/40" />
@@ -524,7 +669,7 @@ export function CampaignDetailPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-semibold text-text">Discovered Creators ({influencers.length})</h3>
+                  <h3 className="text-base font-semibold text-text">Discovered Creators ({campaignCreators.length})</h3>
                   <p className="text-xs text-text-secondary">Matching campaign audience and target keywords</p>
                 </div>
                 <Button
@@ -544,10 +689,11 @@ export function CampaignDetailPage() {
               </div>
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {influencers.map((inf) => (
+                {campaignCreators.map((link) => (
                   <InfluencerCard
-                    key={inf.id}
-                    influencer={inf}
+                    key={link.creator.id}
+                    influencer={link.creator}
+                    matchScore={link.match_score}
                     onShortlist={async (infId) => {
                       try {
                         await api.influencers.toggleShortlist(infId)

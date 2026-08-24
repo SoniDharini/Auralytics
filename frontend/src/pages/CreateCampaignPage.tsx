@@ -179,6 +179,9 @@ export function CreateCampaignPage() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(['instagram', 'youtube'])
   const [selectedTiers, setSelectedTiers] = useState<CreatorTier[]>(['micro', 'mid-tier'])
   const [selectedNiches, setSelectedNiches] = useState<string[]>(['Beauty', 'Skincare', 'Lifestyle'])
+  const [discoveryKeywords, setDiscoveryKeywords] = useState('')
+  const [minFollowers, setMinFollowers] = useState('10000')
+  const [maxFollowers, setMaxFollowers] = useState('500000')
 
   const [totalBudget, setTotalBudget] = useState(200000)
   const [allocation, setAllocation] = useState(() => buildAllocationFromTotal(200000))
@@ -233,6 +236,15 @@ export function CreateCampaignPage() {
 
   const objectiveLabel = objectives.find((o) => o.value === objective)?.label ?? objective
 
+  // Selected niches plus any free-text terms drive the YouTube search queries.
+  const buildDiscoveryKeywords = (): string[] => {
+    const typed = discoveryKeywords
+      .split(',')
+      .map((k) => k.trim())
+      .filter(Boolean)
+    return Array.from(new Set([...selectedNiches, ...typed]))
+  }
+
   const buildPayload = (status: 'active' | 'draft') => ({
     name: name.trim() || 'New Influencer Campaign',
     brand: brand.trim() || 'GlowNaturals',
@@ -256,6 +268,9 @@ export function CreateCampaignPage() {
     primary_kpi: primaryKpi,
     target_roas: parseFloat(targetRoas) || 3.0,
     target_cpa: parseFloat(targetCpa) || 150,
+    keywords: buildDiscoveryKeywords(),
+    min_followers: minFollowers ? Number(minFollowers) : undefined,
+    max_followers: maxFollowers ? Number(maxFollowers) : undefined,
   })
 
   const handleLaunch = async () => {
@@ -550,6 +565,47 @@ export function CreateCampaignPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="pt-4 border-t border-border space-y-4">
+                <div>
+                  <p className="text-sm font-medium">Creator discovery criteria</p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    These values are used verbatim to search the YouTube Data API and to filter results.
+                    The more specific they are, the better the matches.
+                  </p>
+                </div>
+
+                <Input
+                  label="Additional search keywords"
+                  placeholder="e.g. gym, workout, nutrition"
+                  hint="Comma separated. Combined with the niches above and your target location to build search queries."
+                  value={discoveryKeywords}
+                  onChange={(e) => setDiscoveryKeywords(e.target.value)}
+                />
+
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Input
+                    label="Minimum subscribers"
+                    type="number"
+                    min={0}
+                    placeholder="e.g. 10000"
+                    value={minFollowers}
+                    onChange={(e) => setMinFollowers(e.target.value)}
+                  />
+                  <Input
+                    label="Maximum subscribers"
+                    type="number"
+                    min={0}
+                    placeholder="e.g. 500000"
+                    value={maxFollowers}
+                    onChange={(e) => setMaxFollowers(e.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-text-secondary">
+                  Leave a bound empty for no limit. Creators who hide their subscriber count are still
+                  returned, with the uncertainty reflected in their match score.
+                </p>
               </div>
             </div>
           )}

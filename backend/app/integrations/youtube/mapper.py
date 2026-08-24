@@ -1,6 +1,20 @@
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from app.integrations.social_provider import ContentMetrics, NormalizedCreator
 from app.integrations.youtube.schemas import YouTubeChannelItem
+
+# Marks averages Auralytics computed itself rather than values reported by YouTube.
+DERIVED_METRIC_SOURCE = "auralytics_calculated"
+
+
+def _parse_published_at(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def map_youtube_channel_to_creator(
@@ -55,6 +69,9 @@ def map_youtube_channel_to_creator(
     avg_likes = 0
     avg_comments = 0
     engagement_rate = 0.0
+    metrics_source: Optional[str] = None
+    metrics_sample_size = 0
+    last_upload_at: Optional[datetime] = None
 
     if video_stats and len(video_stats) > 0:
         n = len(video_stats)
@@ -65,11 +82,19 @@ def map_youtube_channel_to_creator(
         avg_views = int(sum_views / n)
         avg_likes = int(sum_likes / n)
         avg_comments = int(sum_comments / n)
+        metrics_sample_size = n
+        metrics_source = DERIVED_METRIC_SOURCE
+
+        published_dates = [d for d in (_parse_published_at(v.get("published_at")) for v in video_stats) if d]
+        if published_dates:
+            last_upload_at = max(published_dates)
 
         if followers > 0:
             engagement_rate = round(((avg_likes + avg_comments) / followers) * 100, 2)
     elif content_count > 0 and total_views > 0:
+        # Lifetime average across all uploads; weaker than a recent-video sample but still real.
         avg_views = int(total_views / content_count)
+        metrics_source = DERIVED_METRIC_SOURCE
 
     raw_payload = {
         "channel_id": channel.id,
@@ -101,4 +126,7 @@ def map_youtube_channel_to_creator(
         engagement_rate=engagement_rate,
         data_source="youtube",
         raw_payload=raw_payload,
+        metrics_source=metrics_source,
+        metrics_sample_size=metrics_sample_size,
+        last_upload_at=last_upload_at,
     )

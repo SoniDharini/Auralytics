@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   CheckCircle2,
+  CircleSlash,
   ExternalLink,
   Loader2,
   MapPin,
+  MinusCircle,
   RefreshCw,
   Users,
 } from 'lucide-react'
@@ -18,11 +20,14 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  ProgressRing,
   useToast,
 } from '@/components/ui'
 import { PlatformIcon } from '@/components/ui/PlatformIcon'
-import { cn, formatINR, formatNumber } from '@/utils'
-import type { Influencer } from '@/types'
+import { cn, formatNumber } from '@/utils'
+import type { CampaignCreator, Influencer, MatchFactor } from '@/types'
+
+const NOT_AVAILABLE = 'N/A'
 
 function formatFreshness(isoString?: string | null): string {
   if (!isoString) return 'Recent'
@@ -41,48 +46,76 @@ function formatFreshness(isoString?: string | null): string {
 
 export function InfluencerDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
+  const campaignId = searchParams.get('campaign')
   const { toast } = useToast()
+
   const [influencer, setInfluencer] = useState<Influencer | null>(null)
+  const [campaignMatch, setCampaignMatch] = useState<CampaignCreator | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [shortlisted, setShortlisted] = useState(false)
 
-  const loadData = () => {
+  useEffect(() => {
     if (!id) return
+    let cancelled = false
     setLoading(true)
-    api.influencers
-      .get(id)
-      .then((data) => {
-        if (data) {
+
+    // Inside a campaign context the campaign-scoped record also carries the match breakdown.
+    const loader = campaignId
+      ? api.discovery.getCreator(campaignId, id).then((entry) => {
+          if (cancelled) return
+          setCampaignMatch(entry)
+          setInfluencer(entry.creator)
+          setShortlisted(entry.status === 'SHORTLISTED')
+        })
+      : api.influencers.get(id).then((data) => {
+          if (cancelled) return
+          setCampaignMatch(null)
           setInfluencer(data)
           setShortlisted(!!data.shortlisted)
-        }
-      })
+        })
+
+    loader
       .catch(() => {
-        setInfluencer(null)
+        if (!cancelled) setInfluencer(null)
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       })
-  }
 
-  useEffect(() => {
-    loadData()
-  }, [id])
+    return () => {
+      cancelled = true
+    }
+  }, [id, campaignId])
 
   const toggleShortlist = async () => {
     if (!id) return
     const nextState = !shortlisted
     setShortlisted(nextState)
     try {
-      await api.influencers.toggleShortlist(id)
+      if (campaignId) {
+        const updated = await api.discovery.setStatus(
+          campaignId,
+          id,
+          nextState ? 'SHORTLISTED' : 'DISCOVERED',
+        )
+        setCampaignMatch(updated)
+      } else {
+        await api.influencers.toggleShortlist(id)
+      }
       toast({
         type: 'success',
         title: nextState ? 'Shortlisted' : 'Removed from shortlist',
-        description: `${influencer?.name || 'Creator'} shortlist status updated.`,
+        description: `${influencer?.name || 'Creator'} shortlist status saved.`,
       })
-    } catch {
+    } catch (err: any) {
       setShortlisted(!nextState)
+      toast({
+        type: 'error',
+        title: 'Could not update shortlist',
+        description: err?.message || 'The change was not saved. Please try again.',
+      })
     }
   }
 
@@ -145,6 +178,9 @@ export function InfluencerDetailPage() {
   }
 
   const isYouTube = (influencer.platform || '').toLowerCase() === 'youtube'
+  const sampleSize = influencer.metricsSampleSize ?? 0
+  const hasSample = sampleSize > 0
+  const num = (value?: number | null) => (value && value > 0 ? formatNumber(value) : NOT_AVAILABLE)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -257,24 +293,34 @@ export function InfluencerDetailPage() {
         </CardContent>
       </Card>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-        {[
-          { label: isYouTube ? 'Subscribers' : 'Followers', value: formatNumber(influencer.followers || 0) },
-          { label: 'Engagement Rate', value: `${influencer.engagementRate || 0}%`, color: 'text-primary font-bold' },
-          { label: 'Avg Views / Video', value: formatNumber(influencer.avgViews || 0) },
-          { label: 'Avg Likes / Video', value: formatNumber(influencer.avgLikes || 0) },
-          { label: 'Avg Comments', value: formatNumber(influencer.avgComments || 0) },
-          {
-            label: 'Estimated Cost',
-            value: influencer.estimatedCost ? formatINR(influencer.estimatedCost, true) : 'Not Available',
-          },
-        ].map((m) => (
-          <Card key={m.label} className="p-4">
-            <p className="text-xs text-text-secondary">{m.label}</p>
-            <p className={cn('text-xl font-bold mt-1', m.color)}>{m.value}</p>
-          </Card>
-        ))}
+      <div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+          {[
+            { label: isYouTube ? 'Subscribers' : 'Followers', value: num(influencer.followers) },
+            {
+              label: 'Engagement Rate',
+              value: hasSample && influencer.engagementRate ? `${influencer.engagementRate}%` : NOT_AVAILABLE,
+              color: hasSample ? 'text-primary' : undefined,
+            },
+            { label: 'Avg Views / Video', value: num(influencer.avgViews) },
+            { label: 'Avg Likes / Video', value: num(influencer.avgLikes) },
+            { label: 'Avg Comments', value: num(influencer.avgComments) },
+            { label: 'Total Channel Views', value: num(influencer.total_views) },
+          ].map((m) => (
+            <Card key={m.label} className="p-4">
+              <p className="text-xs text-text-secondary">{m.label}</p>
+              <p className={cn('text-xl font-bold mt-1', m.color)}>{m.value}</p>
+            </Card>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-text-secondary px-1">
+          {hasSample
+            ? `Averages and engagement are Auralytics-derived from the ${sampleSize} most recent uploads reported by the YouTube Data API. YouTube does not publish these figures directly.`
+            : 'YouTube did not return recent video statistics for this channel, so per-video averages are unavailable.'}
+        </p>
       </div>
+
+      {campaignMatch && <CampaignMatchCard match={campaignMatch} />}
 
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
@@ -288,15 +334,25 @@ export function InfluencerDetailPage() {
             </div>
             <div className="flex justify-between py-1.5 border-b border-border">
               <span className="text-text-secondary">Total Content Count</span>
-              <span className="font-semibold">{formatNumber(influencer.content_count || 0)} uploads</span>
+              <span className="font-semibold">
+                {influencer.content_count ? `${formatNumber(influencer.content_count)} uploads` : NOT_AVAILABLE}
+              </span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-border">
-              <span className="text-text-secondary">Total Channel Views</span>
-              <span className="font-semibold">{formatNumber(influencer.total_views || 0)}</span>
+              <span className="text-text-secondary">Latest Upload</span>
+              <span className="font-semibold">
+                {influencer.lastUploadAt
+                  ? new Date(influencer.lastUploadAt).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })
+                  : NOT_AVAILABLE}
+              </span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-border">
               <span className="text-text-secondary">Country / Region</span>
-              <span className="font-semibold">{influencer.country || influencer.location || 'Global'}</span>
+              <span className="font-semibold">{influencer.country || NOT_AVAILABLE}</span>
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-text-secondary">Data Source</span>
@@ -307,26 +363,100 @@ export function InfluencerDetailPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-semibold">Outreach & Collaboration Status</CardTitle>
+            <CardTitle className="text-sm font-semibold">Contact Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 text-xs">
             <div className="flex justify-between py-1.5 border-b border-border">
-              <span className="text-text-secondary">Shortlist Status</span>
-              <span className="font-semibold capitalize text-primary">
-                {shortlisted ? 'Shortlisted' : 'Not Shortlisted'}
+              <span className="text-text-secondary">Campaign Status</span>
+              <span className="font-semibold text-primary">
+                {campaignMatch ? campaignMatch.status : shortlisted ? 'SHORTLISTED' : 'DISCOVERED'}
               </span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-border">
-              <span className="text-text-secondary">Negotiation Stage</span>
-              <span className="font-semibold capitalize">{influencer.status || 'not_contacted'}</span>
+              <span className="text-text-secondary">Business Email</span>
+              <span className="text-text-secondary">{influencer.businessEmail || 'Not available'}</span>
             </div>
-            <div className="flex justify-between py-1.5">
-              <span className="text-text-secondary">Direct Contact Email</span>
-              <span className="text-text-secondary">Not Available (Pending agent outreach)</span>
+            <div className="flex justify-between py-1.5 border-b border-border">
+              <span className="text-text-secondary">Instagram Profile</span>
+              <span className="text-text-secondary">Not available</span>
             </div>
+            <p className="pt-1 text-[11px] text-text-secondary leading-relaxed">
+              The YouTube Data API does not expose creator business emails or linked Instagram accounts.
+              Auralytics leaves these empty rather than guessing them.
+            </p>
           </CardContent>
         </Card>
       </div>
     </div>
+  )
+}
+
+function factorIcon(factor: MatchFactor) {
+  if (!factor.available) return <MinusCircle className="h-4 w-4 text-text-secondary shrink-0 mt-0.5" />
+  if ((factor.score ?? 0) >= 0.6) return <CheckCircle2 className="h-4 w-4 text-success shrink-0 mt-0.5" />
+  return <CircleSlash className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+}
+
+/** Explains exactly how the campaign match score was produced. */
+function CampaignMatchCard({ match }: { match: CampaignCreator }) {
+  const factors = match.match_reasons ?? []
+  const availableWeight = factors.filter((f) => f.available).reduce((sum, f) => sum + f.weight, 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm font-semibold">Campaign Match</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-col sm:flex-row gap-5">
+          <div className="flex flex-col items-center justify-center shrink-0 sm:w-32">
+            {typeof match.match_score === 'number' ? (
+              <>
+                <ProgressRing value={match.match_score} size={84} stroke={7} color="#7C3AED" />
+                <p className="text-xs text-text-secondary mt-2 text-center">Campaign fit</p>
+              </>
+            ) : (
+              <p className="text-xs text-text-secondary text-center">
+                Not enough campaign data to score this creator.
+              </p>
+            )}
+          </div>
+
+          <div className="flex-1 space-y-2.5">
+            {factors.length === 0 && (
+              <p className="text-xs text-text-secondary">No scoring breakdown was recorded for this creator.</p>
+            )}
+            {factors.map((factor) => (
+              <div key={factor.key} className="flex items-start gap-2.5">
+                {factorIcon(factor)}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-text">{factor.label}</span>
+                    <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-mono">
+                      {factor.available ? `${factor.weight}% weight` : 'not scored'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-text-secondary mt-0.5">{factor.detail}</p>
+                </div>
+              </div>
+            ))}
+
+            <div className="pt-2 mt-1 border-t border-border text-[11px] text-text-secondary space-y-1">
+              <p>
+                Score is a deterministic weighted average of the factors above
+                {availableWeight > 0 && ` (${availableWeight}% of the total weighting was available)`}. Factors
+                without real data are skipped rather than estimated.
+              </p>
+              {match.discovery_query && (
+                <p>
+                  Surfaced by the search query <span className="font-mono">"{match.discovery_query}"</span>. A
+                  search context is not a verified creator location.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

@@ -2,17 +2,33 @@
 # InfluenceOS .gitignore
 # ==========================================
 
-# Environment variables & secrets
+# Environment variables & secrets (never commit real keys)
 .env
 .env.*
 !.env.example
+!**/.env.example
 *.env
+!*.env.example
 backend/.env
 frontend/.env
 *.env.local
+*.env.development
+*.env.test
+*.env.production
 *.env.development.local
 *.env.test.local
 *.env.production.local
+.envrc
+
+# Credentials & key material
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+service-account*.json
+**/secrets/
 
 # Python Virtual Environments
 venv/
@@ -28,7 +44,9 @@ venv.bak/
 
 # Python Bytecode & Cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *$py.class
 *.so
 .Python
@@ -53,6 +71,10 @@ MANIFEST
 
 # Testing & Coverage
 .pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
 .coverage
 .coverage.*
 htmlcov/
@@ -73,6 +95,7 @@ frontend/.vite/
 .vite/
 dist/
 dist-ssr/
+*.tsbuildinfo
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -81,6 +104,7 @@ lerna-debug.log*
 .eslintcache
 .stylelintcache
 .turbo/
+.cache/
 
 # PostgreSQL Standalone Binaries & Data
 pgsql/
@@ -95,14 +119,18 @@ pg.log
 logfile
 logfile.log
 
-# Database files
+# Database files & local dumps
 *.db
 *.sqlite
 *.sqlite3
 *.db-journal
+*.sql.gz
+*.dump
 influenceos.db
 backend/*.db
 backend/*.sqlite3
+postgres-data/
+pgdata/
 
 # IDE & Editor Configs
 .vscode/
@@ -124,6 +152,7 @@ backend/*.sqlite3
 .system_generated/
 scratch/
 .agent/
+.cursor/
 
 # OS Generated Files
 .DS_Store

@@ -1,13 +1,29 @@
-# Start Native PostgreSQL Server (No Docker required)
-$PG_DIR = "$PSScriptRoot\pgsql"
-$DATA_DIR = "$PG_DIR\data"
-$LOG_FILE = "$PG_DIR\pg.log"
+# Start the Windows PostgreSQL service used by Auralytics (no Docker / no portable pgsql/).
+# Install path expected: %USERPROFILE%\PostgreSQL\18  (service name: postgresql-x64-18)
 
-if (!(Test-Path $DATA_DIR)) {
-    Write-Host "Initializing PostgreSQL cluster in $DATA_DIR..." -ForegroundColor Cyan
-    & "$PG_DIR\bin\initdb.exe" -D $DATA_DIR -U postgres -A trust --encoding=UTF8
+$ErrorActionPreference = "Stop"
+$ServiceName = "postgresql-x64-18"
+
+$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if (-not $svc) {
+    Write-Host "PostgreSQL Windows service '$ServiceName' was not found." -ForegroundColor Red
+    Write-Host "Install PostgreSQL 18, or update `$ServiceName in this script to match your install." -ForegroundColor Yellow
+    exit 1
 }
 
-Write-Host "Starting native PostgreSQL server on port 5432..." -ForegroundColor Green
-& "$PG_DIR\bin\pg_ctl.exe" -D $DATA_DIR -l $LOG_FILE start
-Write-Host "PostgreSQL is running!" -ForegroundColor Green
+if ($svc.Status -eq "Running") {
+    Write-Host "PostgreSQL is already running (service: $ServiceName, port 5432)." -ForegroundColor Green
+    exit 0
+}
+
+Write-Host "Starting PostgreSQL service '$ServiceName'..." -ForegroundColor Cyan
+Start-Service -Name $ServiceName
+Start-Sleep -Seconds 2
+
+$svc = Get-Service -Name $ServiceName
+if ($svc.Status -eq "Running") {
+    Write-Host "PostgreSQL is running!" -ForegroundColor Green
+} else {
+    Write-Host "Failed to start PostgreSQL. Status: $($svc.Status)" -ForegroundColor Red
+    exit 1
+}

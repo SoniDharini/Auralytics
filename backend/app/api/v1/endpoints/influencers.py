@@ -6,12 +6,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundException
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
+from app.models.campaign import Campaign
+from app.models.campaign_influencer import CampaignInfluencer
 from app.models.influencer import Influencer
 from app.models.user import User
 from app.schemas.influencer import InfluencerResponse
 from app.services.influencer_ingestion_service import InfluencerIngestionService
 
 router = APIRouter(prefix="/influencers", tags=["Influencers"])
+
+
+def _visible_influencer_ids(current_user: User):
+    """IDs of creators discovered by one of the current user's own campaigns.
+
+    Influencer rows are shared across the platform (the same real channel can be
+    discovered by many brands), so every read is constrained to the creators that
+    the requesting user's campaigns actually surfaced.
+    """
+    return (
+        select(CampaignInfluencer.influencer_id)
+        .join(Campaign, Campaign.id == CampaignInfluencer.campaign_id)
+        .where(Campaign.owner_id == current_user.id)
+    )
 
 
 @router.get("", response_model=List[InfluencerResponse], summary="List and filter discovered influencers")
@@ -24,7 +40,11 @@ async def list_influencers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Influencer).order_by(desc(Influencer.followers))
+    stmt = (
+        select(Influencer)
+        .where(Influencer.id.in_(_visible_influencer_ids(current_user)))
+        .order_by(desc(Influencer.followers))
+    )
     if platform and platform != "all":
         stmt = stmt.where(Influencer.platform == platform.lower())
     if shortlisted is not None:
@@ -56,19 +76,25 @@ async def list_influencers(
     return filtered
 
 
+async def _get_visible_influencer(db: AsyncSession, influencer_id: str, current_user: User) -> Influencer:
+    stmt = select(Influencer).where(
+        Influencer.id == influencer_id,
+        Influencer.id.in_(_visible_influencer_ids(current_user)),
+    )
+    result = await db.execute(stmt)
+    influencer = result.scalar_one_or_none()
+    if not influencer:
+        raise NotFoundException(detail=f"Influencer {influencer_id} not found")
+    return influencer
+
+
 @router.get("/{influencer_id}", response_model=InfluencerResponse, summary="Get influencer by ID")
 async def get_influencer(
     influencer_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Influencer).where(Influencer.id == influencer_id)
-    result = await db.execute(stmt)
-    influencer = result.scalar_one_or_none()
-
-    if not influencer:
-        raise NotFoundException(detail=f"Influencer {influencer_id} not found")
-
+    influencer = await _get_visible_influencer(db, influencer_id, current_user)
     return InfluencerResponse.model_validate(influencer)
 
 
@@ -78,12 +104,7 @@ async def toggle_shortlist(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Influencer).where(Influencer.id == influencer_id)
-    result = await db.execute(stmt)
-    influencer = result.scalar_one_or_none()
-
-    if not influencer:
-        raise NotFoundException(detail=f"Influencer {influencer_id} not found")
+    influencer = await _get_visible_influencer(db, influencer_id, current_user)
 
     influencer.shortlisted = not influencer.shortlisted
     await db.commit()
@@ -98,6 +119,8 @@ async def refresh_influencer_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    await _get_visible_influencer(db, influencer_id, current_user)
+
     service = InfluencerIngestionService()
     updated_inf = await service.refresh_influencer(db, influencer_id)
     if not updated_inf:

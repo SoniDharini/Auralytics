@@ -72,11 +72,24 @@ class Influencer(Base):
         nullable=False,
     )
 
+    # Recency of the creator's latest published content, when the platform exposes it.
+    last_upload_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Number of recent posts used to derive avg_views/avg_likes/avg_comments.
+    metrics_sample_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # "auralytics_calculated" when averages are derived rather than reported by the platform.
+    metrics_source: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     snapshots: Mapped[List["InfluencerSourceSnapshot"]] = relationship(
         "InfluencerSourceSnapshot",
         back_populates="influencer",
         cascade="all, delete-orphan",
         order_by="InfluencerSourceSnapshot.fetched_at.desc()",
+    )
+    campaign_links: Mapped[List["CampaignInfluencer"]] = relationship(
+        "CampaignInfluencer",
+        back_populates="influencer",
+        cascade="all, delete-orphan",
     )
 
 

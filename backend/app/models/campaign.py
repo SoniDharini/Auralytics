@@ -54,6 +54,20 @@ class Campaign(Base):
     target_roas: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     target_cpa: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
+    # Creator discovery criteria
+    keywords: Mapped[Optional[List[str]]] = mapped_column(JSON_COMPAT(), nullable=True)
+    min_followers: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    max_followers: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_discovery_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Deterministic Supervisor workflow state (not LLM-inferred).
+    workflow_state: Mapped[str] = mapped_column(
+        String(64),
+        default="CAMPAIGN_CREATED",
+        nullable=False,
+        index=True,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -73,4 +87,20 @@ class Campaign(Base):
         back_populates="campaign",
         cascade="all, delete-orphan",
         order_by="CampaignActivity.created_at.desc()",
+    )
+    campaign_influencers: Mapped[List["CampaignInfluencer"]] = relationship(
+        "CampaignInfluencer",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+    )
+    agent_runs: Mapped[List["AgentRun"]] = relationship(
+        "AgentRun",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+    )
+    strategies: Mapped[List["CampaignStrategy"]] = relationship(
+        "CampaignStrategy",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="CampaignStrategy.version.desc()",
     )

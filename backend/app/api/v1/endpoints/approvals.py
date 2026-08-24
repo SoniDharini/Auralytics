@@ -20,7 +20,7 @@ async def list_approvals(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Approval)
+    stmt = select(Approval).where(Approval.user_id == current_user.id)
     if status:
         stmt = stmt.where(Approval.status == status)
     stmt = stmt.order_by(Approval.created_at.desc())
@@ -37,7 +37,10 @@ async def decide_approval(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    stmt = select(Approval).where(Approval.id == approval_id)
+    stmt = select(Approval).where(
+        Approval.id == approval_id,
+        Approval.user_id == current_user.id,
+    )
     result = await db.execute(stmt)
     approval = result.scalar_one_or_none()
 
@@ -47,6 +50,7 @@ async def decide_approval(
     approval.status = data.decision
     approval.decision_reason = data.reason
     approval.reviewed_at = datetime.now(timezone.utc)
+    approval.resolved_by = current_user.id
 
     await db.commit()
     await db.refresh(approval)

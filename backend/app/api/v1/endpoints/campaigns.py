@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.dependencies.auth import get_current_user
 from app.models.campaign import Campaign
 from app.models.campaign_activity import CampaignActivity
+from app.models.campaign_influencer import CampaignInfluencer
 from app.models.influencer import Influencer
 from app.models.user import User
 from app.schemas.campaign import (
@@ -23,7 +24,7 @@ from app.schemas.influencer import (
     InfluencerResponse,
     ProviderResultSchema,
 )
-from app.services.influencer_ingestion_service import InfluencerIngestionService
+from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 
@@ -83,6 +84,9 @@ async def create_campaign(
         primary_kpi=data.primary_kpi,
         target_roas=data.target_roas,
         target_cpa=data.target_cpa,
+        keywords=data.keywords,
+        min_followers=data.min_followers,
+        max_followers=data.max_followers,
     )
     db.add(campaign)
 
@@ -245,7 +249,8 @@ async def get_campaign_activities(
 @router.post(
     "/{campaign_id}/fetch-influencers",
     response_model=InfluencerFetchResponse,
-    summary="Acquire real creator data from social platforms for this campaign",
+    summary="Deprecated: use POST /campaigns/{campaign_id}/discover-creators",
+    deprecated=True,
 )
 async def fetch_campaign_influencers(
     campaign_id: str,
@@ -253,7 +258,11 @@ async def fetch_campaign_influencers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Verify campaign belongs to current user
+    """Legacy alias kept so older clients keep working.
+
+    Runs the same campaign-scoped discovery pipeline and reports results in the
+    previous response shape.
+    """
     camp_stmt = select(Campaign).where(
         Campaign.id == campaign_id,
         Campaign.owner_id == current_user.id,
@@ -263,36 +272,39 @@ async def fetch_campaign_influencers(
     if not campaign:
         raise NotFoundException(detail=f"Campaign {campaign_id} not found")
 
-    service = InfluencerIngestionService()
-    res = await service.ingest_for_campaign(
+    service = CreatorDiscoveryService()
+    res = await discover_for_campaign_with_retry(
         db=db,
+        service=service,
         campaign=campaign,
         user_id=current_user.id,
-        requested_platforms=payload.platforms if payload else None,
-        limit_per_platform=payload.limit if payload else 25,
+        limit=payload.limit if payload and payload.limit else 25,
         force_refresh=payload.force_refresh if payload else False,
     )
+    await db.commit()
 
-    # Fetch real influencers currently stored in database matching platform
-    inf_stmt = select(Influencer)
-    inf_res = await db.execute(inf_stmt)
-    db_influencers = inf_res.scalars().all()
+    stats = res.get("stats", {})
+    links = res.get("links", [])
 
-    providers_dict = {
-        k: ProviderResultSchema(
-            status=v.get("status", "unknown"),
-            fetched=v.get("fetched", 0),
-            created=v.get("created", 0),
-            updated=v.get("updated", 0),
-            message=v.get("message"),
-        )
-        for k, v in res.get("providers", {}).items()
-    }
+    # Only the creators linked to this campaign, never the whole influencer table.
+    inf_res = await db.execute(
+        select(Influencer)
+        .join(CampaignInfluencer, CampaignInfluencer.influencer_id == Influencer.id)
+        .where(CampaignInfluencer.campaign_id == campaign.id)
+    )
+    campaign_influencers = inf_res.scalars().all()
 
     return InfluencerFetchResponse(
         campaign_id=campaign.id,
         status=res.get("status", "completed"),
-        total_discovered=res.get("total_discovered", 0),
-        providers=providers_dict,
-        influencers=[InfluencerResponse.model_validate(i) for i in db_influencers],
+        total_discovered=len(links),
+        providers={
+            "youtube": ProviderResultSchema(
+                status="success" if res.get("status") == "completed" else "empty",
+                fetched=stats.get("passed_filters", 0),
+                created=stats.get("created", 0),
+                updated=stats.get("updated", 0),
+            )
+        },
+        influencers=[InfluencerResponse.model_validate(i) for i in campaign_influencers],
     )

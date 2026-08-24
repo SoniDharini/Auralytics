@@ -14,7 +14,6 @@ from app.integrations.youtube.schemas import (
 )
 from app.models.campaign import Campaign
 from app.models.user import User
-from app.services.influencer_ingestion_service import InfluencerIngestionService
 from app.services.query_builder import CampaignQueryBuilder
 
 
@@ -140,30 +139,37 @@ async def test_influencer_fetch_for_campaign(client):
     assert camp_res.status_code == 201
     camp_id = camp_res.json()["id"]
 
-    # 3. Mock YouTube Provider to simulate live API results deterministically
-    mock_creator = NormalizedCreator(
-        external_id="UC_live_creator_999",
-        platform="youtube",
-        username="@live_glow_creator",
-        name="Live Glow Reviews",
-        description="Authentic skincare testing and ingredient reviews.",
-        avatar="https://img.youtube.com/avatar.jpg",
-        profile_url="https://www.youtube.com/@live_glow_creator",
-        country="IN",
-        location="India",
-        followers=85000,
-        total_views=3500000,
-        content_count=42,
-        avg_views=32000,
-        avg_likes=2100,
-        avg_comments=190,
-        engagement_rate=2.69,
-        data_source="youtube",
+    # 3. Mock the YouTube provider stages to simulate live API results deterministically
+    mock_channel = YouTubeChannelItem(
+        id="UC_live_creator_999",
+        snippet=YouTubeSnippet(
+            title="Live Glow Reviews",
+            description="Authentic skincare testing and clean beauty ingredient reviews.",
+            customUrl="@live_glow_creator",
+            country="IN",
+            thumbnails={"high": {"url": "https://img.youtube.com/avatar.jpg"}},
+        ),
+        statistics=YouTubeStatistics(
+            subscriberCount="85000",
+            viewCount="3500000",
+            videoCount="42",
+            hiddenSubscriberCount=False,
+        ),
+        contentDetails=YouTubeContentDetails(
+            relatedPlaylists=YouTubeRelatedPlaylists(uploads="UU_live_creator_999")
+        ),
     )
 
-    with patch("app.services.influencer_ingestion_service.YouTubeProvider.is_configured", return_value=True), \
-         patch("app.services.influencer_ingestion_service.YouTubeProvider.search_creators", new_callable=AsyncMock) as mock_search:
-        mock_search.return_value = [mock_creator]
+    provider_path = "app.services.creator_discovery_service.YouTubeProvider"
+    with patch(f"{provider_path}.is_configured", return_value=True), \
+         patch(f"{provider_path}.search_channel_candidates", new_callable=AsyncMock) as mock_search, \
+         patch(f"{provider_path}.fetch_channels", new_callable=AsyncMock) as mock_channels, \
+         patch(f"{provider_path}.fetch_recent_video_stats", new_callable=AsyncMock) as mock_videos:
+        mock_search.return_value = {"UC_live_creator_999": "Skincare India"}
+        mock_channels.return_value = [mock_channel]
+        mock_videos.return_value = [
+            {"view_count": 30000, "like_count": 2000, "comment_count": 180, "published_at": "2026-08-01T10:00:00Z"},
+        ]
 
         fetch_res = await client.post(
             f"/api/v1/campaigns/{camp_id}/fetch-influencers",
