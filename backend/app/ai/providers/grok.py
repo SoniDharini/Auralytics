@@ -69,6 +69,8 @@ class GrokProvider(LLMProvider):
         response_model: Optional[Type[BaseModel]] = None,
     ) -> LLMRawResponse:
         if not self.is_configured():
+            if response_model is not None:
+                return self._generate_dev_fallback(response_model, user_prompt)
             raise AINotConfiguredException(
                 detail="GROQ_API_KEY is not configured. Add it to the backend environment."
             )
@@ -178,6 +180,238 @@ class GrokProvider(LLMProvider):
         if not content or not str(content).strip():
             raise AIProviderException(detail="Groq returned empty content")
         return str(content).strip()
+
+    def _generate_dev_fallback(
+        self, response_model: Type[BaseModel], user_prompt: str
+    ) -> LLMRawResponse:
+        from app.ai.agents.strategy import (
+            StrategyAgentOutput,
+            PlatformStrategyItem,
+            CreatorStrategy,
+            CreatorTierPreference,
+            ContentStrategyItem,
+            BudgetStrategy,
+            KpiStrategyItem,
+            CampaignPhaseItem,
+            DiscoveryPriorityItem,
+            RiskItem,
+        )
+        from app.ai.agents.discovery import DiscoveryAgentOutput, RecommendedInfluencer
+        from app.ai.agents.outreach import OutreachAgentOutput
+
+        logger.info("[Auralytics AI] GROQ_API_KEY not configured — generating dev fallback strategy")
+
+        if response_model == StrategyAgentOutput:
+            fallback = StrategyAgentOutput(
+                campaign_summary="Tailored strategy for campaign positioning, creator tier distribution, and multi-channel budget allocation.",
+                strategy_objective="Drive brand awareness, high audience engagement, and target ROAS efficiency across primary creator platforms.",
+                platform_strategy=[
+                    PlatformStrategyItem(
+                        platform="youtube",
+                        priority="HIGH",
+                        reason="Primary video platform for long-term discovery, high retention, and detailed product demonstrations.",
+                        suggested_budget_percentage=60.0,
+                    ),
+                    PlatformStrategyItem(
+                        platform="instagram",
+                        priority="MEDIUM",
+                        reason="Visual reels and story amplification for fast audience reach and immediate campaign momentum.",
+                        suggested_budget_percentage=40.0,
+                    ),
+                ],
+                creator_strategy=CreatorStrategy(
+                    preferred_niches=["Skincare", "Clean Beauty", "Lifestyle"],
+                    preferred_creator_tiers=[
+                        CreatorTierPreference(
+                            tier="Micro (10k-100k)",
+                            priority="HIGH",
+                            reason="High audience trust and organic engagement rates.",
+                        ),
+                        CreatorTierPreference(
+                            tier="Mid-Tier (100k-500k)",
+                            priority="MEDIUM",
+                            reason="Scalable reach and established channel authority.",
+                        ),
+                    ],
+                    preferred_locations=["India"],
+                    desired_creator_characteristics=[
+                        "High video view retention",
+                        "Authentic product usage demos",
+                        "Active comment section interaction",
+                    ],
+                ),
+                content_strategy=[
+                    ContentStrategyItem(
+                        content_type="In-Depth Product Review",
+                        purpose="Educate audience on benefits and key features",
+                        priority="HIGH",
+                    ),
+                    ContentStrategyItem(
+                        content_type="Integrated Routine Segment",
+                        purpose="Show real-world daily integration",
+                        priority="MEDIUM",
+                    ),
+                ],
+                budget_strategy=BudgetStrategy(
+                    creator_budget_percentage=70.0,
+                    content_amplification_percentage=20.0,
+                    reserve_percentage=10.0,
+                    reasoning="70% for creator talent fees, 20% for paid content boosting, 10% contingency reserve.",
+                ),
+                kpi_strategy=[
+                    KpiStrategyItem(
+                        kpi="Engagement Rate",
+                        importance="HIGH",
+                        reason="Measures active viewer sentiment and brand resonance.",
+                    ),
+                    KpiStrategyItem(
+                        kpi="Target ROAS (3x)",
+                        importance="HIGH",
+                        reason="Measures direct sales attribution efficiency.",
+                    ),
+                ],
+                campaign_phases=[
+                    CampaignPhaseItem(
+                        phase="Phase 1: Organic Teaser & Unboxing",
+                        objective="Generate initial curiosity and social mentions",
+                        recommended_creator_type="Micro Creators",
+                    ),
+                    CampaignPhaseItem(
+                        phase="Phase 2: Core Conversion Launch",
+                        objective="Drive direct purchases with promo codes and link tracking",
+                        recommended_creator_type="Mid-Tier Creators",
+                    ),
+                ],
+                discovery_priorities=[
+                    DiscoveryPriorityItem(
+                        factor="Niche Relevance",
+                        priority=1,
+                        reason="Matches campaign target audience interests and keywords",
+                    ),
+                    DiscoveryPriorityItem(
+                        factor="Engagement Quality",
+                        priority=2,
+                        reason="Ensures authentic community interaction over passive follower counts",
+                    ),
+                    DiscoveryPriorityItem(
+                        factor="Audience Location",
+                        priority=3,
+                        reason="Aligns with geographic campaign targeting",
+                    ),
+                ],
+                risks=[
+                    RiskItem(
+                        risk="Creator Publishing Delays",
+                        severity="LOW",
+                        mitigation="Incorporate a 7-day draft review window in creator contracts",
+                    ),
+                    RiskItem(
+                        risk="Creative Fatigue",
+                        severity="MEDIUM",
+                        mitigation="Diversify creator hooks and feature callouts across video assets",
+                    ),
+                ],
+                strategy_reasoning="Strategy constructed from campaign parameters and deterministic heuristics. (Add GROQ_API_KEY to backend/.env for live LLM reasoning).",
+                confidence=0.92,
+            )
+            return LLMRawResponse(
+                content=json.dumps(fallback.model_dump()),
+                model="auralytics-dev-fallback",
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=100, completion_tokens=300, total_tokens=400),
+                provider="dev_fallback",
+                latency_ms=15.0,
+            )
+
+        if response_model == DiscoveryAgentOutput:
+            try:
+                data = json.loads(user_prompt) if user_prompt.startswith("{") else {}
+                candidates = data.get("candidates") or []
+            except Exception:
+                candidates = []
+
+            recs = []
+            for idx, c in enumerate(candidates[:10], start=1):
+                inf_id = c.get("influencer_id") or f"inf-{idx}"
+                det_score = float(c.get("deterministic_match_score") or 85.0)
+                recs.append(
+                    RecommendedInfluencer(
+                        influencer_id=inf_id,
+                        rank=idx,
+                        ai_fit_score=min(98.0, max(60.0, det_score + 5.0)),
+                        campaign_fit="EXCELLENT" if idx <= 3 else "GOOD",
+                        recommendation_reason=f"Strong niche alignment ({', '.join(c.get('niches') or ['General'])}) and consistent engagement.",
+                        strategy_alignment=["High engagement rate", "Matches target location"],
+                        strengths=["High video retention", "Active audience comments"],
+                        risks=["Monitor brand safety"],
+                        best_use_case="Primary product feature integration",
+                        confidence=0.90,
+                    )
+                )
+            fallback = DiscoveryAgentOutput(
+                campaign_id=data.get("campaign_id"),
+                recommended_influencers=recs,
+                overall_reasoning="Ranked candidates based on deterministic match scores and campaign fit heuristics. (Add GROQ_API_KEY to backend/.env for live LLM reasoning).",
+                confidence=0.90,
+            )
+            return LLMRawResponse(
+                content=json.dumps(fallback.model_dump()),
+                model="auralytics-dev-fallback",
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=100, completion_tokens=300, total_tokens=400),
+                provider="dev_fallback",
+                latency_ms=15.0,
+            )
+
+        if response_model == OutreachAgentOutput:
+            inf_id = "creator-123"
+            inf_name = "Creator"
+            try:
+                data = json.loads(user_prompt) if user_prompt.startswith("{") else {}
+                inf_obj = data.get("influencer") or {}
+                if inf_obj.get("influencer_id"):
+                    inf_id = inf_obj["influencer_id"]
+                if inf_obj.get("name"):
+                    inf_name = inf_obj["name"]
+            except Exception:
+                pass
+            fallback = OutreachAgentOutput(
+                influencer_id=inf_id,
+                channel="EMAIL",
+                subject="Exclusive Brand Collaboration Opportunity",
+                message=(
+                    f"Hi {inf_name},\n\n"
+                    f"We have been following your channel and love your authentic content style! "
+                    f"Our team is launching an exciting new campaign and your audience alignment makes you a standout fit.\n\n"
+                    f"We would love to partner with you for a dedicated product review & social highlight. "
+                    f"We offer competitive talent fees, clear creative guidelines, and full team support.\n\n"
+                    f"Would you be open to discussing deliverables and timeline for this collaboration?\n\n"
+                    f"Best regards,\nThe Campaign Team"
+                ),
+                short_dm=(
+                    f"Hi {inf_name}! We love your content and would love to collaborate on our upcoming campaign. "
+                    f"Would you be open to checking out a partnership proposal?"
+                ),
+                call_to_action="Would you be open to discussing deliverables and timeline for this collaboration?",
+                personalization_points=[
+                    "High audience alignment and niche compatibility",
+                    "Content style matches campaign objective",
+                    "Recommended by Auralytics Discovery Agent",
+                ],
+                confidence=0.92,
+            )
+            return LLMRawResponse(
+                content=json.dumps(fallback.model_dump()),
+                model="auralytics-dev-fallback",
+                finish_reason="stop",
+                usage=LLMUsage(prompt_tokens=100, completion_tokens=300, total_tokens=400),
+                provider="dev_fallback",
+                latency_ms=15.0,
+            )
+
+        raise AINotConfiguredException(
+            detail="GROQ_API_KEY is not configured. Add it to the backend environment."
+        )
 
 
 def extract_json_object(text: str) -> Dict[str, Any]:

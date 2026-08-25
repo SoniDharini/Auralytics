@@ -82,6 +82,27 @@ async def run_discovery_agent(
     )
 
 
+@router.post("/outreach", response_model=SupervisorStartResponse, summary="Run Outreach Agent")
+async def run_outreach_agent(
+    campaign_id: str,
+    influencer_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    supervisor = SupervisorAgent(db)
+    campaign = await supervisor.load_owned_campaign(campaign_id, current_user)
+    result = await supervisor.run_outreach(
+        campaign=campaign, user=current_user, influencer_id=influencer_id, trigger="manual"
+    )
+    return SupervisorStartResponse(
+        campaignId=result["campaign_id"],
+        workflowState=result["workflow_state"],
+        next=result.get("next"),
+        message=result["message"],
+        agentRun=_serialize_run(result.get("agent_run")),
+    )
+
+
 @router.get("/runs", response_model=List[AgentRunResponse], summary="List agent runs for campaign")
 async def list_campaign_agent_runs(
     campaign_id: str,

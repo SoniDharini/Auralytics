@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.agents.discovery import DiscoveryAgent
+from app.ai.agents.outreach import OutreachAgent
 from app.ai.agents.strategy import StrategyAgent
 from app.ai.execution import AgentExecutionService
 from app.ai.workflow_states import ALLOWED_TRANSITIONS, AgentNames, AgentRunStatus, WorkflowState
@@ -20,6 +21,7 @@ from app.models.approval import Approval
 from app.models.campaign import Campaign
 from app.models.campaign_influencer import CampaignInfluencer
 from app.models.campaign_strategy import CampaignStrategy
+from app.models.outreach import OutreachMessage
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,9 @@ class SupervisorAgent:
                 "message": "Workflow is waiting for human shortlist approval.",
                 "agent_run": None,
             }
+
+        if state in (WorkflowState.SHORTLIST_APPROVED, WorkflowState.OUTREACH_PENDING):
+            return await self.run_outreach(campaign=campaign, user=user, trigger=trigger)
 
         return {
             "campaign_id": campaign.id,
@@ -325,3 +330,90 @@ class SupervisorAgent:
             approval.id,
             campaign.id,
         )
+
+    async def run_outreach(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        influencer_id: Optional[str] = None,
+        trigger: str = "manual",
+    ) -> Dict[str, Any]:
+        state = campaign.workflow_state or WorkflowState.CAMPAIGN_CREATED
+        if state == WorkflowState.SHORTLIST_APPROVED:
+            await self._set_state(campaign, WorkflowState.OUTREACH_PENDING)
+
+        extras = {}
+        if influencer_id:
+            extras["influencer_id"] = influencer_id
+
+        agent = OutreachAgent()
+        run = await self.execution.run(
+            agent=agent,
+            user=user,
+            campaign=campaign,
+            trigger=trigger,
+            extras=extras,
+        )
+
+        outreach_msg = None
+        if run.status == AgentRunStatus.COMPLETED and run.output_json:
+            outreach_msg = await self._persist_outreach_message(campaign, run, influencer_id)
+            if campaign.workflow_state == WorkflowState.OUTREACH_PENDING:
+                await self._set_state(campaign, WorkflowState.OUTREACH_COMPLETED)
+        elif run.status == AgentRunStatus.FAILED:
+            if campaign.workflow_state == WorkflowState.OUTREACH_PENDING:
+                campaign.workflow_state = WorkflowState.FAILED
+                await self.db.flush()
+
+        await self.db.commit()
+        await self.db.refresh(run)
+
+        return {
+            "campaign_id": campaign.id,
+            "workflow_state": campaign.workflow_state,
+            "next": "contract" if run.status == AgentRunStatus.COMPLETED else None,
+            "message": (
+                "Outreach Agent completed message generation"
+                if run.status == AgentRunStatus.COMPLETED
+                else f"Outreach Agent {run.status}"
+            ),
+            "agent_run": run,
+            "outreach_message": outreach_msg,
+        }
+
+    async def _persist_outreach_message(
+        self, campaign: Campaign, run: AgentRun, influencer_id: Optional[str] = None
+    ) -> Optional[OutreachMessage]:
+        data = (run.output_json or {}).get("data") or {}
+        inf_id = influencer_id or data.get("influencer_id")
+        if not inf_id:
+            return None
+
+        msg_id = f"outr-{uuid.uuid4().hex[:12]}"
+        msg = OutreachMessage(
+            id=msg_id,
+            campaign_id=campaign.id,
+            influencer_id=inf_id,
+            agent_run_id=run.id,
+            influencer_name=data.get("influencer_name") or "Creator",
+            influencer_username=data.get("influencer_username") or "creator",
+            campaign_name=campaign.name,
+            channel=data.get("channel") or "EMAIL",
+            subject=data.get("subject") or "Collaboration Opportunity",
+            body=data.get("message") or "",
+            short_dm=data.get("short_dm") or "",
+            call_to_action=data.get("call_to_action") or "",
+            personalization_points=data.get("personalization_points") or [],
+            confidence=float(data.get("confidence") or 0.90),
+            status="READY",
+        )
+        self.db.add(msg)
+        await self.db.flush()
+        logger.info(
+            "Persisted outreach message %s for creator %s in campaign %s",
+            msg.id,
+            inf_id,
+            campaign.id,
+        )
+        return msg

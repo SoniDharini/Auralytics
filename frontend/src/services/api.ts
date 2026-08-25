@@ -296,6 +296,11 @@ export const api = {
       request<SupervisorStartResponse>(`/campaigns/${campaignId}/agents/strategy`, { method: 'POST' }),
     runDiscovery: (campaignId: string) =>
       request<SupervisorStartResponse>(`/campaigns/${campaignId}/agents/discovery`, { method: 'POST' }),
+    runOutreach: (campaignId: string, influencerId?: string) =>
+      request<SupervisorStartResponse>(
+        `/campaigns/${campaignId}/agents/outreach${influencerId ? `?influencer_id=${influencerId}` : ''}`,
+        { method: 'POST' },
+      ),
     getStrategy: (campaignId: string) =>
       request<CampaignStrategy | null>(`/campaigns/${campaignId}/agents/strategy`),
     listCampaignRuns: (campaignId: string) =>
@@ -314,11 +319,22 @@ export const api = {
 
   // Outreach API
   outreach: {
-    list: (status?: string) => request<any[]>(`/outreach${status ? `?status=${status}` : ''}`),
-    updateStatus: (id: string, status: OutreachStatus, reply?: string) =>
+    list: (campaignId?: string, status?: string) => {
+      const params = new URLSearchParams()
+      if (campaignId) params.set('campaign_id', campaignId)
+      if (status) params.set('status', status)
+      const qs = params.toString()
+      return request<any[]>(`/outreach${qs ? `?${qs}` : ''}`)
+    },
+    generate: (campaignId: string, influencerId?: string) =>
+      request<SupervisorStartResponse>(`/outreach/generate/${campaignId}`, {
+        method: 'POST',
+        body: JSON.stringify({ influencer_id: influencerId }),
+      }),
+    updateStatus: (id: string, status: OutreachStatus | string, reply?: string, body?: string, short_dm?: string) =>
       request<any>(`/outreach/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status, reply }),
+        body: JSON.stringify({ status, reply, body, short_dm }),
       }),
   },
 

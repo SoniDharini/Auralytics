@@ -19,6 +19,8 @@ from app.models.campaign import Campaign
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.influencer import Influencer
 from app.models.user import User
+from app.ai.agents.supervisor import SupervisorAgent
+from app.models.outreach import OutreachMessage
 from app.schemas.influencer import (
     CampaignCreatorListResponse,
     CampaignCreatorResponse,
@@ -254,6 +256,31 @@ async def update_campaign_influencer_status(
     # Keep the cross-campaign shortlist flag in sync for the global Shortlist workspace.
     if new_status == CampaignInfluencerStatus.SHORTLISTED:
         link.influencer.shortlisted = True
+
+        # Trigger Supervisor Outreach Agent if draft does not already exist for this creator
+        existing_msg = await db.execute(
+            select(OutreachMessage).where(
+                OutreachMessage.campaign_id == campaign_id,
+                OutreachMessage.influencer_id == influencer_id,
+            )
+        )
+        if not existing_msg.scalars().first():
+            supervisor = SupervisorAgent(db)
+            campaign = await db.get(Campaign, campaign_id)
+            if campaign:
+                try:
+                    await supervisor.run_outreach(
+                        campaign=campaign,
+                        user=current_user,
+                        influencer_id=influencer_id,
+                        trigger="shortlist_event",
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Auto outreach generation on shortlist event failed for creator %s: %s",
+                        influencer_id,
+                        exc,
+                    )
     elif new_status in (CampaignInfluencerStatus.DISCOVERED, CampaignInfluencerStatus.REJECTED):
         still_shortlisted = await db.execute(
             select(func.count())
