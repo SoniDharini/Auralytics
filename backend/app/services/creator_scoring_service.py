@@ -102,6 +102,7 @@ class CreatorSignals:
     metrics_sample_size: int = 0
     last_upload_at: Optional[datetime] = None
     country: Optional[str] = None
+    extra_text: Optional[str] = None
 
 
 def _tokenize(text: str) -> List[str]:
@@ -159,7 +160,7 @@ class CreatorScoringService:
                 detail="Campaign has no keywords or interests to match against.",
             )
 
-        haystack = f"{signals.name} {signals.description or ''}".lower()
+        haystack = f"{signals.name} {signals.description or ''} {signals.extra_text or ''}".lower()
         matched = [t for t in campaign_terms if t in haystack]
 
         # Three solid keyword hits is treated as a strong topical signal.

@@ -15,9 +15,11 @@ dist-ssr
 .cache
 .vite
 
-# Environment (keys stay backend-only)
+# Environment (provider keys stay backend-only — never VITE_GROQ / VITE_YOUTUBE / VITE_XAI)
 .env
 .env.*
+.env.local
+.env.*.local
 !.env.example
 
 # Editor directories and files

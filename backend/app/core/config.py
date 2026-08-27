@@ -57,10 +57,11 @@ class Settings(BaseSettings):
 
     # External Provider Configuration
     YOUTUBE_API_KEY: Optional[str] = None
-    YOUTUBE_DISCOVERY_MAX_CREATORS: int = 30
+    YOUTUBE_DISCOVERY_MAX_CREATORS: int = 50
     # search.list costs 100 quota units per call, so this is deliberately small.
-    YOUTUBE_MAX_SEARCH_QUERIES: int = 4
+    YOUTUBE_MAX_SEARCH_QUERIES: int = 5
     YOUTUBE_RECENT_VIDEO_SAMPLE: int = 8
+    DISCOVERY_FINAL_RESULT_LIMIT: int = 20
 
     INSTAGRAM_APP_ID: Optional[str] = None
     INSTAGRAM_APP_SECRET: Optional[str] = None

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
   Calendar,
@@ -20,6 +20,7 @@ import { api } from '@/services/api'
 import {
   Badge,
   Button,
+  CampaignJourney,
   Card,
   CardContent,
   CardHeader,
@@ -27,6 +28,7 @@ import {
   InfluencerCard,
   Input,
   Modal,
+  NextStepCard,
   ProgressBar,
   Select,
   StatusChip,
@@ -35,7 +37,15 @@ import {
   useToast,
 } from '@/components/ui'
 import { formatINR, statusLabel } from '@/utils'
-import type { Campaign, CampaignActivity, CampaignCreator, CampaignStatus, CampaignStrategy } from '@/types'
+import type {
+  Campaign,
+  CampaignActivity,
+  CampaignCreator,
+  CampaignStatus,
+  CampaignStrategy,
+  CampaignWorkflow,
+  CampaignWorkflowStep,
+} from '@/types'
 
 
 const tabIds = [
@@ -61,12 +71,14 @@ const statusOptions: { value: CampaignStatus; label: string }[] = [
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const { toast } = useToast()
 
   const [campaign, setCampaign] = useState<Campaign | null>(null)
   const [activities, setActivities] = useState<CampaignActivity[]>([])
   const [campaignCreators, setCampaignCreators] = useState<CampaignCreator[]>([])
+  const [workflow, setWorkflow] = useState<CampaignWorkflow | null>(null)
   const [loading, setLoading] = useState(true)
   const [discoveringCreators, setDiscoveringCreators] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -76,6 +88,7 @@ export function CampaignDetailPage() {
   const [strategyRunning, setStrategyRunning] = useState(false)
   const [outreachMessages, setOutreachMessages] = useState<any[]>([])
   const [outreachRunning, setOutreachRunning] = useState(false)
+  const discoveringRef = useRef(false)
 
   // Edit Modal State
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -100,12 +113,13 @@ export function CampaignDetailPage() {
     setStrategyLoading(true)
 
     try {
-      const [camp, acts, creatorsRes, strat, outrMsgs] = await Promise.all([
+      const [camp, acts, creatorsRes, strat, outrMsgs, wf] = await Promise.all([
         api.campaigns.get(id),
         api.campaigns.getActivities(id).catch(() => []),
         api.discovery.listCreators(id).catch(() => ({ creators: [] as CampaignCreator[] })),
         api.agents.getStrategy(id).catch(() => null),
         api.outreach.list(id).catch(() => []),
+        api.campaigns.getWorkflow(id).catch(() => null),
       ])
       const creators = creatorsRes.creators || []
       setCampaign(camp)
@@ -113,6 +127,7 @@ export function CampaignDetailPage() {
       setCampaignCreators(creators)
       setStrategy(strat)
       setOutreachMessages(outrMsgs || [])
+      setWorkflow(wf)
       setEditName(camp.name)
       setEditBrand(camp.brand)
       setEditBudget(camp.budget)
@@ -133,8 +148,9 @@ export function CampaignDetailPage() {
     if (!id) return
     setStrategyRunning(true)
     try {
-      const result = await api.agents.start(id)
-      if (result.agentRun?.status === 'FAILED') {
+      const result = await api.agents.runStrategy(id)
+      const strategyFailed = result.agentRun?.status === 'FAILED'
+      if (strategyFailed) {
         toast({
           type: 'error',
           title: 'Strategy Agent failed',
@@ -144,13 +160,15 @@ export function CampaignDetailPage() {
         toast({
           type: 'success',
           title: 'Strategy generated',
-          description: result.message,
+          description: 'AI strategy is saved. Next, discover influencers for this campaign.',
         })
       }
       const strat = await api.agents.getStrategy(id).catch(() => null)
       setStrategy(strat)
       const camp = await api.campaigns.get(id)
       setCampaign(camp)
+      const wf = await api.campaigns.getWorkflow(id).catch(() => null)
+      setWorkflow(wf)
     } catch (err: any) {
       toast({
         type: 'error',
@@ -184,6 +202,8 @@ export function CampaignDetailPage() {
       setOutreachMessages(outr)
       const camp = await api.campaigns.get(id)
       setCampaign(camp)
+      const wf = await api.campaigns.getWorkflow(id).catch(() => null)
+      setWorkflow(wf)
     } catch (err: any) {
       toast({
         type: 'error',
@@ -199,8 +219,16 @@ export function CampaignDetailPage() {
     loadData()
   }, [id])
 
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && (tabIds as readonly string[]).includes(tab)) {
+      setActiveTab(tab as TabId)
+    }
+  }, [id, searchParams])
+
   const handleDiscoverForCampaign = async () => {
-    if (!id || !campaign) return
+    if (!id || !campaign || discoveringRef.current) return
+    discoveringRef.current = true
     setDiscoveringCreators(true)
     try {
       const res = await api.discovery.discover(id, { refresh: true, limit: 25 })
@@ -245,13 +273,54 @@ export function CampaignDetailPage() {
       }
       await loadData()
     } catch (err: any) {
+      const unauthorized = err?.status === 401
       toast({
         type: 'error',
-        title: 'Discovery failed',
-        description: err.message || 'Could not fetch creator data.',
+        title: unauthorized ? 'Session expired' : 'Discovery failed',
+        description: unauthorized
+          ? 'Please sign in again, then retry Discover Influencers.'
+          : err.message || 'Could not fetch creator data.',
       })
     } finally {
+      discoveringRef.current = false
       setDiscoveringCreators(false)
+    }
+  }
+
+  const handleWorkflowStepClick = (step: CampaignWorkflowStep) => {
+    if (step.tab && (tabIds as readonly string[]).includes(step.tab)) {
+      setActiveTab(step.tab as TabId)
+      return
+    }
+    if (step.route) {
+      navigate(step.route)
+    }
+  }
+
+  const handleNextAction = async () => {
+    if (!workflow) return
+    const action = workflow.next_action
+    const key = action.key
+
+    if (action.tab && (tabIds as readonly string[]).includes(action.tab)) {
+      setActiveTab(action.tab as TabId)
+    }
+
+    if (key === 'GENERATE_STRATEGY') {
+      await handleGenerateStrategy()
+      return
+    }
+    if (key === 'DISCOVER_INFLUENCERS') {
+      if (discoveringCreators || discoveringRef.current) return
+      await handleDiscoverForCampaign()
+      return
+    }
+    if (key === 'GENERATE_OUTREACH') {
+      await handleRunOutreachAgent()
+      return
+    }
+    if (key === 'APPROVE_SHORTLIST') {
+      navigate(action.route || '/app/approvals')
     }
   }
 
@@ -468,6 +537,29 @@ export function CampaignDetailPage() {
         </Card>
       </div>
 
+      {workflow && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <div>
+                <CardTitle>Campaign Journey</CardTitle>
+                <p className="text-xs text-text-secondary mt-1">
+                  {workflow.progress_percentage}% of the live workflow complete
+                </p>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <CampaignJourney steps={workflow.steps} onStepClick={handleWorkflowStepClick} />
+            </CardContent>
+          </Card>
+          <NextStepCard
+            workflow={workflow}
+            busy={strategyRunning || discoveringCreators || outreachRunning}
+            onAction={handleNextAction}
+          />
+        </div>
+      )}
+
       <Tabs tabs={tabs} active={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
       {activeTab === 'overview' && (
@@ -587,7 +679,9 @@ export function CampaignDetailPage() {
                       <Badge variant="ai">v{strategy.version}</Badge>
                     </div>
                     <p className="text-xs text-text-secondary mt-1">
-                      Workflow: {campaign.workflow_state || campaign.workflowState || '—'} · Generated by Strategy Agent
+                      {campaign.workflow_state === 'FAILED'
+                        ? 'Strategy saved · Generated by Strategy Agent'
+                        : `Workflow: ${campaign.workflow_state || campaign.workflowState || 'STRATEGY_COMPLETED'} · Generated by Strategy Agent`}
                     </p>
                   </div>
                   <Button size="sm" variant="secondary" onClick={handleGenerateStrategy} disabled={strategyRunning}>
@@ -725,15 +819,27 @@ export function CampaignDetailPage() {
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {campaignCreators.map((link) => (
-                  <InfluencerCard
+                    <InfluencerCard
                     key={link.creator.id}
-                    influencer={link.creator}
+                    influencer={{
+                      ...link.creator,
+                      shortlisted: link.status === 'SHORTLISTED' || link.creator.shortlisted,
+                    }}
                     matchScore={link.match_score}
+                    shortlistLabel={link.status === 'SHORTLISTED' ? 'Shortlisted' : 'Shortlist'}
                     onShortlist={async (infId) => {
+                      if (!id) return
+                      const nextStatus = link.status === 'SHORTLISTED' ? 'DISCOVERED' : 'SHORTLISTED'
                       try {
-                        await api.influencers.toggleShortlist(infId)
-                        loadData()
-                      } catch {}
+                        await api.discovery.setStatus(id, infId, nextStatus)
+                        await loadData()
+                      } catch (err: any) {
+                        toast({
+                          type: 'error',
+                          title: 'Could not update shortlist',
+                          description: err?.message || 'The change was not saved. Please try again.',
+                        })
+                      }
                     }}
                   />
                 ))}

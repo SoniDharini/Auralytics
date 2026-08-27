@@ -24,26 +24,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const restoreSession = async () => {
-    try {
-      const authData = await api.auth.refresh()
-      if (authData?.access_token && authData?.user) {
-        setAccessToken(authData.access_token)
-        setUser(authData.user)
-      } else {
-        setUser(null)
-        setAccessToken(null)
-      }
-    } catch {
-      setUser(null)
-      setAccessToken(null)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   useEffect(() => {
-    restoreSession()
+    let cancelled = false
+    const restore = async () => {
+      try {
+        const authData = await api.auth.refresh()
+        if (cancelled) return
+        if (authData?.access_token && authData?.user) {
+          setAccessToken(authData.access_token)
+          setUser(authData.user)
+        } else {
+          setUser(null)
+          setAccessToken(null)
+        }
+      } catch {
+        if (!cancelled) {
+          setUser(null)
+          setAccessToken(null)
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    restore()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const login = async (email: string, password: string): Promise<UserProfile> => {

@@ -37,6 +37,37 @@ async def test_campaign_query_builder():
 
 
 @pytest.mark.asyncio
+async def test_campaign_query_builder_uses_saved_strategy_niches():
+    """Discovery search terms must come from persisted strategy when the brief is thin."""
+    campaign = Campaign(
+        id="camp-test-strategy-1",
+        owner_id=uuid.uuid4(),
+        name="Launch",
+        brand="Acme Tech",
+        objective="Awareness",
+        target_locations="India",
+        keywords=[],
+        interests=[],
+        campaign_types=[],
+    )
+    strategy = {
+        "creator_strategy": {
+            "preferred_niches": ["Technology", "Gadgets"],
+            "preferred_locations": ["India"],
+        },
+        "discovery_priorities": [
+            {"factor": "Niche match", "priority": 1},
+            {"factor": "Audience alignment", "priority": 2},
+        ],
+    }
+
+    queries = CampaignQueryBuilder.build_queries(campaign, strategy=strategy)
+    assert any("Technology" in q for q in queries)
+    assert any("Gadgets" in q for q in queries)
+    assert all("Niche match" not in q for q in queries)
+
+
+@pytest.mark.asyncio
 async def test_youtube_mapper_metric_calculations():
     """Test that YouTube channel mapping calculates derived metrics correctly and leaves missing fields as None."""
     channel = YouTubeChannelItem(

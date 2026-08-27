@@ -18,12 +18,14 @@ from app.schemas.campaign import (
     CampaignResponse,
     CampaignUpdate,
 )
+from app.schemas.campaign_workflow import CampaignWorkflowResponse
 from app.schemas.influencer import (
     InfluencerFetchRequest,
     InfluencerFetchResponse,
     InfluencerResponse,
     ProviderResultSchema,
 )
+from app.services.campaign_workflow_service import CampaignWorkflowService
 from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
@@ -123,6 +125,28 @@ async def get_campaign(
         raise NotFoundException(detail=f"Campaign {campaign_id} not found")
 
     return CampaignResponse.model_validate(campaign)
+
+
+@router.get(
+    "/{campaign_id}/workflow",
+    response_model=CampaignWorkflowResponse,
+    summary="Read-only campaign journey: completed steps, current step, and next action",
+)
+async def get_campaign_workflow(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    stmt = select(Campaign).where(
+        Campaign.id == campaign_id,
+        Campaign.owner_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    campaign = result.scalar_one_or_none()
+    if not campaign:
+        raise NotFoundException(detail=f"Campaign {campaign_id} not found")
+
+    return await CampaignWorkflowService(db).get_state(campaign)
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse, summary="Update a campaign")

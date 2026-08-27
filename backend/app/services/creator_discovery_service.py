@@ -35,6 +35,7 @@ from app.integrations.youtube.service import YouTubeProvider
 from app.models.campaign import Campaign
 from app.models.campaign_activity import CampaignActivity
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
+from app.models.campaign_strategy import CampaignStrategy
 from app.models.influencer import Influencer, InfluencerSourceSnapshot
 from app.services.creator_scoring_service import (
     CreatorScoringService,
@@ -84,18 +85,29 @@ class CreatorDiscoveryService:
     # -- filtering -----------------------------------------------------------
 
     @staticmethod
-    def _passes_subscriber_filter(campaign: Campaign, followers: int, hidden: bool) -> Tuple[bool, str]:
+    def _passes_subscriber_filter(
+        campaign: Campaign,
+        followers: int,
+        hidden: bool,
+        strategy_json: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[bool, str]:
         """Campaigns keep creators whose subscriber count is unknown.
 
         A hidden subscriber count is missing information, not a disqualification, so
         the creator is kept and the uncertainty is reflected in the match score.
+        Strategy recommended ranges apply when campaign min/max are unset.
         """
         if hidden or followers <= 0:
             return True, "subscriber_count_hidden"
 
-        if campaign.min_followers and followers < campaign.min_followers:
+        # Only explicit campaign min/max are hard constraints. Strategy ranges
+        # are preferences applied later during ranking, not YouTube exclusions.
+        min_followers = campaign.min_followers
+        max_followers = campaign.max_followers
+
+        if min_followers and followers < min_followers:
             return False, "below_min_subscribers"
-        if campaign.max_followers and followers > campaign.max_followers:
+        if max_followers and followers > max_followers:
             return False, "above_max_subscribers"
         return True, "within_range"
 
@@ -227,14 +239,16 @@ class CreatorDiscoveryService:
                 "YouTube Data API is not configured on the server. Add YOUTUBE_API_KEY to the backend environment."
             )
 
+        strategy_json = await self._load_strategy_json(db, campaign.id)
         queries = CampaignQueryBuilder.build_queries(
             campaign,
             max_queries=settings.YOUTUBE_MAX_SEARCH_QUERIES,
+            strategy=strategy_json,
         )
         if not queries:
             raise InvalidRequestException(
-                "This campaign has no keywords, interests, or campaign types to search with. "
-                "Add discovery keywords to the campaign and try again."
+                "This campaign has no keywords, interests, campaign types, or strategy niches to search with. "
+                "Add discovery keywords to the campaign (or generate a strategy) and try again."
             )
         stats.queries = queries
         logger.info("Campaign %s discovery started. Generated %d search queries.", campaign.id, len(queries))
@@ -251,6 +265,11 @@ class CreatorDiscoveryService:
 
         target_country = resolve_target_country(campaign)
         campaign_terms = build_campaign_terms(campaign)
+        creator_strategy = (strategy_json or {}).get("creator_strategy") or {}
+        for niche in creator_strategy.get("preferred_niches") or []:
+            token = str(niche).strip().lower()
+            if token and token not in campaign_terms:
+                campaign_terms.append(token)
 
         # Stage one: channel search (100 quota units per query).
         try:
@@ -291,7 +310,9 @@ class CreatorDiscoveryService:
             except (TypeError, ValueError):
                 followers = 0
 
-            keep, _reason = self._passes_subscriber_filter(campaign, followers, hidden)
+            keep, _reason = self._passes_subscriber_filter(
+                campaign, followers, hidden, strategy_json=strategy_json
+            )
             if keep:
                 survivors.append(channel)
             else:
@@ -351,6 +372,11 @@ class CreatorDiscoveryService:
 
             influencer = await self._upsert_influencer(db, norm, now, stats)
 
+            extra_titles = " ".join(
+                str(v.get("title") or "")
+                for v in (video_stats or [])
+                if v.get("title")
+            )
             match = CreatorScoringService.score(
                 campaign,
                 CreatorSignals(
@@ -361,6 +387,7 @@ class CreatorDiscoveryService:
                     metrics_sample_size=norm.metrics_sample_size,
                     last_upload_at=norm.last_upload_at,
                     country=norm.country,
+                    extra_text=extra_titles or None,
                 ),
                 campaign_terms=campaign_terms,
                 target_country=target_country,
@@ -479,6 +506,16 @@ class CreatorDiscoveryService:
             ),
             metadata=stats.as_dict(),
         )
+
+    async def _load_strategy_json(self, db: AsyncSession, campaign_id: str) -> Optional[Dict[str, Any]]:
+        result = await db.execute(
+            select(CampaignStrategy)
+            .where(CampaignStrategy.campaign_id == campaign_id)
+            .order_by(CampaignStrategy.version.desc(), CampaignStrategy.created_at.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return row.strategy_json if row else None
 
 
 async def discover_for_campaign_with_retry(

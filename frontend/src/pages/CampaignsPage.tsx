@@ -20,7 +20,7 @@ import {
   StatusChip,
   useToast,
 } from '@/components/ui'
-import type { Campaign, CampaignStatus } from '@/types'
+import type { Campaign, CampaignStatus, CampaignWorkflow } from '@/types'
 import { cn, formatINR } from '@/utils'
 
 const statusFilters: { value: CampaignStatus | 'all'; label: string }[] = [
@@ -37,6 +37,7 @@ export function CampaignsPage() {
   const { toast } = useToast()
 
   const [campaignsList, setCampaignsList] = useState<Campaign[]>([])
+  const [workflows, setWorkflows] = useState<Record<string, CampaignWorkflow>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | 'all'>('all')
@@ -49,8 +50,20 @@ export function CampaignsPage() {
     setLoading(true)
     api.campaigns
       .list()
-      .then((data) => {
-        setCampaignsList(data ?? [])
+      .then(async (data) => {
+        const list = data ?? []
+        setCampaignsList(list)
+        const entries = await Promise.all(
+          list.map(async (c) => {
+            const wf = await api.campaigns.getWorkflow(c.id).catch(() => null)
+            return wf ? ([c.id, wf] as const) : null
+          }),
+        )
+        const map: Record<string, CampaignWorkflow> = {}
+        entries.forEach((entry) => {
+          if (entry) map[entry[0]] = entry[1]
+        })
+        setWorkflows(map)
       })
       .catch(() => {
         setCampaignsList([])
@@ -281,12 +294,12 @@ export function CampaignsPage() {
                 </div>
 
                 <div className="pt-2 border-t border-border flex items-center justify-between text-xs text-text-secondary">
-                  <span className="truncate max-w-[160px]">{c.objective}</span>
+                  <span className="font-medium">Next Step</span>
                   <Link
-                    to={`/app/campaigns/${c.id}`}
-                    className="font-semibold text-primary hover:underline"
+                    to={workflows[c.id]?.next_action.route || `/app/campaigns/${c.id}`}
+                    className="font-semibold text-primary hover:underline truncate max-w-[70%] text-right"
                   >
-                    View details →
+                    {workflows[c.id]?.next_action.label || 'View details'} →
                   </Link>
                 </div>
               </CardContent>

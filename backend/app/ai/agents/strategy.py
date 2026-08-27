@@ -32,11 +32,23 @@ class CreatorTierPreference(BaseModel):
     reason: str = ""
 
 
+class SubscriberRange(BaseModel):
+    minimum: Optional[int] = Field(default=None, ge=0)
+    maximum: Optional[int] = Field(default=None, ge=0)
+
+
+class CreatorCountRange(BaseModel):
+    minimum: Optional[int] = Field(default=None, ge=0)
+    maximum: Optional[int] = Field(default=None, ge=0)
+
+
 class CreatorStrategy(BaseModel):
     preferred_niches: List[str] = Field(default_factory=list)
     preferred_creator_tiers: List[CreatorTierPreference] = Field(default_factory=list)
     preferred_locations: List[str] = Field(default_factory=list)
     desired_creator_characteristics: List[str] = Field(default_factory=list)
+    recommended_subscriber_range: SubscriberRange = Field(default_factory=SubscriberRange)
+    recommended_creator_count: CreatorCountRange = Field(default_factory=CreatorCountRange)
 
 
 class ContentStrategyItem(BaseModel):
@@ -45,10 +57,20 @@ class ContentStrategyItem(BaseModel):
     priority: str = "MEDIUM"
 
 
+class BudgetAllocationSlice(BaseModel):
+    amount: Optional[float] = Field(default=None, ge=0)
+    percentage: Optional[float] = Field(default=None, ge=0, le=100)
+
+
 class BudgetStrategy(BaseModel):
+    total_budget: Optional[float] = Field(default=None, ge=0)
+    currency: Optional[str] = None
     creator_budget_percentage: Optional[float] = Field(default=None, ge=0, le=100)
     content_amplification_percentage: Optional[float] = Field(default=None, ge=0, le=100)
     reserve_percentage: Optional[float] = Field(default=None, ge=0, le=100)
+    creator_allocation: Optional[BudgetAllocationSlice] = None
+    amplification_allocation: Optional[BudgetAllocationSlice] = None
+    reserve: Optional[BudgetAllocationSlice] = None
     reasoning: str = ""
 
 
@@ -76,6 +98,14 @@ class RiskItem(BaseModel):
     mitigation: str = ""
 
 
+class DiscoveryRequirements(BaseModel):
+    niche_priority: str = ""
+    location_priority: str = ""
+    engagement_priority: str = ""
+    creator_tier_priority: str = ""
+    content_priority: str = ""
+
+
 class StrategyAgentOutput(BaseModel):
     campaign_summary: str
     strategy_objective: str = ""
@@ -86,7 +116,9 @@ class StrategyAgentOutput(BaseModel):
     kpi_strategy: List[KpiStrategyItem] = Field(default_factory=list)
     campaign_phases: List[CampaignPhaseItem] = Field(default_factory=list)
     discovery_priorities: List[DiscoveryPriorityItem] = Field(default_factory=list)
+    discovery_requirements: DiscoveryRequirements = Field(default_factory=DiscoveryRequirements)
     risks: List[RiskItem] = Field(default_factory=list)
+    tradeoffs: List[str] = Field(default_factory=list)
     strategy_reasoning: str = ""
     confidence: float = Field(ge=0, le=1)
 
@@ -126,24 +158,62 @@ class StrategyAgentOutput(BaseModel):
             f"{item.content_type} — {item.purpose} ({item.priority})".strip(" — ()")
             for item in self.content_strategy
         ]
+        bs = self.budget_strategy
+        total = bs.total_budget
+        creator_pct = bs.creator_budget_percentage
+        amp_pct = bs.content_amplification_percentage
+        reserve_pct = bs.reserve_percentage
+        if bs.creator_allocation and bs.creator_allocation.percentage is not None:
+            creator_pct = bs.creator_allocation.percentage
+        if bs.amplification_allocation and bs.amplification_allocation.percentage is not None:
+            amp_pct = bs.amplification_allocation.percentage
+        if bs.reserve and bs.reserve.percentage is not None:
+            reserve_pct = bs.reserve.percentage
+
+        def _amount(pct: Optional[float], explicit: Optional[float]) -> Optional[float]:
+            if explicit is not None:
+                return explicit
+            if total is not None and pct is not None:
+                return round(float(total) * float(pct) / 100.0, 2)
+            return None
+
+        creator_amt = _amount(
+            creator_pct,
+            bs.creator_allocation.amount if bs.creator_allocation else None,
+        )
+        amp_amt = _amount(
+            amp_pct,
+            bs.amplification_allocation.amount if bs.amplification_allocation else None,
+        )
+        reserve_amt = _amount(reserve_pct, bs.reserve.amount if bs.reserve else None)
+
+        data["budget_strategy"] = {
+            **bs.model_dump(),
+            "creator_budget_percentage": creator_pct,
+            "content_amplification_percentage": amp_pct,
+            "reserve_percentage": reserve_pct,
+            "creator_allocation": {"amount": creator_amt, "percentage": creator_pct},
+            "amplification_allocation": {"amount": amp_amt, "percentage": amp_pct},
+            "reserve": {"amount": reserve_amt, "percentage": reserve_pct},
+        }
         data["budget_distribution"] = [
             {
                 "category": "creator fees",
-                "amount": None,
-                "percentage": self.budget_strategy.creator_budget_percentage,
-                "rationale": self.budget_strategy.reasoning,
+                "amount": creator_amt,
+                "percentage": creator_pct,
+                "rationale": bs.reasoning,
             },
             {
                 "category": "content amplification",
-                "amount": None,
-                "percentage": self.budget_strategy.content_amplification_percentage,
-                "rationale": self.budget_strategy.reasoning,
+                "amount": amp_amt,
+                "percentage": amp_pct,
+                "rationale": bs.reasoning,
             },
             {
                 "category": "reserve",
-                "amount": None,
-                "percentage": self.budget_strategy.reserve_percentage,
-                "rationale": self.budget_strategy.reasoning,
+                "amount": reserve_amt,
+                "percentage": reserve_pct,
+                "rationale": bs.reasoning,
             },
         ]
         data["recommended_kpis"] = [item.kpi for item in self.kpi_strategy]
@@ -166,27 +236,29 @@ class StrategyAgent(BaseAgent):
 
     async def build_context(self, ctx: AgentContext) -> Dict[str, Any]:
         c = ctx.campaign
+        budget = float(c.budget or 0)
         return {
             "campaign_id": c.id,
             "campaign_name": c.name,
             "brand_name": c.brand,
             "product_name": c.name,
-            "product_description": c.description or None,
+            "product_description": c.description or "NOT_AVAILABLE",
             "campaign_objective": c.objective,
-            "budget": c.budget,
-            "currency": None,
+            "budget": budget if budget > 0 else None,
+            "budget_status": "AVAILABLE" if budget > 0 else "REQUIRES_USER_INPUT",
+            "currency": "INR",
             "target_audience": {
-                "locations": c.target_locations or None,
+                "locations": c.target_locations or "NOT_AVAILABLE",
                 "age_min": c.target_age_min,
                 "age_max": c.target_age_max,
-                "gender": c.target_gender or None,
+                "gender": c.target_gender or "NOT_AVAILABLE",
                 "interests": c.interests or [],
                 "languages": c.languages or [],
             },
             "selected_platforms": c.platforms or [],
             "start_date": c.start_date,
             "end_date": c.end_date,
-            "primary_kpi": c.primary_kpi or None,
+            "primary_kpi": c.primary_kpi or "NOT_AVAILABLE",
             "secondary_kpis": {
                 "target_roas": c.target_roas,
                 "target_cpa": c.target_cpa,
@@ -201,33 +273,58 @@ class StrategyAgent(BaseAgent):
                 "keywords": c.keywords or [],
                 "budget_allocation": c.budget_allocation or [],
             },
+            "creator_tier_reference": {
+                "nano": "1K–10K",
+                "micro": "10K–100K",
+                "mid_tier": "100K–500K",
+                "macro": "500K–1M",
+                "mega": "1M+",
+            },
             "note": (
-                "Use null for unavailable fields. Never invent influencers, usernames, "
-                "emails, or performance metrics."
+                "Use ONLY supplied campaign facts. Never invent budget, audience, geography, "
+                "creator prices, influencers, emails, or performance metrics. "
+                "If budget_status is REQUIRES_USER_INPUT, do not invent a budget."
             ),
         }
+
+    def validate_input(self, ctx: AgentContext) -> None:
+        super().validate_input(ctx)
+        budget = float(ctx.campaign.budget or 0)
+        if budget <= 0:
+            raise AgentValidationException(
+                detail=(
+                    "REQUIRES_USER_INPUT: Campaign budget is required before budget "
+                    "allocation can be generated."
+                )
+            )
 
     def build_system_prompt(self, ctx: AgentContext) -> str:
         return "\n".join(
             [
                 "You are the Strategy Agent of Auralytics.",
-                "Transform a campaign brief into a practical influencer-marketing strategy.",
+                "Transform the supplied company campaign requirements into a realistic,",
+                "budget-aware influencer marketing strategy.",
                 "You are NOT responsible for selecting individual influencers, usernames, or handles.",
-                "Your job is to determine what the Discovery Agent should look for.",
-                "Analyze ONLY the campaign data provided by Auralytics.",
-                "Determine:",
-                "1. Campaign positioning (strategy_objective)",
+                "Your output directly guides the Discovery Agent.",
+                "Use ONLY the campaign facts provided. Do NOT invent budget, audience, geography,",
+                "creator pricing, platform metrics, or influencer identities.",
+                "Create:",
+                "1. Campaign strategy / positioning (strategy_objective)",
                 "2. Platform strategy",
-                "3. Creator profile requirements (creator_strategy)",
-                "4. Creator tier distribution",
+                "3. Creator-tier strategy with recommended_subscriber_range derived from tiers + budget",
+                "4. Recommended creator count range where reasonable (or null if unknown)",
                 "5. Content strategy",
-                "6. Budget strategy (percentages only — must not exceed 100% combined)",
-                "7. KPI strategy",
-                "8. Campaign phases",
-                "9. Selection priorities for Discovery Agent (discovery_priorities — required)",
-                "10. Campaign risks",
-                "Never invent campaign facts. Never invent influencers. Never exceed provided budget.",
-                "If important information is missing, note it in strategy_reasoning.",
+                "6. KPI priorities",
+                "7. Budget allocation — percentages MUST sum to ≤ 100% and amounts MUST NOT exceed total_budget",
+                "8. Discovery requirements and discovery_priorities",
+                "9. Risks and tradeoffs",
+                "Budget rules:",
+                "- Set budget_strategy.total_budget to the supplied campaign budget.",
+                "- currency = INR unless otherwise supplied.",
+                "- Prefer nano/micro tiers for limited budgets; allow mid/macro only when budget supports scale.",
+                "- Never recommend celebrity-heavy mixes for small budgets.",
+                "- Never fabricate creator fees from follower counts.",
+                "If important information is missing, note it in strategy_reasoning using NOT_AVAILABLE / INSUFFICIENT_DATA.",
                 "Return ONLY valid JSON matching StrategyAgentOutput.",
                 MISSING_DATA_RULE,
                 SECURITY_RULE,
@@ -255,6 +352,11 @@ class StrategyAgent(BaseAgent):
             temperature=0.2,
             max_tokens=4096,
         )
+        # Authoritative budget comes from PostgreSQL campaign, never from LLM invention.
+        campaign_budget = float(ctx.campaign.budget or 0)
+        if campaign_budget > 0:
+            structured.budget_strategy.total_budget = campaign_budget
+            structured.budget_strategy.currency = structured.budget_strategy.currency or "INR"
         persisted = structured.to_persisted_dict()
         return AgentResultEnvelope(
             status="COMPLETED",
@@ -286,18 +388,73 @@ class StrategyAgent(BaseAgent):
                 detail="Strategy must include creator_strategy for Discovery Agent guidance"
             )
         budget = data.get("budget_strategy") or {}
-        pct_total = sum(
-            float(budget.get(key) or 0)
-            for key in (
-                "creator_budget_percentage",
-                "content_amplification_percentage",
-                "reserve_percentage",
-            )
-        )
+        creator_pct = budget.get("creator_budget_percentage")
+        amp_pct = budget.get("content_amplification_percentage")
+        reserve_pct = budget.get("reserve_percentage")
+        if isinstance(budget.get("creator_allocation"), dict):
+            creator_pct = budget["creator_allocation"].get("percentage", creator_pct)
+        if isinstance(budget.get("amplification_allocation"), dict):
+            amp_pct = budget["amplification_allocation"].get("percentage", amp_pct)
+        if isinstance(budget.get("reserve"), dict):
+            reserve_pct = budget["reserve"].get("percentage", reserve_pct)
+
+        pct_total = sum(float(v or 0) for v in (creator_pct, amp_pct, reserve_pct))
         if pct_total > 100.01:
             raise AgentValidationException(
                 detail=f"Budget strategy percentages sum to {pct_total:.1f}%, exceeding 100%"
             )
+
+        campaign_budget = float(ctx.campaign.budget or 0)
+        alloc_sum = 0.0
+        for key in ("creator_allocation", "amplification_allocation", "reserve"):
+            slice_ = budget.get(key)
+            if isinstance(slice_, dict) and slice_.get("amount") is not None:
+                try:
+                    alloc_sum += float(slice_["amount"])
+                except (TypeError, ValueError) as exc:
+                    raise AgentValidationException(
+                        detail=f"Invalid monetary amount in budget_strategy.{key}"
+                    ) from exc
+        if alloc_sum <= 0 and data.get("budget_distribution"):
+            alloc_sum = sum(
+                float(r.get("amount") or 0)
+                for r in data["budget_distribution"]
+                if isinstance(r, dict)
+            )
+        if campaign_budget > 0 and alloc_sum > campaign_budget + 0.01:
+            raise AgentValidationException(
+                detail=(
+                    f"Budget allocation ₹{alloc_sum:,.0f} exceeds campaign budget "
+                    f"₹{campaign_budget:,.0f}"
+                )
+            )
+
+        if isinstance(budget, dict) and campaign_budget > 0:
+            budget["total_budget"] = campaign_budget
+            budget.setdefault("currency", "INR")
+            data["budget_strategy"] = budget
+            result.data = data
+
+        creator = data.get("creator_strategy") or {}
+        rng = creator.get("recommended_subscriber_range") or {}
+        if not rng.get("minimum") and not rng.get("maximum"):
+            from app.ai.creator_tiers import range_for_tiers
+
+            tiers = []
+            for item in creator.get("preferred_creator_tiers") or []:
+                if isinstance(item, dict) and item.get("tier"):
+                    tiers.append(str(item["tier"]))
+                elif isinstance(item, str):
+                    tiers.append(item)
+            mn, mx = range_for_tiers(tiers)
+            if mn is not None or mx is not None:
+                creator["recommended_subscriber_range"] = {
+                    "minimum": mn,
+                    "maximum": mx,
+                }
+                data["creator_strategy"] = creator
+                result.data = data
+
         if result.confidence is None:
             result.confidence = float(data.get("confidence") or 0)
         return result

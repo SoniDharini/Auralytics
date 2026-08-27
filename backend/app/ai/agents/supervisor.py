@@ -61,6 +61,14 @@ class SupervisorAgent:
         campaign.workflow_state = target
         await self.db.flush()
 
+    async def _candidate_count(self, campaign_id: str) -> int:
+        result = await self.db.execute(
+            select(func.count()).select_from(CampaignInfluencer).where(
+                CampaignInfluencer.campaign_id == campaign_id
+            )
+        )
+        return int(result.scalar_one() or 0)
+
     async def start(self, *, campaign_id: str, user: User, trigger: str = "manual") -> Dict[str, Any]:
         """Advance the campaign one controlled step (Strategy first)."""
         campaign = await self.load_owned_campaign(campaign_id, user)
@@ -68,7 +76,23 @@ class SupervisorAgent:
 
         if state in (WorkflowState.CAMPAIGN_CREATED, WorkflowState.FAILED):
             if state == WorkflowState.FAILED:
-                # Retry strategy from failed
+                has_strategy = await self.db.execute(
+                    select(CampaignStrategy.id)
+                    .where(CampaignStrategy.campaign_id == campaign.id)
+                    .limit(1)
+                )
+                if has_strategy.scalar_one_or_none() is not None:
+                    # Strategy already succeeded; previous FAILED was almost always Discovery
+                    # running with no creators yet. Resume from strategy complete.
+                    campaign.workflow_state = WorkflowState.STRATEGY_COMPLETED
+                    await self.db.commit()
+                    return {
+                        "campaign_id": campaign.id,
+                        "workflow_state": campaign.workflow_state,
+                        "next": "discovery",
+                        "message": "Strategy Agent completed. Discover creators next.",
+                        "agent_run": None,
+                    }
                 campaign.workflow_state = WorkflowState.CAMPAIGN_CREATED
                 await self.db.flush()
             await self._set_state(campaign, WorkflowState.STRATEGY_PENDING)
@@ -77,6 +101,7 @@ class SupervisorAgent:
                 result.get("workflow_state") == WorkflowState.STRATEGY_COMPLETED
                 and result.get("agent_run") is not None
                 and result["agent_run"].status == AgentRunStatus.COMPLETED
+                and await self._candidate_count(campaign_id) > 0
             ):
                 campaign = await self.load_owned_campaign(campaign_id, user)
                 return await self.run_discovery(campaign=campaign, user=user, trigger=trigger)
@@ -86,6 +111,14 @@ class SupervisorAgent:
             return await self.run_strategy(campaign=campaign, user=user, trigger=trigger)
 
         if state == WorkflowState.STRATEGY_COMPLETED:
+            if await self._candidate_count(campaign.id) == 0:
+                return {
+                    "campaign_id": campaign.id,
+                    "workflow_state": campaign.workflow_state,
+                    "next": "discovery",
+                    "message": "Strategy Agent completed. Discover creators before running the Discovery Agent.",
+                    "agent_run": None,
+                }
             return await self.run_discovery(campaign=campaign, user=user, trigger=trigger)
 
         if state == WorkflowState.DISCOVERY_PENDING:
@@ -121,15 +154,12 @@ class SupervisorAgent:
         state = campaign.workflow_state or WorkflowState.CAMPAIGN_CREATED
         if state == WorkflowState.CAMPAIGN_CREATED:
             await self._set_state(campaign, WorkflowState.STRATEGY_PENDING)
+        elif state == WorkflowState.FAILED:
+            await self._set_state(campaign, WorkflowState.STRATEGY_PENDING)
         elif state not in (WorkflowState.STRATEGY_PENDING, WorkflowState.STRATEGY_COMPLETED):
-            # Allow explicit re-run only from strategy stages or after forcing pending
-            if state == WorkflowState.STRATEGY_COMPLETED:
-                # Re-run: stay completed until new run succeeds, then bump version
-                pass
-            else:
-                raise WorkflowStateException(
-                    detail=f"Strategy Agent cannot run while workflow is {state}"
-                )
+            raise WorkflowStateException(
+                detail=f"Strategy Agent cannot run while workflow is {state}"
+            )
         elif state != WorkflowState.STRATEGY_PENDING:
             campaign.workflow_state = WorkflowState.STRATEGY_PENDING
             await self.db.flush()
@@ -204,6 +234,8 @@ class SupervisorAgent:
         state = campaign.workflow_state or WorkflowState.CAMPAIGN_CREATED
         if state == WorkflowState.STRATEGY_COMPLETED:
             await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
+        elif state == WorkflowState.FAILED:
+            await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
         elif state == WorkflowState.SHORTLIST_APPROVAL_PENDING:
             await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
         elif state not in (WorkflowState.DISCOVERY_PENDING,):
@@ -235,8 +267,21 @@ class SupervisorAgent:
             await self._create_shortlist_approval(campaign, user, run)
         elif run.status == AgentRunStatus.FAILED:
             if campaign.workflow_state == WorkflowState.DISCOVERY_PENDING:
-                campaign.workflow_state = WorkflowState.FAILED
-                await self.db.flush()
+                candidate_count = await self._candidate_count(campaign.id)
+                if candidate_count > 0:
+                    logger.warning(
+                        "Discovery ranking failed for campaign %s after %s YouTube creators were saved; unlocking shortlist.",
+                        campaign.id,
+                        candidate_count,
+                    )
+                    await self._set_state(campaign, WorkflowState.DISCOVERY_COMPLETED)
+                else:
+                    missing_creators = self._is_missing_creator_failure(run.error_message)
+                    # Empty candidate set is not a campaign failure — strategy is still valid.
+                    campaign.workflow_state = (
+                        WorkflowState.STRATEGY_COMPLETED if missing_creators else WorkflowState.FAILED
+                    )
+                    await self.db.flush()
 
         await self.db.commit()
         await self.db.refresh(run)
@@ -286,6 +331,10 @@ class SupervisorAgent:
                 "strategy_alignment": rec.get("strategy_alignment") or [],
                 "strengths": rec.get("strengths") or [],
                 "risks": rec.get("risks") or [],
+                "requirements_match": rec.get("requirements_match") or {},
+                "eligibility": rec.get("eligibility") or "ELIGIBLE",
+                "classification": rec.get("classification") or {},
+                "requirement_match": rec.get("requirement_match") or {},
                 "best_use_case": rec.get("best_use_case"),
                 "confidence": rec.get("confidence"),
             }
@@ -330,6 +379,11 @@ class SupervisorAgent:
             approval.id,
             campaign.id,
         )
+
+    @staticmethod
+    def _is_missing_creator_failure(error_message: Optional[str]) -> bool:
+        text = (error_message or "").lower()
+        return "no influencer candidates" in text or "pre-filtering" in text
 
     async def run_outreach(
         self,

@@ -96,12 +96,18 @@ def map_youtube_channel_to_creator(
         avg_views = int(total_views / content_count)
         metrics_source = DERIVED_METRIC_SOURCE
 
+    recent_titles = [
+        str(v.get("title")).strip()
+        for v in (video_stats or [])
+        if v.get("title") and str(v.get("title")).strip()
+    ]
     raw_payload = {
         "channel_id": channel.id,
         "kind": channel.kind,
         "snippet": snippet.model_dump() if snippet else {},
         "statistics": statistics.model_dump() if statistics else {},
         "recent_video_sample_count": len(video_stats) if video_stats else 0,
+        "recent_video_titles": recent_titles[:15],
     }
 
     return NormalizedCreator(

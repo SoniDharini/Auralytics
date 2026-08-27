@@ -90,6 +90,48 @@ export interface Campaign {
   updated_at?: string
 }
 
+export type WorkflowStepStatus =
+  | 'COMPLETED'
+  | 'CURRENT'
+  | 'NEXT'
+  | 'PENDING'
+  | 'LOCKED'
+  | 'FAILED'
+  | 'WAITING_APPROVAL'
+
+export interface CampaignWorkflowStep {
+  key: string
+  label: string
+  status: WorkflowStepStatus | string
+  route?: string | null
+  tab?: string | null
+  hint?: string | null
+}
+
+export interface CampaignWorkflowAction {
+  key: string
+  label: string
+  description: string
+  route: string
+  tab?: string | null
+  enabled: boolean
+  running: boolean
+}
+
+export interface CampaignWorkflow {
+  campaign_id: string
+  current_step: string
+  next_step: string
+  progress_percentage: number
+  blocking_reason?: string | null
+  next_action: CampaignWorkflowAction
+  steps: CampaignWorkflowStep[]
+  discovered_count: number
+  shortlisted_count: number
+  outreach_count: number
+  pending_approval: boolean
+}
+
 export interface CampaignActivity {
   id: string
   user_id: string

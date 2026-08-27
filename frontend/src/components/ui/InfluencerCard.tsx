@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { CheckCircle2, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn, formatNumber } from '@/utils'
@@ -52,20 +53,20 @@ export function InfluencerCard({
   const hasAvgViews = (influencer.avgViews ?? 0) > 0
   const hasSubscribers = (influencer.followers ?? 0) > 0
   const detailHref = profileHref ?? `/app/discovery/${influencer.id}`
+  const [avatarFailed, setAvatarFailed] = useState(false)
 
   return (
     <Card className={cn('p-4 hover:border-primary/35 hover:shadow-sm transition-all group flex flex-col justify-between', className)}>
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            {influencer.avatar ? (
+            {influencer.avatar && !avatarFailed ? (
               <img
                 src={influencer.avatar}
                 alt={influencer.name}
                 className="h-12 w-12 rounded-full object-cover border border-border"
-                onError={(e) => {
-                  (e.target as HTMLElement).style.display = 'none'
-                }}
+                referrerPolicy="no-referrer"
+                onError={() => setAvatarFailed(true)}
               />
             ) : (
               <Avatar name={influencer.name} size="lg" />

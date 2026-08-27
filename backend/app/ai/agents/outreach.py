@@ -10,10 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.agents.base import SECURITY_RULE, AgentContext, BaseAgent
+from app.ai.agents.discovery import extract_strategy_guidance
 from app.ai.schemas import AgentResultEnvelope
 from app.ai.workflow_states import AgentNames
 from app.core.exceptions import AgentValidationException
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
+from app.models.campaign_strategy import CampaignStrategy
 from app.models.influencer import Influencer
 
 logger = logging.getLogger(__name__)
@@ -89,6 +91,13 @@ class OutreachAgent(BaseAgent):
                 break
         if not selected_link:
             selected_link = links[0]
+        if (
+            not target_inf_id
+            and selected_link.status not in (CampaignInfluencerStatus.SHORTLISTED, "SHORTLISTED")
+        ):
+            raise AgentValidationException(
+                detail="No shortlisted creator found for this campaign. Shortlist a creator before generating outreach."
+            )
 
         influencer = selected_link.influencer
         if not influencer:
@@ -116,13 +125,22 @@ class OutreachAgent(BaseAgent):
                 break
 
         # Contact info rule: Never invent emails or handles
-        email_contact = (
-            influencer.business_email
-            if influencer.business_email and "@" in influencer.business_email
-            else "Not publicly available"
+        has_verified_email = bool(
+            influencer.business_email and "@" in influencer.business_email
         )
+        email_contact = influencer.business_email if has_verified_email else "Not publicly available"
         ig_contact = f"@{influencer.username}" if influencer.platform == "instagram" or (influencer.username and not influencer.username.startswith("http")) else None
         yt_contact = influencer.profile_url if influencer.platform == "youtube" else None
+        contact_status = "CONTACT_AVAILABLE" if has_verified_email else "CONTACT_REQUIRED"
+
+        strategy_row = await ctx.db.execute(
+            select(CampaignStrategy)
+            .where(CampaignStrategy.campaign_id == campaign.id)
+            .order_by(CampaignStrategy.version.desc(), CampaignStrategy.created_at.desc())
+            .limit(1)
+        )
+        strategy = strategy_row.scalar_one_or_none()
+        compact_strategy = extract_strategy_guidance(strategy.strategy_json or {}) if strategy else {}
 
         return {
             "campaign_id": campaign.id,
@@ -132,6 +150,7 @@ class OutreachAgent(BaseAgent):
             "campaign_description": campaign.description or "DATA_UNAVAILABLE",
             "target_locations": campaign.target_locations or "DATA_UNAVAILABLE",
             "interests": campaign.interests or [],
+            "strategy_guidance": compact_strategy,
             "influencer": {
                 "influencer_id": influencer.id,
                 "name": influencer.name,
@@ -143,6 +162,7 @@ class OutreachAgent(BaseAgent):
                 "engagement_rate": influencer.engagement_rate,
                 "country": influencer.country or "DATA_UNAVAILABLE",
                 "bio_description": (influencer.description or "DATA_UNAVAILABLE")[:400],
+                "contact_status": contact_status,
                 "contact_info": {
                     "email": email_contact,
                     "instagram": ig_contact,
@@ -157,11 +177,12 @@ class OutreachAgent(BaseAgent):
             [
                 "You are the Outreach Agent of Auralytics.",
                 "Your responsibility is to create a concise, professional and personalized influencer collaboration message.",
-                "You receive: (1) Campaign information, (2) Discovery Agent's recommendation, (3) Real influencer profile information.",
+                "You receive: (1) Campaign information, (2) compact Strategy Agent guidance, (3) Discovery Agent recommendation, (4) Real influencer profile information.",
                 "The Discovery Agent has already identified the influencer. DO NOT rediscover, rank or replace the influencer.",
                 "Use ONLY the information provided by Auralytics.",
                 "Never invent email addresses, follower counts, previous collaborations, personal relationships, brand partnerships, audience demographics that were not supplied, or creator achievements that were not supplied.",
-                "Personalize the message using legitimate campaign and creator information.",
+                "If contact_info.email is 'Not publicly available', do not invent a contact. Mark sending as CONTACT_REQUIRED.",
+                "Personalize the message using legitimate campaign, strategy, and creator information.",
                 "The message should clearly communicate: who the brand/company is, what product/campaign is being promoted, why the creator was selected, what collaboration is being proposed, and a simple call to action.",
                 "Provide BOTH a professional email proposal (message) and a concise social DM (short_dm).",
                 "Keep the message concise and suitable for professional influencer outreach.",
@@ -174,13 +195,24 @@ class OutreachAgent(BaseAgent):
     def build_user_prompt(self, ctx: AgentContext, context_payload: Dict[str, Any]) -> str:
         inf = context_payload.get("influencer") or {}
         rec = context_payload.get("discovery_recommendation") or {}
+        compact = {
+            "campaign_id": context_payload.get("campaign_id"),
+            "campaign_name": context_payload.get("campaign_name"),
+            "brand_name": context_payload.get("brand_name"),
+            "campaign_objective": context_payload.get("campaign_objective"),
+            "target_locations": context_payload.get("target_locations"),
+            "strategy_guidance": context_payload.get("strategy_guidance") or {},
+            "influencer": inf,
+            "discovery_recommendation": rec,
+        }
         return (
             f"Generate a personalized outreach collaboration message for creator '{inf.get('name')}' (@{inf.get('username')}).\n"
             f"Campaign: {context_payload.get('campaign_name')} (Brand: {context_payload.get('brand_name')})\n"
             f"Objective: {context_payload.get('campaign_objective')}\n"
             f"Discovery Reason: {rec.get('recommendation_reason')}\n"
             f"Creator Niches: {', '.join(inf.get('niches') or [])}\n"
-            f"Full Context:\n{json.dumps(context_payload, default=str)}"
+            f"Contact status: {inf.get('contact_status') or 'CONTACT_REQUIRED'}\n"
+            f"Context:\n{json.dumps(compact, default=str)}"
         )
 
     async def call_llm(
@@ -203,6 +235,12 @@ class OutreachAgent(BaseAgent):
         data["influencer_username"] = inf.get("username") or "creator"
         data["campaign_name"] = context_payload.get("campaign_name") or ctx.campaign.name
         data["contact_info"] = inf.get("contact_info") or {}
+        data["contact_status"] = inf.get("contact_status") or "CONTACT_REQUIRED"
+        if data["contact_status"] == "CONTACT_REQUIRED":
+            points = list(data.get("personalization_points") or [])
+            if "CONTACT_REQUIRED" not in points:
+                points.append("CONTACT_REQUIRED: no verified public contact")
+            data["personalization_points"] = points
 
         summary = f"Generated personalized outreach message for {data['influencer_name']} (@{data['influencer_username']})"
         return AgentResultEnvelope(

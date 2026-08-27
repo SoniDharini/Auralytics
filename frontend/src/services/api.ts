@@ -12,6 +12,7 @@ import type {
   CampaignCreatorListResponse,
   CampaignCreatorStatus,
   CampaignStrategy,
+  CampaignWorkflow,
   Contract,
   DashboardSummary,
   DiscoveryResponse,
@@ -79,10 +80,12 @@ export interface DashboardAnalyticsData {
   }[]
 }
 
-// Single-flight refresh lock to avoid concurrent refresh storms
-let refreshPromise: Promise<string | null> | null = null
+const AUTH_PATHS_SKIP_REFRESH = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout']
 
-async function refreshAccessToken(): Promise<string | null> {
+// Single-flight refresh lock to avoid concurrent refresh storms / token rotation races.
+let refreshPromise: Promise<AuthResponse | null> | null = null
+
+async function refreshSession(): Promise<AuthResponse | null> {
   if (refreshPromise) {
     return refreshPromise
   }
@@ -100,7 +103,7 @@ async function refreshAccessToken(): Promise<string | null> {
       }
       const data: AuthResponse = await res.json()
       setAccessToken(data.access_token)
-      return data.access_token
+      return data
     } catch {
       setAccessToken(null)
       return null
@@ -110,6 +113,11 @@ async function refreshAccessToken(): Promise<string | null> {
   })()
 
   return refreshPromise
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const data = await refreshSession()
+  return data?.access_token ?? null
 }
 
 export async function request<T>(path: string, init?: RequestInit, isRetry = false): Promise<T> {
@@ -128,8 +136,8 @@ export async function request<T>(path: string, init?: RequestInit, isRetry = fal
     credentials: 'include', // Always send HttpOnly refresh cookie
   })
 
-  if (res.status === 401 && !isRetry && !path.includes('/auth/login') && !path.includes('/auth/register')) {
-    // Attempt automatic refresh once
+  const skipRefresh = AUTH_PATHS_SKIP_REFRESH.some((p) => path.includes(p))
+  if (res.status === 401 && !isRetry && !skipRefresh) {
     const newToken = await refreshAccessToken()
     if (newToken) {
       return request<T>(path, init, true)
@@ -172,7 +180,15 @@ export const api = {
     login: (body: { email: string; password: string }) =>
       request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
 
-    refresh: () => request<AuthResponse>('/auth/refresh', { method: 'POST' }),
+    refresh: async () => {
+      const data = await refreshSession()
+      if (!data) {
+        const err = new Error('Session expired or revoked')
+        ;(err as any).status = 401
+        throw err
+      }
+      return data
+    },
 
     logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
 
@@ -196,6 +212,7 @@ export const api = {
       request<Campaign>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
     delete: (id: string) => request<void>(`/campaigns/${id}`, { method: 'DELETE' }),
     getActivities: (id: string) => request<CampaignActivity[]>(`/campaigns/${id}/activities`),
+    getWorkflow: (id: string) => request<CampaignWorkflow>(`/campaigns/${id}/workflow`),
     fetchInfluencers: (
       id: string,
       payload?: { platforms?: string[]; limit?: number; force_refresh?: boolean },

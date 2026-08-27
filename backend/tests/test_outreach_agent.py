@@ -1,5 +1,6 @@
 import pytest
 import uuid
+import json
 from datetime import datetime, timezone
 from unittest.mock import patch
 from httpx import AsyncClient
@@ -149,6 +150,7 @@ async def test_contact_info_rule_no_fake_emails(db_session, test_user):
     contact_info = payload["influencer"]["contact_info"]
     assert contact_info["email"] == "Not publicly available"
     assert contact_info["instagram"] == "@noemailcreator"
+    assert payload["influencer"]["contact_status"] == "CONTACT_REQUIRED"
 
 
 @pytest.mark.asyncio
@@ -203,13 +205,39 @@ async def test_multiple_shortlisted_creators_get_separate_drafts(db_session, tes
     db_session.add_all([link_a, link_b])
     await db_session.commit()
 
+    from app.ai.schemas import LLMRawResponse, LLMUsage
+
+    async def _fake_generate(*, system_prompt, user_prompt, temperature=0.2, max_tokens=4096, response_model=None):
+        inf_id = inf_a.id if inf_a.id in user_prompt else inf_b.id
+        name = "Creator A" if inf_id == inf_a.id else "Creator B"
+        payload = {
+            "influencer_id": inf_id,
+            "channel": "EMAIL",
+            "subject": f"Collab with {name}",
+            "message": f"Hi {name}, we'd love to collaborate.",
+            "short_dm": f"Hi {name}! Open to a collab?",
+            "call_to_action": "Would you be open to discussing this collaboration?",
+            "personalization_points": ["Niche fit"],
+            "confidence": 0.9,
+        }
+        return LLMRawResponse(
+            content=json.dumps(payload),
+            model="test-mock",
+            provider="mock",
+            latency_ms=1.0,
+            usage=LLMUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        )
+
     supervisor = SupervisorAgent(db_session)
-    res_a = await supervisor.run_outreach(campaign=camp, user=test_user, influencer_id=inf_a.id)
-    res_b = await supervisor.run_outreach(campaign=camp, user=test_user, influencer_id=inf_b.id)
+    with patch("app.ai.providers.grok.GrokProvider.generate", side_effect=_fake_generate):
+        res_a = await supervisor.run_outreach(campaign=camp, user=test_user, influencer_id=inf_a.id)
+        camp = await db_session.get(Campaign, camp.id)
+        res_b = await supervisor.run_outreach(campaign=camp, user=test_user, influencer_id=inf_b.id)
 
     msg_a = res_a["outreach_message"]
     msg_b = res_b["outreach_message"]
 
+    assert msg_a is not None and msg_b is not None
     assert msg_a.id != msg_b.id
     assert msg_a.influencer_id == inf_a.id
     assert msg_b.influencer_id == inf_b.id

@@ -257,6 +257,39 @@ def test_strategy_output_includes_discovery_priorities():
     assert persisted["recommended_platform_mix"]  # legacy mirror for UI
 
 
+def test_creator_tier_ranges_are_centralized():
+    from app.ai.creator_tiers import extract_subscriber_range, tier_for_followers, range_for_tiers
+
+    assert tier_for_followers(50_000) == "micro"
+    assert tier_for_followers(200_000) == "mid"
+    mn, mx = range_for_tiers(["micro", "mid"])
+    assert mn == 10_000
+    assert mx == 500_000
+    mn2, mx2 = extract_subscriber_range(
+        {
+            "creator_strategy": {
+                "preferred_creator_tiers": [{"tier": "MICRO", "priority": "HIGH"}],
+            }
+        }
+    )
+    assert mn2 == 10_000
+    assert mx2 == 100_000
+
+
+@pytest.mark.asyncio
+async def test_strategy_rejects_zero_budget():
+    agent = StrategyAgent()
+    camp = type(
+        "C",
+        (),
+        {"budget": 0, "owner_id": "x", "id": "c1", "name": "n"},
+    )()
+    user = type("U", (), {"id": "x"})()
+    ctx = AgentContext(user=user, campaign=camp, db=None)  # type: ignore[arg-type]
+    with pytest.raises(AgentValidationException) as exc:
+        agent.validate_input(ctx)
+    assert "REQUIRES_USER_INPUT" in str(exc.value.detail)
+
 def test_combine_scores_explicit_formula():
     assert combine_scores(80, 90, det_weight=0.65, ai_weight=0.35) == 83.5
 
