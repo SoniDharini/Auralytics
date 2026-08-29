@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -36,7 +36,7 @@ import {
   Textarea,
   useToast,
 } from '@/components/ui'
-import { formatINR, statusLabel } from '@/utils'
+import { formatINR, recommendedCampaignCreators, statusLabel } from '@/utils'
 import type {
   Campaign,
   CampaignActivity,
@@ -105,6 +105,10 @@ export function CampaignDetailPage() {
   // Delete Modal State
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const visibleCreators = useMemo(
+    () => recommendedCampaignCreators(campaignCreators),
+    [campaignCreators],
+  )
 
   const loadData = async () => {
     if (!id) return
@@ -246,8 +250,10 @@ export function CampaignDetailPage() {
             if (aiResult.agentRun?.status === 'FAILED') {
               toast({
                 type: 'error',
-                title: 'AI Discovery Agent failed',
-                description: aiResult.agentRun.errorMessage || aiResult.message,
+                title: 'AI classification failed',
+                description:
+                  aiResult.agentRun.errorMessage ||
+                  'Creator data was retrieved from YouTube, but AI classification failed.',
               })
             } else {
               toast({
@@ -259,8 +265,8 @@ export function CampaignDetailPage() {
           } catch (aiErr: any) {
             toast({
               type: 'error',
-              title: 'AI Discovery Agent failed',
-              description: aiErr?.message || 'Could not rank creators with strategy.',
+              title: 'AI classification failed',
+              description: aiErr?.message || 'Creator data was retrieved, but AI classification failed.',
             })
           }
         }
@@ -439,7 +445,7 @@ export function CampaignDetailPage() {
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'strategy', label: 'AI Strategy' },
-    { id: 'influencers', label: 'Influencers', count: campaign.influencers || 0 },
+    { id: 'influencers', label: 'Influencers', count: visibleCreators.length },
     { id: 'outreach', label: 'Outreach', count: 0 },
     { id: 'contracts', label: 'Contracts', count: 0 },
     { id: 'performance', label: 'Performance' },
@@ -607,6 +613,24 @@ export function CampaignDetailPage() {
                 </div>
               </div>
 
+              {campaign.creator_tiers && campaign.creator_tiers.length > 0 && (
+                <div className="pt-3 border-t border-border">
+                  <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
+                    User-selected creator tiers
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {campaign.creator_tiers.map((tier) => (
+                      <span
+                        key={tier}
+                        className="px-3 py-1 rounded-full text-xs font-semibold bg-primary-soft text-primary border border-primary/20 capitalize"
+                      >
+                        {tier}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {campaign.budget_allocation && campaign.budget_allocation.length > 0 && (
                 <div className="pt-3 border-t border-border">
                   <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2">
@@ -695,6 +719,78 @@ export function CampaignDetailPage() {
                   </Button>
                 </div>
                 <p className="text-sm text-text">{String(strategy.strategyJson.campaign_summary || '')}</p>
+                {(campaign.creator_tiers?.length || strategy.strategyJson.user_selected_creator_tiers) && (
+                  <div>
+                    <p className="text-xs font-semibold text-text mb-2">User selected</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(strategy.strategyJson.user_selected_creator_tiers || campaign.creator_tiers || []).map(
+                        (tier: string) => (
+                          <Badge key={tier} variant="outline" className="capitalize">
+                            ✓ {tier}
+                          </Badge>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                )}
+                {Array.isArray(strategy.strategyJson.recommended_creator_strategy) &&
+                  strategy.strategyJson.recommended_creator_strategy.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-text mb-2">AI strategy</p>
+                      <div className="flex flex-wrap gap-2">
+                        {strategy.strategyJson.recommended_creator_strategy.map((item: any, idx: number) => (
+                          <Badge key={idx} variant="ai" className="capitalize">
+                            {item.tier}: {item.priority || 'HIGH'}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                {Array.isArray(strategy.strategyJson.budget_strategy?.tier_allocations) &&
+                  strategy.strategyJson.budget_strategy.tier_allocations.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-text mb-2">Tier budget pools</p>
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        {strategy.strategyJson.budget_strategy.tier_allocations.map((item: any, idx: number) => (
+                          <div key={idx} className="p-2.5 rounded-lg border border-border bg-page/40">
+                            <div className="flex justify-between text-xs font-semibold capitalize">
+                              <span>{item.tier}</span>
+                              <span className="text-primary">
+                                {item.percentage}%
+                                {typeof item.amount === 'number' ? ` · ${formatINR(item.amount)}` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                {Array.isArray(strategy.strategyJson.budget_limitations) &&
+                  strategy.strategyJson.budget_limitations.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-text mb-2">Budget constraints</p>
+                      <ul className="list-disc pl-5 text-sm text-text-secondary space-y-1">
+                        {strategy.strategyJson.budget_limitations.map((line: string, idx: number) => (
+                          <li key={idx}>{line}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                {Array.isArray(strategy.strategyJson.optional_recommendations) &&
+                  strategy.strategyJson.optional_recommendations.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-text mb-2">Optional AI recommendation</p>
+                      <ul className="list-disc pl-5 text-sm text-text-secondary space-y-1">
+                        {strategy.strategyJson.optional_recommendations.map((item: any, idx: number) => (
+                          <li key={idx}>
+                            {item.tier ? `${item.tier}: ` : ''}
+                            {item.reason || item.type}
+                            {item.requires_user_approval ? ' — requires user approval' : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 {Array.isArray(strategy.strategyJson.recommended_platform_mix) && (
                   <div>
                     <p className="text-xs font-semibold text-text mb-2">Platform mix</p>
@@ -757,7 +853,7 @@ export function CampaignDetailPage() {
 
       {activeTab === 'influencers' && (
         <div className="space-y-4 animate-fade-in">
-          {campaignCreators.length === 0 ? (
+          {visibleCreators.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-text-secondary space-y-3">
                 <Users className="h-10 w-10 mx-auto text-text-secondary/40" />
@@ -798,7 +894,7 @@ export function CampaignDetailPage() {
             <>
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-semibold text-text">Discovered Creators ({campaignCreators.length})</h3>
+                  <h3 className="text-base font-semibold text-text">Discovered Creators ({visibleCreators.length})</h3>
                   <p className="text-xs text-text-secondary">Matching campaign audience and target keywords</p>
                 </div>
                 <Button
@@ -818,7 +914,7 @@ export function CampaignDetailPage() {
               </div>
 
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {campaignCreators.map((link) => (
+                {visibleCreators.map((link) => (
                     <InfluencerCard
                     key={link.creator.id}
                     influencer={{
@@ -826,6 +922,7 @@ export function CampaignDetailPage() {
                       shortlisted: link.status === 'SHORTLISTED' || link.creator.shortlisted,
                     }}
                     matchScore={link.match_score}
+                    matchReasons={link.match_reasons}
                     shortlistLabel={link.status === 'SHORTLISTED' ? 'Shortlisted' : 'Shortlist'}
                     onShortlist={async (infId) => {
                       if (!id) return

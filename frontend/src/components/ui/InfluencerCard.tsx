@@ -1,8 +1,7 @@
-import { useState } from 'react'
 import { CheckCircle2, ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn, formatNumber } from '@/utils'
-import type { Influencer } from '@/types'
+import type { Influencer, MatchFactor } from '@/types'
 import { Avatar } from './Avatar'
 import { Badge } from './Badge'
 import { Button } from './Button'
@@ -19,6 +18,28 @@ interface InfluencerCardProps {
   /** Link target for the profile button, so campaign context can be preserved. */
   profileHref?: string
   shortlistLabel?: string
+  matchReasons?: MatchFactor[] | null
+}
+
+function creatorTierLabel(followers?: number | null): string | null {
+  if (!followers || followers <= 0) return null
+  if (followers < 10_000) return 'NANO'
+  if (followers < 100_000) return 'MICRO'
+  if (followers < 500_000) return 'MID'
+  if (followers < 1_000_000) return 'MACRO'
+  return 'CELEBRITY'
+}
+
+function discoveryExtras(reasons?: MatchFactor[] | null) {
+  const ai = reasons?.find((r) => r.key === 'ai_discovery')
+  if (!ai) return null
+  return {
+    reason: ai.recommendation_reason || ai.detail,
+    tier: ai.creator_tier,
+    tierMatch: ai.tier_match || ai.requirement_match?.creator_tier,
+    nicheMatch: ai.requirement_match?.niche,
+    contentMatch: ai.requirement_match?.content_style,
+  }
 }
 
 const NOT_AVAILABLE = 'N/A'
@@ -45,6 +66,7 @@ export function InfluencerCard({
   matchScore,
   profileHref,
   shortlistLabel,
+  matchReasons,
 }: InfluencerCardProps) {
   const isYouTube = (influencer.platform || '').toLowerCase() === 'youtube'
   const score = matchScore ?? influencer.aiMatchScore
@@ -53,24 +75,16 @@ export function InfluencerCard({
   const hasAvgViews = (influencer.avgViews ?? 0) > 0
   const hasSubscribers = (influencer.followers ?? 0) > 0
   const detailHref = profileHref ?? `/app/discovery/${influencer.id}`
-  const [avatarFailed, setAvatarFailed] = useState(false)
+  const extras = discoveryExtras(matchReasons)
+  const tierLabel = (extras?.tier || creatorTierLabel(influencer.followers) || '').toUpperCase()
+  const tierMatch = extras?.tierMatch
 
   return (
     <Card className={cn('p-4 hover:border-primary/35 hover:shadow-sm transition-all group flex flex-col justify-between', className)}>
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            {influencer.avatar && !avatarFailed ? (
-              <img
-                src={influencer.avatar}
-                alt={influencer.name}
-                className="h-12 w-12 rounded-full object-cover border border-border"
-                referrerPolicy="no-referrer"
-                onError={() => setAvatarFailed(true)}
-              />
-            ) : (
-              <Avatar name={influencer.name} size="lg" />
-            )}
+            <Avatar name={influencer.name} src={influencer.avatar} size="lg" className="border border-border" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <h3 className="text-sm font-semibold text-text truncate">{influencer.name}</h3>
@@ -113,6 +127,15 @@ export function InfluencerCard({
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-y-2.5 gap-x-3 text-xs">
+          {tierLabel ? (
+            <div>
+              <p className="text-text-secondary">Creator tier</p>
+              <p className="font-semibold">
+                {tierLabel}
+                {tierMatch === 'MATCH' ? ' ✓' : ''}
+              </p>
+            </div>
+          ) : null}
           <div>
             <p className="text-text-secondary">{isYouTube ? 'Subscribers' : 'Followers'}</p>
             <p className="font-semibold">
@@ -138,6 +161,18 @@ export function InfluencerCard({
             </p>
           </div>
         </div>
+
+        {(extras?.nicheMatch || extras?.contentMatch || extras?.reason) && (
+          <div className="mt-3 space-y-1 text-[11px] text-text-secondary">
+            {extras.nicheMatch && extras.nicheMatch !== 'UNKNOWN' && (
+              <p>Niche match: {extras.nicheMatch}</p>
+            )}
+            {extras.contentMatch && extras.contentMatch !== 'UNKNOWN' && (
+              <p>Content match: {extras.contentMatch}</p>
+            )}
+            {extras.reason && <p className="leading-relaxed">{extras.reason}</p>}
+          </div>
+        )}
 
         <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-border">
           <span className="text-text-secondary truncate max-w-[140px]">

@@ -1,10 +1,37 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from app.integrations.social_provider import ContentMetrics, NormalizedCreator
 from app.integrations.youtube.schemas import YouTubeChannelItem
 
 # Marks averages Auralytics computed itself rather than values reported by YouTube.
 DERIVED_METRIC_SOURCE = "auralytics_calculated"
+
+
+def sanitize_https_media_url(url: Optional[str]) -> Optional[str]:
+    """Keep a single absolute https URL. Never prepend the API host or disable TLS."""
+    if not url or not isinstance(url, str):
+        return None
+    text = url.strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if "https://" in lowered[8:]:
+        text = text[text.lower().rfind("https://") :]
+        lowered = text.lower()
+    elif lowered.startswith("http://https://"):
+        text = "https://" + text.split("://", 1)[-1]
+        lowered = text.lower()
+    if lowered.startswith("//"):
+        text = "https:" + text
+        lowered = text.lower()
+    if not lowered.startswith("https://"):
+        return None
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    if not host or host in {"localhost", "127.0.0.1"}:
+        return None
+    return text
 
 
 def _parse_published_at(value: Optional[str]) -> Optional[datetime]:
@@ -33,7 +60,7 @@ def map_youtube_channel_to_creator(
     avatar = None
     if snippet and snippet.thumbnails:
         thumbnails = snippet.thumbnails
-        avatar = (
+        avatar = sanitize_https_media_url(
             thumbnails.get("high", {}).get("url")
             or thumbnails.get("medium", {}).get("url")
             or thumbnails.get("default", {}).get("url")

@@ -1,8 +1,9 @@
+import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/utils'
 
 interface AvatarProps {
   name: string
-  src?: string
+  src?: string | null
   size?: 'sm' | 'md' | 'lg' | 'xl'
   className?: string
 }
@@ -23,7 +24,22 @@ const colors = [
   'bg-rose-100 text-rose-700',
 ]
 
+function safeHttpsMediaUrl(url?: string | null): string | undefined {
+  if (!url) return undefined
+  const text = url.trim()
+  if (!text.toLowerCase().startsWith('https://')) return undefined
+  if (/localhost|127\.0\.0\.1/i.test(text)) return undefined
+  return text
+}
+
 export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
+  const [failed, setFailed] = useState(false)
+  const safeSrc = useMemo(() => safeHttpsMediaUrl(src), [src])
+
+  useEffect(() => {
+    setFailed(false)
+  }, [safeSrc])
+
   const initials = name
     .split(' ')
     .map((n) => n[0])
@@ -31,13 +47,19 @@ export function Avatar({ name, src, size = 'md', className }: AvatarProps) {
     .slice(0, 2)
     .toUpperCase()
   const color = colors[name.length % colors.length]
+  const showImage = Boolean(safeSrc) && !failed
 
-  if (src) {
+  if (showImage) {
     return (
       <img
-        src={src}
+        src={safeSrc}
         alt={name}
+        referrerPolicy="no-referrer"
         className={cn('rounded-full object-cover', sizes[size], className)}
+        onError={(event) => {
+          event.currentTarget.onerror = null
+          setFailed(true)
+        }}
       />
     )
   }

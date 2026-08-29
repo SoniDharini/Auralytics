@@ -207,15 +207,7 @@ export function InfluencerDetailPage() {
         <CardContent className="pt-5">
           <div className="flex flex-col md:flex-row md:items-start justify-between gap-5">
             <div className="flex items-start gap-4">
-              {influencer.avatar ? (
-                <img
-                  src={influencer.avatar}
-                  alt={influencer.name}
-                  className="h-16 w-16 rounded-full object-cover border border-border"
-                />
-              ) : (
-                <Avatar name={influencer.name} size="xl" />
-              )}
+              <Avatar name={influencer.name} src={influencer.avatar} size="xl" className="border border-border" />
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h1 className="text-2xl font-bold">{influencer.name}</h1>

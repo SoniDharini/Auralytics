@@ -300,18 +300,25 @@ class SupervisorAgent:
 
     async def _persist_discovery_recommendations(self, campaign: Campaign, run: AgentRun) -> None:
         recs = (run.output_json or {}).get("recommendations") or []
-        for rec in recs:
-            inf_id = str(rec.get("influencer_id", "")).strip()
-            if not inf_id:
-                continue
-            link_result = await self.db.execute(
-                select(CampaignInfluencer).where(
-                    CampaignInfluencer.campaign_id == campaign.id,
-                    CampaignInfluencer.influencer_id == inf_id,
-                )
-            )
-            link = link_result.scalar_one_or_none()
-            if not link:
+        link_result = await self.db.execute(
+            select(CampaignInfluencer).where(CampaignInfluencer.campaign_id == campaign.id)
+        )
+        links = list(link_result.scalars().all())
+        rec_by_id = {
+            str(rec.get("influencer_id", "")).strip(): rec
+            for rec in recs
+            if str(rec.get("influencer_id", "")).strip()
+        }
+
+        for link in links:
+            existing = [
+                r
+                for r in (link.match_reasons or [])
+                if r.get("source") != "discovery_agent_grok" and r.get("key") != "ai_discovery"
+            ]
+            rec = rec_by_id.get(str(link.influencer_id))
+            if not rec:
+                link.match_reasons = existing
                 continue
             ai_block = {
                 "source": "discovery_agent_grok",
@@ -335,21 +342,28 @@ class SupervisorAgent:
                 "eligibility": rec.get("eligibility") or "ELIGIBLE",
                 "classification": rec.get("classification") or {},
                 "requirement_match": rec.get("requirement_match") or {},
+                "creator_tier": rec.get("creator_tier"),
+                "tier_match": rec.get("tier_match"),
                 "best_use_case": rec.get("best_use_case"),
                 "confidence": rec.get("confidence"),
             }
-            existing = [
-                r
-                for r in (link.match_reasons or [])
-                if r.get("source") != "discovery_agent_grok" and r.get("key") != "ai_discovery"
-            ]
             existing.append(ai_block)
             link.match_reasons = existing
+            score = rec.get("final_score")
+            if score is None:
+                score = rec.get("ai_fit_score")
+            try:
+                if score is not None:
+                    link.match_score = int(round(float(score)))
+            except (TypeError, ValueError):
+                pass
         await self.db.flush()
         logger.info(
-            "Persisted discovery recommendations for campaign %s from run %s",
+            "Persisted discovery recommendations campaign=%s run=%s recommended=%s linked=%s",
             campaign.id,
             run.id,
+            len(rec_by_id),
+            len(links),
         )
 
     async def _create_shortlist_approval(

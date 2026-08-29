@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import json
 import pytest
 
 from app.ai.agents.base import AgentContext
@@ -208,3 +209,222 @@ def test_query_builder_uses_campaign_then_content_intent():
     assert any("vitamin c serum" in q.lower() for q in queries)
     assert "india" in blob
     assert "review" in blob or "tutorial" in blob
+
+
+@pytest.mark.asyncio
+async def test_user_selected_macro_is_hard_filter():
+    agent = DiscoveryAgent()
+    camp = _campaign(creator_tiers=["macro"], min_followers=10000, max_followers=500000)
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {"influencer_id": "inf-micro", "ai_fit_score": 99, "rank": 1, "confidence": 0.9},
+            {"influencer_id": "inf-macro", "ai_fit_score": 80, "rank": 2, "confidence": 0.8},
+            {"influencer_id": "inf-celeb", "ai_fit_score": 97, "rank": 3, "confidence": 0.9},
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-micro", "inf-macro", "inf-celeb"],
+        "candidates": [
+            {"influencer_id": "inf-micro", "followers": 75000, "platform": "youtube", "deterministic_match_score": 70},
+            {"influencer_id": "inf-macro", "followers": 700000, "platform": "youtube", "deterministic_match_score": 70},
+            {"influencer_id": "inf-celeb", "followers": 2_500_000, "platform": "youtube", "deterministic_match_score": 70},
+        ],
+    }
+    validated = await agent.validate_output(ctx, result, context)
+    ids = [r["influencer_id"] for r in validated.recommendations]
+    assert ids == ["inf-macro"]
+    assert validated.recommendations[0]["creator_tier"] == "macro"
+    assert validated.recommendations[0]["tier_match"] == "MATCH"
+
+
+@pytest.mark.asyncio
+async def test_user_selected_celebrity_only():
+    agent = DiscoveryAgent()
+    camp = _campaign(creator_tiers=["celebrity"])
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {"influencer_id": "inf-macro", "ai_fit_score": 99, "rank": 1, "confidence": 0.9},
+            {"influencer_id": "inf-celeb", "ai_fit_score": 80, "rank": 2, "confidence": 0.8},
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-macro", "inf-celeb"],
+        "candidates": [
+            {"influencer_id": "inf-macro", "followers": 700000, "platform": "youtube", "deterministic_match_score": 50},
+            {"influencer_id": "inf-celeb", "followers": 2_500_000, "platform": "youtube", "deterministic_match_score": 50},
+        ],
+    }
+    validated = await agent.validate_output(ctx, result, context)
+    assert [r["influencer_id"] for r in validated.recommendations] == ["inf-celeb"]
+
+
+@pytest.mark.asyncio
+async def test_macro_plus_celebrity_excludes_micro():
+    agent = DiscoveryAgent()
+    camp = _campaign(creator_tiers=["macro", "celebrity"])
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {"influencer_id": "inf-micro", "ai_fit_score": 99, "rank": 1, "confidence": 0.9},
+            {"influencer_id": "inf-macro", "ai_fit_score": 80, "rank": 2, "confidence": 0.8},
+            {"influencer_id": "inf-celeb", "ai_fit_score": 85, "rank": 3, "confidence": 0.8},
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-micro", "inf-macro", "inf-celeb"],
+        "candidates": [
+            {"influencer_id": "inf-micro", "followers": 50000, "platform": "youtube", "deterministic_match_score": 90},
+            {"influencer_id": "inf-macro", "followers": 700000, "platform": "youtube", "deterministic_match_score": 70},
+            {"influencer_id": "inf-celeb", "followers": 2_500_000, "platform": "youtube", "deterministic_match_score": 70},
+        ],
+    }
+    validated = await agent.validate_output(ctx, result, context)
+    ids = [r["influencer_id"] for r in validated.recommendations]
+    assert "inf-micro" not in ids
+    assert set(ids) == {"inf-macro", "inf-celeb"}
+
+
+@pytest.mark.asyncio
+async def test_micro_plus_macro_excludes_mid_gap():
+    agent = DiscoveryAgent()
+    camp = _campaign(creator_tiers=["micro", "macro"])
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {"influencer_id": "inf-micro", "ai_fit_score": 80, "rank": 1, "confidence": 0.8},
+            {"influencer_id": "inf-mid", "ai_fit_score": 99, "rank": 2, "confidence": 0.9},
+            {"influencer_id": "inf-macro", "ai_fit_score": 85, "rank": 3, "confidence": 0.8},
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-micro", "inf-mid", "inf-macro"],
+        "candidates": [
+            {"influencer_id": "inf-micro", "followers": 40000, "platform": "youtube", "deterministic_match_score": 70},
+            {"influencer_id": "inf-mid", "followers": 200000, "platform": "youtube", "deterministic_match_score": 70},
+            {"influencer_id": "inf-macro", "followers": 700000, "platform": "youtube", "deterministic_match_score": 70},
+        ],
+    }
+    validated = await agent.validate_output(ctx, result, context)
+    ids = [r["influencer_id"] for r in validated.recommendations]
+    assert "inf-mid" not in ids
+    assert set(ids) == {"inf-micro", "inf-macro"}
+
+
+def test_user_selected_tiers_outrank_strategy_micro():
+    reqs = build_discovery_requirements(
+        _campaign(creator_tiers=["macro", "celebrity"], min_followers=10000, max_followers=500000),
+        {
+            "creator_strategy": {
+                "preferred_creator_tiers": [{"tier": "micro"}],
+                "recommended_subscriber_range": {"minimum": 10000, "maximum": 100000},
+            }
+        },
+    )
+    assert reqs.hard_creator_tiers == ["macro", "celebrity"]
+    assert reqs.hard_subscriber_ok(75000) is False
+    assert reqs.hard_subscriber_ok(700000) is True
+    assert reqs.hard_subscriber_ok(2_500_000) is True
+    assert reqs.preferred_creator_tiers == ["macro", "celebrity"]
+
+
+@pytest.mark.asyncio
+async def test_youtube_healthcheck_reports_missing_key():
+    from app.integrations.youtube.client import YouTubeClient
+
+    client = YouTubeClient(api_key="x")
+    result = await client.healthcheck()
+    assert result["ok"] is False
+    assert result["error"] == "INVALID_API_KEY"
+    assert "AIza" not in json.dumps(result)
+
+
+@pytest.mark.asyncio
+async def test_grok_cannot_override_missing_niche_evidence():
+    agent = DiscoveryAgent()
+    camp = _campaign(
+        name="Smartphone Launch",
+        interests=["Technology"],
+        keywords=["smartphone"],
+        creator_tiers=["macro"],
+        min_followers=None,
+        max_followers=None,
+    )
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {
+                "influencer_id": "inf-game",
+                "ai_fit_score": 95,
+                "rank": 1,
+                "confidence": 0.95,
+                "classification": {"niche_match": "HIGH", "content_relevance": "HIGH"},
+            },
+            {
+                "influencer_id": "inf-phone",
+                "ai_fit_score": 70,
+                "rank": 2,
+                "confidence": 0.8,
+                "classification": {"niche_match": "MEDIUM", "content_relevance": "HIGH"},
+            },
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-game", "inf-phone"],
+        "candidates": [
+            {
+                "influencer_id": "inf-game",
+                "followers": 720000,
+                "platform": "youtube",
+                "deterministic_match_score": 55,
+                "niche_keyword_hit": False,
+                "engagement_rate": 4.0,
+            },
+            {
+                "influencer_id": "inf-phone",
+                "followers": 700000,
+                "platform": "youtube",
+                "deterministic_match_score": 82,
+                "niche_keyword_hit": True,
+                "engagement_rate": 3.5,
+            },
+        ],
+    }
+    validated = await agent.validate_output(ctx, result, context)
+    ids = [r["influencer_id"] for r in validated.recommendations]
+    assert ids == ["inf-phone"]
+    assert validated.recommendations[0]["requirement_match"]["niche"] == "MATCH"
+    assert validated.recommendations[0]["eligibility"] == "ELIGIBLE"
+
+
+@pytest.mark.asyncio
+async def test_macro_90k_is_not_eligible_even_with_high_ai_fit():
+    agent = DiscoveryAgent()
+    camp = _campaign(creator_tiers=["macro"], min_followers=None, max_followers=None)
+    ctx = _ctx(camp)
+    result = _envelope(
+        [
+            {
+                "influencer_id": "inf-micro",
+                "ai_fit_score": 95,
+                "rank": 1,
+                "confidence": 0.95,
+                "classification": {"niche_match": "HIGH"},
+            },
+        ]
+    )
+    context = {
+        "candidate_ids": ["inf-micro"],
+        "candidates": [
+            {
+                "influencer_id": "inf-micro",
+                "followers": 90000,
+                "platform": "youtube",
+                "deterministic_match_score": 90,
+                "niche_keyword_hit": True,
+            },
+        ],
+    }
+    with pytest.raises(AgentValidationException):
+        await agent.validate_output(ctx, result, context)

@@ -19,6 +19,9 @@ class YouTubeProvider(SocialProvider):
     def is_configured(self) -> bool:
         return self.client.is_configured
 
+    async def healthcheck(self) -> Dict[str, Any]:
+        return await self.client.healthcheck()
+
     async def search_creators(
         self,
         queries: List[str],

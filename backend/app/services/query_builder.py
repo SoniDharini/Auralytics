@@ -55,8 +55,9 @@ class CampaignQueryBuilder:
             else:
                 cls._collect_terms(raw, item)
         blob = " ".join(raw).lower()
+        blob = f"{blob} {str(campaign.objective or '').lower()} {str(campaign.name or '').lower()}"
         intents: List[str] = []
-        if any(w in blob for w in ("review", "unbox", "demo")):
+        if any(w in blob for w in ("review", "unbox", "demo", "launch", "comparison", "versus")):
             intents.append("review")
         if any(w in blob for w in ("tutorial", "how to", "routine", "guide", "educational")):
             intents.append("tutorial")
@@ -94,6 +95,8 @@ class CampaignQueryBuilder:
             if len(queries) < max_queries:
                 for intent in intents[:2]:
                     push(compose(keyword, intent))
+            if len(queries) < max_queries and "review" in intents:
+                push(compose(keyword, "reviewer"))
 
         # 2. Audience interests / niches from the campaign brief (user requirements first).
         for interest in campaign.interests or []:

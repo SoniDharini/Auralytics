@@ -70,6 +70,8 @@ class InfluencerResponse(BaseModel):
 
 
 class MatchFactorSchema(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     key: str
     label: str
     weight: int

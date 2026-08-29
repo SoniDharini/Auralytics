@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
 T = TypeVar("T", bound=BaseModel)
 
+# Verbose JSON Schema keys inflate Groq prompts and can trigger HTTP 413
+# (Groq uses 413 when prompt + max_tokens exceeds the model context window).
+_SCHEMA_DROP_KEYS = {
+    "title",
+    "description",
+    "examples",
+    "deprecated",
+    "readOnly",
+    "writeOnly",
+    "default",
+}
+
+
+def compact_json_schema(schema: Any) -> Any:
+    """Keep types/required/$ref only. Full validation still happens in parse_structured."""
+    if isinstance(schema, dict):
+        out: Dict[str, Any] = {}
+        for key, value in schema.items():
+            if key in _SCHEMA_DROP_KEYS:
+                continue
+            out[key] = compact_json_schema(value)
+        return out
+    if isinstance(schema, list):
+        return [compact_json_schema(item) for item in schema]
+    return schema
+
+
+def schema_hint_for_prompt(response_model: Type[BaseModel]) -> str:
+    compact = compact_json_schema(response_model.model_json_schema())
+    return json.dumps(compact, separators=(",", ":"))
+
 
 class GrokProvider(LLMProvider):
     name = "groq"
@@ -78,13 +109,14 @@ class GrokProvider(LLMProvider):
             {"role": "user", "content": user_prompt},
         ]
         if response_model is not None:
-            schema_hint = json.dumps(response_model.model_json_schema(), indent=2)
             messages[0]["content"] = (
                 f"{system_prompt}\n\n"
                 "Return ONLY valid JSON that conforms to this JSON Schema. "
                 "Do not wrap in markdown. Do not invent factual metrics.\n"
-                f"{schema_hint}"
+                f"{schema_hint_for_prompt(response_model)}"
             )
+            # Groq 413 fires when prompt_tokens + max_tokens exceed the model window.
+            max_tokens = min(int(max_tokens), 3072)
 
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -125,7 +157,10 @@ class GrokProvider(LLMProvider):
                 last_error = exc
                 # Do not retry auth / validation-style failures.
                 detail = (exc.detail or "").lower()
-                if any(x in detail for x in ("401", "403", "invalid api", "unauthorized")):
+                if any(
+                    x in detail
+                    for x in ("401", "403", "413", "invalid api", "unauthorized", "too large")
+                ):
                     raise
                 if attempt >= self.max_retries:
                     raise
@@ -157,6 +192,11 @@ class GrokProvider(LLMProvider):
             raise AIProviderException(detail="Groq authentication failed (check GROQ_API_KEY)")
         if response.status_code == 429:
             raise AIProviderException(detail="Groq rate limit exceeded")
+        if response.status_code == 413:
+            logger.warning("Groq rejected request as too large (HTTP 413)")
+            raise AIProviderException(
+                detail="Groq request rejected (413): prompt exceeds the model context window"
+            )
         if response.status_code >= 500:
             raise AIProviderException(detail=f"Groq upstream error ({response.status_code})")
         if response.status_code >= 400:

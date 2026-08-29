@@ -160,3 +160,92 @@ class YouTubeClient:
                     "comment_count": int(stats.get("commentCount", 0)),
                 })
         return all_video_stats
+
+    def _classify_error(self, exc: YouTubeAPIError) -> str:
+        status = exc.status_code
+        message = str(exc).lower()
+        if status in (401, 400) and "key" in message:
+            return "INVALID_API_KEY"
+        if status == 401:
+            return "INVALID_API_KEY"
+        if "not configured" in message:
+            return "INVALID_API_KEY"
+        if status == 403 and "not enabled" in message:
+            return "API_NOT_ENABLED"
+        if status in (403,) and "disabled" in message:
+            return "API_NOT_ENABLED"
+        if status == 429 or "quota" in message:
+            return "QUOTA_EXCEEDED"
+        if status == 504 or "timed out" in message:
+            return "TIMEOUT"
+        if status in (502,):
+            return "TIMEOUT"
+        if status == 400:
+            return "INVALID_RESPONSE"
+        return "INVALID_RESPONSE"
+
+    async def healthcheck(self) -> Dict[str, Any]:
+        """Minimal live probe: search.list -> channel id -> channels.list statistics.
+
+        Never logs or returns the API key.
+        """
+        if not self.is_configured:
+            logger.warning("YouTube healthcheck failed: API key is not configured")
+            return {
+                "ok": False,
+                "error": "INVALID_API_KEY",
+                "detail": "YouTube API key is not configured",
+            }
+        try:
+            search = await self.search_channels("YouTube", max_results=1)
+            items = search.items or []
+            if not items:
+                return {"ok": False, "error": "NO_RESULTS", "detail": "search.list returned no channels"}
+            channel_id = None
+            first = items[0]
+            if getattr(first, "id", None) is not None:
+                channel_id = getattr(first.id, "channelId", None) or getattr(first.id, "channel_id", None)
+            if not channel_id:
+                return {
+                    "ok": False,
+                    "error": "INVALID_RESPONSE",
+                    "detail": "search.list item missing channel id",
+                }
+            channels = await self.get_channels_by_id([channel_id])
+            if not channels.items:
+                return {
+                    "ok": False,
+                    "error": "INVALID_RESPONSE",
+                    "detail": "channels.list returned no statistics",
+                }
+            stats = channels.items[0].statistics
+            subscribers = None
+            if stats and not stats.hiddenSubscriberCount:
+                try:
+                    subscribers = int(stats.subscriberCount or 0)
+                except (TypeError, ValueError):
+                    subscribers = None
+            logger.info(
+                "YouTube healthcheck succeeded channel_found=%s subscribers_parsed=%s",
+                bool(channel_id),
+                subscribers is not None,
+            )
+            return {
+                "ok": True,
+                "error": None,
+                "channel_id_returned": True,
+                "subscribers_parsed": subscribers is not None,
+            }
+        except YouTubeAPIError as exc:
+            code = self._classify_error(exc)
+            logger.warning(
+                "YouTube healthcheck failed error=%s status=%s",
+                code,
+                exc.status_code,
+            )
+            return {
+                "ok": False,
+                "error": code,
+                "detail": str(exc),
+                "status_code": exc.status_code,
+            }

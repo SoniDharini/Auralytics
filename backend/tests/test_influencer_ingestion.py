@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from app.integrations.social_provider import ContentMetrics, NormalizedCreator
-from app.integrations.youtube.mapper import map_youtube_channel_to_creator
+from app.integrations.youtube.mapper import map_youtube_channel_to_creator, sanitize_https_media_url
 from app.integrations.youtube.schemas import (
     YouTubeChannelItem,
     YouTubeContentDetails,
@@ -105,6 +105,44 @@ async def test_youtube_mapper_metric_calculations():
     # engagement_rate = ((1200 + 120) / 100000) * 100 = 1.32%
     assert norm.engagement_rate == 1.32
     assert norm.profile_url == "https://www.youtube.com/@shaliniderm"
+    assert norm.avatar == "https://img.youtube.com/thumb.jpg"
+    assert norm.thumbnail_url == "https://img.youtube.com/thumb.jpg"
+
+
+def test_sanitize_https_media_url_strips_malformed_prefixes():
+    assert sanitize_https_media_url("https://yt3.ggpht.com/abc.jpg") == "https://yt3.ggpht.com/abc.jpg"
+    assert sanitize_https_media_url("https://https://yt3.ggpht.com/abc.jpg") == "https://yt3.ggpht.com/abc.jpg"
+    assert (
+        sanitize_https_media_url("https://localhost:8000/https://yt3.ggpht.com/abc.jpg")
+        == "https://yt3.ggpht.com/abc.jpg"
+    )
+    assert sanitize_https_media_url("http://yt3.ggpht.com/abc.jpg") is None
+    assert sanitize_https_media_url("https://localhost/photo.jpg") is None
+    assert sanitize_https_media_url("") is None
+
+
+def test_invalid_thumbnail_does_not_drop_creator():
+    channel = YouTubeChannelItem(
+        id="UC_bad_thumb",
+        snippet=YouTubeSnippet(
+            title="Phone Reviews India",
+            description="Smartphone comparisons",
+            customUrl="@phones",
+            country="IN",
+            thumbnails={"high": {"url": "not-a-valid-url"}},
+        ),
+        statistics=YouTubeStatistics(
+            subscriberCount="700000",
+            viewCount="1000000",
+            videoCount="40",
+            hiddenSubscriberCount=False,
+        ),
+    )
+    norm = map_youtube_channel_to_creator(channel)
+    assert norm.name == "Phone Reviews India"
+    assert norm.followers == 700000
+    assert norm.avatar is None
+    assert norm.thumbnail_url is None
 
 
 @pytest.mark.asyncio

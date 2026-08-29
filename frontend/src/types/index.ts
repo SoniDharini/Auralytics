@@ -210,9 +210,15 @@ export interface MatchFactor {
   key: string
   label: string
   weight: number
-  score: number | null
-  available: boolean
+  score?: number | null
+  available?: boolean
   detail: string
+  recommendation_reason?: string
+  creator_tier?: string
+  tier_match?: string
+  eligibility?: string
+  requirement_match?: Record<string, string>
+  classification?: Record<string, string>
 }
 
 /** A creator as seen from inside one campaign. */

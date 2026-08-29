@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     YOUTUBE_DISCOVERY_MAX_CREATORS: int = 50
     # search.list costs 100 quota units per call, so this is deliberately small.
     YOUTUBE_MAX_SEARCH_QUERIES: int = 5
+    YOUTUBE_SEARCH_RESULTS_PER_QUERY: int = 15
     YOUTUBE_RECENT_VIDEO_SAMPLE: int = 8
     DISCOVERY_FINAL_RESULT_LIMIT: int = 20
 

@@ -149,8 +149,8 @@ export function DashboardPage() {
           </h1>
           <p className="text-text-secondary mt-1">
             {summary.total_campaigns > 0
-              ? `Managing ${summary.total_campaigns} campaign${summary.total_campaigns !== 1 ? 's' : ''} on InfluenceOS.`
-              : 'Welcome to InfluenceOS. Create your first campaign to get started.'}
+              ? `Managing ${summary.total_campaigns} campaign${summary.total_campaigns !== 1 ? 's' : ''} on Auralytics.`
+              : 'Welcome to Auralytics. Create your first campaign to get started.'}
           </p>
         </div>
         <div className="flex items-center gap-2.5">

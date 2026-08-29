@@ -74,48 +74,98 @@ interface BudgetAllocation {
   rationale: string
 }
 
-/** AI suggestion ratios — applied to total budget; user can override freely. */
-const AI_ALLOCATION_RATIOS: { id: string; label: string; ratio: number; color: string; rationale: string }[] = [
-  {
-    id: 'micro',
-    label: 'Micro Creators',
-    ratio: 0.45,
+const TIER_FOLLOWER_BOUNDS: Record<CreatorTier, { min: number; max: number | null }> = {
+  nano: { min: 1000, max: 10000 },
+  micro: { min: 10000, max: 100000 },
+  'mid-tier': { min: 100000, max: 500000 },
+  macro: { min: 500000, max: 1000000 },
+  celebrity: { min: 1000000, max: null },
+}
+
+const TIER_ALLOCATION_META: Record<CreatorTier, { label: string; color: string; rationale: string }> = {
+  nano: {
+    label: 'Nano Creators',
     color: 'bg-primary',
-    rationale: 'Higher engagement & better CPA — volume of authentic content.',
+    rationale: 'Budget pool for nano creators you selected.',
   },
-  {
-    id: 'mid',
+  micro: {
+    label: 'Micro Creators',
+    color: 'bg-primary',
+    rationale: 'Budget pool for micro creators you selected.',
+  },
+  'mid-tier': {
     label: 'Mid-tier Creators',
-    ratio: 0.35,
     color: 'bg-accent',
-    rationale: 'Balance of reach and credibility for brand lift.',
+    rationale: 'Budget pool for mid-tier creators you selected.',
   },
-  {
+  macro: {
+    label: 'Macro Creators',
+    color: 'bg-accent',
+    rationale: 'Budget pool for macro creators you selected.',
+  },
+  celebrity: {
+    label: 'Celebrity Creators',
+    color: 'bg-ai',
+    rationale: 'Budget pool for celebrity creators you selected.',
+  },
+}
+
+function rangeForSelectedTiers(tiers: CreatorTier[]): { min: string; max: string } {
+  if (!tiers.length) return { min: '', max: '' }
+  const mins = tiers.map((t) => TIER_FOLLOWER_BOUNDS[t].min)
+  const maxes = tiers.map((t) => TIER_FOLLOWER_BOUNDS[t].max)
+  const open = maxes.some((m) => m == null)
+  return {
+    min: String(Math.min(...mins)),
+    max: open ? '' : String(Math.max(...(maxes.filter((m): m is number => m != null)))),
+  }
+}
+
+function buildAllocationFromTotal(total: number, tiers: CreatorTier[]): BudgetAllocation[] {
+  const safeTotal = Math.max(0, Math.round(total))
+  const selected = tiers.length ? tiers : []
+  const contentRatio = 0.1
+  const reserveRatio = 0.1
+  const creatorRatio = 0.8
+  const items: BudgetAllocation[] = []
+
+  if (selected.length === 0) {
+    items.push({
+      id: 'creators',
+      label: 'Creator Fees',
+      amount: Math.round(safeTotal * creatorRatio),
+      color: 'bg-primary',
+      rationale: 'Budget pool for creator fees. Select influencer types to split this by tier.',
+    })
+  } else {
+    const per = creatorRatio / selected.length
+    selected.forEach((id) => {
+      const meta = TIER_ALLOCATION_META[id]
+      items.push({
+        id,
+        label: meta.label,
+        amount: Math.round(safeTotal * per),
+        color: meta.color,
+        rationale: meta.rationale,
+      })
+    })
+  }
+
+  items.push({
     id: 'content',
     label: 'Content Production',
-    ratio: 0.1,
+    amount: Math.round(safeTotal * contentRatio),
     color: 'bg-ai',
     rationale: 'Assets, edits, and production support for deliverables.',
-  },
-  {
+  })
+  items.push({
     id: 'reserve',
     label: 'Reserve Fund',
-    ratio: 0.1,
+    amount: Math.round(safeTotal * reserveRatio),
     color: 'bg-warning',
     rationale: 'Buffer for negotiation, top-ups to winners, and contingencies.',
-  },
-]
+  })
 
-function buildAllocationFromTotal(total: number): BudgetAllocation[] {
-  const safeTotal = Math.max(0, Math.round(total))
-  const items = AI_ALLOCATION_RATIOS.map((item) => ({
-    id: item.id,
-    label: item.label,
-    amount: Math.round(safeTotal * item.ratio),
-    color: item.color,
-    rationale: item.rationale,
-  }))
-  // Fix rounding so amounts always sum exactly to total
   const sum = items.reduce((s, a) => s + a.amount, 0)
   const diff = safeTotal - sum
   if (items.length > 0 && diff !== 0) {
@@ -127,7 +177,7 @@ function buildAllocationFromTotal(total: number): BudgetAllocation[] {
 function scaleAllocationToTotal(current: BudgetAllocation[], total: number): BudgetAllocation[] {
   const safeTotal = Math.max(0, Math.round(total))
   const currentSum = current.reduce((s, a) => s + a.amount, 0)
-  if (currentSum <= 0) return buildAllocationFromTotal(safeTotal)
+  if (currentSum <= 0) return buildAllocationFromTotal(safeTotal, [])
 
   const scaled = current.map((item) => ({
     ...item,
@@ -182,9 +232,10 @@ export function CreateCampaignPage() {
   const [discoveryKeywords, setDiscoveryKeywords] = useState('')
   const [minFollowers, setMinFollowers] = useState('10000')
   const [maxFollowers, setMaxFollowers] = useState('500000')
+  const [followerRangeCustomized, setFollowerRangeCustomized] = useState(false)
 
   const [totalBudget, setTotalBudget] = useState(200000)
-  const [allocation, setAllocation] = useState(() => buildAllocationFromTotal(200000))
+  const [allocation, setAllocation] = useState(() => buildAllocationFromTotal(200000, ['micro', 'mid-tier']))
   const [allocationCustomized, setAllocationCustomized] = useState(false)
 
   const [primaryKpi, setPrimaryKpi] = useState('ROAS')
@@ -206,7 +257,7 @@ export function CreateCampaignPage() {
     const next = Math.max(0, value)
     setTotalBudget(next)
     setAllocation((prev) =>
-      allocationCustomized ? scaleAllocationToTotal(prev, next) : buildAllocationFromTotal(next),
+      allocationCustomized ? scaleAllocationToTotal(prev, next) : buildAllocationFromTotal(next, selectedTiers),
     )
   }
 
@@ -216,8 +267,23 @@ export function CreateCampaignPage() {
   }
 
   const applyAiSuggestion = () => {
-    setAllocation(buildAllocationFromTotal(totalBudget))
+    setAllocation(buildAllocationFromTotal(totalBudget, selectedTiers))
     setAllocationCustomized(false)
+  }
+
+  const toggleTier = (tier: CreatorTier) => {
+    const next = selectedTiers.includes(tier)
+      ? selectedTiers.filter((t) => t !== tier)
+      : [...selectedTiers, tier]
+    setSelectedTiers(next)
+    if (!allocationCustomized) {
+      setAllocation(buildAllocationFromTotal(totalBudget, next))
+    }
+    if (!followerRangeCustomized) {
+      const range = rangeForSelectedTiers(next)
+      setMinFollowers(range.min)
+      setMaxFollowers(range.max)
+    }
   }
 
   const distributeEvenly = () => {
@@ -532,7 +598,7 @@ export function CreateCampaignPage() {
                     <button
                       key={t.id}
                       type="button"
-                      onClick={() => toggle(selectedTiers, t.id, setSelectedTiers)}
+                      onClick={() => toggleTier(t.id)}
                       className={cn(
                         'text-left rounded-[12px] border p-4 transition',
                         selectedTiers.includes(t.id)
@@ -591,7 +657,10 @@ export function CreateCampaignPage() {
                     min={0}
                     placeholder="e.g. 10000"
                     value={minFollowers}
-                    onChange={(e) => setMinFollowers(e.target.value)}
+                    onChange={(e) => {
+                      setFollowerRangeCustomized(true)
+                      setMinFollowers(e.target.value)
+                    }}
                   />
                   <Input
                     label="Maximum subscribers"
@@ -599,7 +668,10 @@ export function CreateCampaignPage() {
                     min={0}
                     placeholder="e.g. 500000"
                     value={maxFollowers}
-                    onChange={(e) => setMaxFollowers(e.target.value)}
+                    onChange={(e) => {
+                      setFollowerRangeCustomized(true)
+                      setMaxFollowers(e.target.value)
+                    }}
                   />
                 </div>
                 <p className="text-xs text-text-secondary">
@@ -642,7 +714,7 @@ export function CreateCampaignPage() {
                 </div>
                 <ul className="grid sm:grid-cols-2 gap-2 text-xs text-text-secondary">
                   <li className="rounded-lg bg-page border border-border px-3 py-2">
-                    <span className="font-semibold text-text">Creators</span> — fees for micro & mid-tier partners
+                    <span className="font-semibold text-text">Creators</span> — fees for the influencer types you selected
                   </li>
                   <li className="rounded-lg bg-page border border-border px-3 py-2">
                     <span className="font-semibold text-text">Content</span> — production, edits, assets

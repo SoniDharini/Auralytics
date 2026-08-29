@@ -16,8 +16,9 @@ from typing import Any, Dict, List, Optional
 from app.models.campaign import Campaign
 
 # Factor weights (sum to 100 when every signal is available).
-WEIGHT_KEYWORD_RELEVANCE = 30
-WEIGHT_FOLLOWER_SUITABILITY = 25
+# Niche/content evidence outranks raw popularity.
+WEIGHT_KEYWORD_RELEVANCE = 40
+WEIGHT_FOLLOWER_SUITABILITY = 15
 WEIGHT_ENGAGEMENT = 20
 WEIGHT_RECENT_ACTIVITY = 15
 WEIGHT_LOCATION = 10

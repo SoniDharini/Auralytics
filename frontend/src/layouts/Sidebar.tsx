@@ -42,7 +42,7 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Side
 
   const displayName = user?.full_name || 'Aaditya Sharma'
   const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
-  const displayOrg = user?.company_name || 'InfluenceOS'
+  const displayOrg = user?.company_name || 'Auralytics'
 
   const content = (
     <div className="flex h-full flex-col">
@@ -50,14 +50,15 @@ export function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: Side
         <button
           onClick={() => navigate('/app')}
           className="flex items-center gap-2.5 min-w-0"
-          aria-label="InfluenceOS home"
+          aria-label="Auralytics home"
         >
           <div className="h-8 w-8 rounded-lg ai-gradient-bg flex items-center justify-center text-white font-bold text-sm shrink-0">
             A
           </div>
           {!collapsed && (
             <div className="min-w-0 text-left">
-              <p className="text-sm font-bold text-text leading-tight">InfluenceOS</p>
+              <p className="text-sm font-bold text-text leading-tight">Auralytics</p>
+         
               <p className="text-[10px] text-text-secondary truncate">From Discovery to ROI</p>
             </div>
           )}

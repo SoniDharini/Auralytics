@@ -44,6 +44,7 @@ from app.services.creator_scoring_service import (
     resolve_target_country,
 )
 from app.services.query_builder import CampaignQueryBuilder
+from app.ai.discovery_requirements import build_discovery_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -95,21 +96,20 @@ class CreatorDiscoveryService:
 
         A hidden subscriber count is missing information, not a disqualification, so
         the creator is kept and the uncertainty is reflected in the match score.
-        Strategy recommended ranges apply when campaign min/max are unset.
+        User-selected creator tiers are hard filters. Strategy ranges are ranking
+        preferences, not YouTube exclusions.
         """
         if hidden or followers <= 0:
             return True, "subscriber_count_hidden"
 
-        # Only explicit campaign min/max are hard constraints. Strategy ranges
-        # are preferences applied later during ranking, not YouTube exclusions.
-        min_followers = campaign.min_followers
-        max_followers = campaign.max_followers
-
-        if min_followers and followers < min_followers:
-            return False, "below_min_subscribers"
-        if max_followers and followers > max_followers:
-            return False, "above_max_subscribers"
-        return True, "within_range"
+        reqs = build_discovery_requirements(campaign, strategy_json)
+        if reqs.hard_subscriber_ok(followers, hidden=hidden):
+            if reqs.hard_creator_tiers:
+                return True, "selected_tier"
+            return True, "within_range"
+        if reqs.hard_creator_tiers:
+            return False, "outside_selected_tiers"
+        return False, "outside_campaign_subscriber_range"
 
     # -- persistence ---------------------------------------------------------
 
@@ -272,10 +272,11 @@ class CreatorDiscoveryService:
                 campaign_terms.append(token)
 
         # Stage one: channel search (100 quota units per query).
+        per_query = int(getattr(settings, "YOUTUBE_SEARCH_RESULTS_PER_QUERY", 15) or 15)
         try:
             candidate_map = await self.youtube.search_channel_candidates(
                 queries=queries,
-                max_per_query=max(5, min(25, limit)),
+                max_per_query=max(10, min(20, per_query)),
                 region_code=target_country,
             )
         except YouTubeAPIError as exc:
@@ -319,16 +320,19 @@ class CreatorDiscoveryService:
                 stats.filtered_out += 1
 
         # Keep YouTube's relevance ordering, then cap so quota stays predictable.
-        max_enriched = min(limit, settings.YOUTUBE_DISCOVERY_MAX_CREATORS)
+        max_enriched = int(getattr(settings, "YOUTUBE_DISCOVERY_MAX_CREATORS", 50) or 50)
+        if limit and limit > max_enriched:
+            max_enriched = min(int(limit), 80)
         survivors = survivors[:max_enriched]
         # Lock influencer rows in a stable order to avoid cross-request deadlocks.
         survivors.sort(key=lambda ch: ch.id)
         stats.passed_filters = len(survivors)
         logger.info(
-            "Campaign %s: %d channels passed campaign filters (%d filtered out).",
+            "Campaign %s: %d channels passed campaign filters (%d filtered out). Enriching up to %d.",
             campaign.id,
             stats.passed_filters,
             stats.filtered_out,
+            max_enriched,
         )
 
         cache_ttl = timedelta(hours=settings.INFLUENCER_CACHE_TTL_HOURS)

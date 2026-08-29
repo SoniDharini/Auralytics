@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,7 +18,12 @@ from app.ai.agents.discovery import (
 )
 from app.ai.agents.strategy import StrategyAgent, StrategyAgentOutput
 from app.ai.llm_service import LLMService
-from app.ai.providers.grok import extract_json_object, parse_structured
+from app.ai.providers.grok import (
+    compact_json_schema,
+    extract_json_object,
+    parse_structured,
+    schema_hint_for_prompt,
+)
 from app.ai.schemas import AgentResultEnvelope, LLMRawResponse
 from app.ai.workflow_states import AgentRunStatus, WorkflowState
 from app.core.config import settings
@@ -141,6 +147,17 @@ def test_extract_json_object_strips_fences():
     assert extract_json_object('```json\n{"a": 1}\n```') == {"a": 1}
 
 
+def test_groq_schema_hint_is_compact():
+    pretty = json.dumps(StrategyAgentOutput.model_json_schema(), indent=2)
+    hint = schema_hint_for_prompt(StrategyAgentOutput)
+    assert len(hint) < len(pretty)
+    assert "\n" not in hint
+    assert '"title"' not in hint
+    compact = compact_json_schema(StrategyAgentOutput.model_json_schema())
+    assert "campaign_summary" in json.dumps(compact)
+    assert "creator_strategy" in json.dumps(compact)
+
+
 def test_parse_structured_strategy():
     parsed = parse_structured(json.dumps(SAMPLE_STRATEGY), StrategyAgentOutput)
     assert parsed.confidence == 0.82
@@ -258,10 +275,18 @@ def test_strategy_output_includes_discovery_priorities():
 
 
 def test_creator_tier_ranges_are_centralized():
-    from app.ai.creator_tiers import extract_subscriber_range, tier_for_followers, range_for_tiers
+    from app.ai.creator_tiers import (
+        extract_subscriber_range,
+        followers_match_selected_tiers,
+        range_for_tiers,
+        selected_tier_keys,
+        tier_for_followers,
+    )
 
     assert tier_for_followers(50_000) == "micro"
     assert tier_for_followers(200_000) == "mid"
+    assert tier_for_followers(700_000) == "macro"
+    assert tier_for_followers(2_500_000) == "mega"
     mn, mx = range_for_tiers(["micro", "mid"])
     assert mn == 10_000
     assert mx == 500_000
@@ -274,6 +299,12 @@ def test_creator_tier_ranges_are_centralized():
     )
     assert mn2 == 10_000
     assert mx2 == 100_000
+    assert selected_tier_keys(["MACRO", "CELEBRITY"]) == ["macro", "celebrity"]
+    assert followers_match_selected_tiers(700_000, ["macro", "celebrity"]) is True
+    assert followers_match_selected_tiers(2_500_000, ["macro", "celebrity"]) is True
+    assert followers_match_selected_tiers(50_000, ["macro", "celebrity"]) is False
+    assert followers_match_selected_tiers(200_000, ["micro", "macro"]) is False
+    assert followers_match_selected_tiers(40_000, ["micro", "macro"]) is True
 
 
 @pytest.mark.asyncio
@@ -289,6 +320,99 @@ async def test_strategy_rejects_zero_budget():
     with pytest.raises(AgentValidationException) as exc:
         agent.validate_input(ctx)
     assert "REQUIRES_USER_INPUT" in str(exc.value.detail)
+
+
+def _strategy_campaign(**kwargs):
+    defaults = dict(
+        budget=3_000_000,
+        owner_id="x",
+        id="c1",
+        name="n",
+        creator_tiers=None,
+        platforms=["youtube"],
+        brand="B",
+        description="d",
+        objective="Launch",
+    )
+    defaults.update(kwargs)
+    return type("C", (), defaults)()
+
+
+@pytest.mark.asyncio
+async def test_strategy_preserves_macro_celebrity_when_grok_returns_micro():
+    agent = StrategyAgent()
+    camp = _strategy_campaign(creator_tiers=["MACRO", "CELEBRITY"], budget=3_000_000)
+    user = type("U", (), {"id": "x"})()
+    ctx = AgentContext(user=user, campaign=camp, db=None)  # type: ignore[arg-type]
+    result = AgentResultEnvelope(
+        status="COMPLETED",
+        summary="ok",
+        confidence=0.8,
+        data=deepcopy(SAMPLE_STRATEGY),
+    )
+    validated = await agent.validate_output(ctx, result, {})
+    preferred = validated.data["creator_strategy"]["preferred_creator_tiers"]
+    families = {str(item["tier"]).lower() for item in preferred}
+    assert "macro" in families
+    assert "celebrity" in families
+    assert "micro" not in families
+    assert all(item.get("source") == "USER_SELECTED" for item in preferred)
+    assert validated.data["user_selected_creator_tiers"] == ["macro", "celebrity"]
+    alloc_tiers = {
+        str(item["tier"]).lower()
+        for item in (validated.data["budget_strategy"].get("tier_allocations") or [])
+    }
+    assert "macro" in alloc_tiers
+    assert "celebrity" in alloc_tiers
+    assert "micro" not in alloc_tiers
+    optional = validated.data.get("optional_recommendations") or []
+    assert any(str(o.get("tier") or "").lower() == "micro" for o in optional)
+    assert all(o.get("requires_user_approval") for o in optional)
+
+
+@pytest.mark.asyncio
+async def test_strategy_low_budget_macro_keeps_macro_as_optional_micro():
+    agent = StrategyAgent()
+    camp = _strategy_campaign(creator_tiers=["macro"], budget=300_000)
+    user = type("U", (), {"id": "x"})()
+    ctx = AgentContext(user=user, campaign=camp, db=None)  # type: ignore[arg-type]
+    result = AgentResultEnvelope(
+        status="COMPLETED",
+        summary="ok",
+        confidence=0.8,
+        data=deepcopy(SAMPLE_STRATEGY),
+    )
+    validated = await agent.validate_output(ctx, result, {})
+    preferred = validated.data["creator_strategy"]["preferred_creator_tiers"]
+    assert [item["tier"] for item in preferred] == ["macro"]
+    assert validated.data["budget_limitations"]
+    optional = validated.data.get("optional_recommendations") or []
+    assert any(str(o.get("tier") or "").lower() == "micro" and o.get("requires_user_approval") for o in optional)
+    alloc = validated.data["budget_strategy"]["tier_allocations"]
+    assert alloc and alloc[0]["tier"] == "macro"
+    total = sum(float(item.get("amount") or 0) for item in alloc)
+    assert total <= 300_000 + 0.01
+
+
+@pytest.mark.asyncio
+async def test_strategy_high_budget_macro_does_not_make_micro_primary():
+    agent = StrategyAgent()
+    camp = _strategy_campaign(creator_tiers=["macro"], budget=3_000_000)
+    user = type("U", (), {"id": "x"})()
+    ctx = AgentContext(user=user, campaign=camp, db=None)  # type: ignore[arg-type]
+    result = AgentResultEnvelope(
+        status="COMPLETED",
+        summary="ok",
+        confidence=0.8,
+        data=deepcopy(SAMPLE_STRATEGY),
+    )
+    validated = await agent.validate_output(ctx, result, {})
+    preferred = [item["tier"] for item in validated.data["creator_strategy"]["preferred_creator_tiers"]]
+    assert preferred == ["macro"]
+    assert "micro" not in {
+        str(item["tier"]).lower()
+        for item in validated.data["budget_strategy"].get("tier_allocations") or []
+    }
 
 def test_combine_scores_explicit_formula():
     assert combine_scores(80, 90, det_weight=0.65, ai_weight=0.35) == 83.5

@@ -24,9 +24,10 @@ import {
   InfluencerCard,
   Input,
   Select,
+  Avatar,
   useToast,
 } from '@/components/ui'
-import { cn, formatNumber } from '@/utils'
+import { cn, formatNumber, recommendedCampaignCreators } from '@/utils'
 import type { Campaign, CampaignCreator, IntegrationStatus } from '@/types'
 
 type ViewMode = 'grid' | 'table'
@@ -91,6 +92,10 @@ export function DiscoveryPage() {
   const selectedCampaign = useMemo(
     () => campaigns.find((c) => c.id === selectedCampaignId) ?? null,
     [campaigns, selectedCampaignId],
+  )
+  const displayedCreators = useMemo(
+    () => recommendedCampaignCreators(creators),
+    [creators],
   )
 
   useEffect(() => {
@@ -512,22 +517,23 @@ export function DiscoveryPage() {
         </div>
       )}
 
-      {creators.length > 0 && (
+      {displayedCreators.length > 0 && (
         <>
           <div className="flex items-center justify-between text-xs text-text-secondary px-1">
             <span>
-              Showing {creators.length} of {total} discovered creator{total === 1 ? '' : 's'}
+              Showing {displayedCreators.length} of {total} discovered creator{total === 1 ? '' : 's'}
             </span>
             <span className="font-mono">Stored in PostgreSQL · source: YouTube Data API</span>
           </div>
 
           {view === 'grid' ? (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {creators.map((entry) => (
+              {displayedCreators.map((entry) => (
                 <InfluencerCard
                   key={entry.link_id}
                   influencer={{ ...entry.creator, shortlisted: entry.status === 'SHORTLISTED' }}
                   matchScore={entry.match_score ?? null}
+                  matchReasons={entry.match_reasons}
                   profileHref={`/app/discovery/${entry.creator.id}?campaign=${entry.campaign_id}`}
                   onShortlist={toggleShortlist}
                   shortlistLabel={pendingStatusIds[entry.creator.id] ? 'Saving...' : undefined}
@@ -551,27 +557,14 @@ export function DiscoveryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {creators.map((entry) => {
+                  {displayedCreators.map((entry) => {
                     const inf = entry.creator
                     const hasEngagement = (inf.metricsSampleSize ?? 0) > 0 && !!inf.engagementRate
                     return (
                       <tr key={entry.link_id} className="border-b border-border last:border-0 hover:bg-page/60 transition">
                         <td className="py-3 pl-4">
                           <div className="flex items-center gap-3">
-                            {inf.avatar ? (
-                              <img
-                                src={inf.avatar}
-                                alt={inf.name}
-                                className="h-9 w-9 rounded-full object-cover border border-border"
-                                onError={(e) => {
-                                  ;(e.target as HTMLElement).style.display = 'none'
-                                }}
-                              />
-                            ) : (
-                              <div className="h-9 w-9 rounded-full bg-primary-soft text-primary font-bold text-xs flex items-center justify-center">
-                                {inf.name[0]}
-                              </div>
-                            )}
+                            <Avatar name={inf.name} src={inf.avatar} size="sm" className="border border-border" />
                             <div>
                               <Link
                                 to={`/app/discovery/${inf.id}?campaign=${entry.campaign_id}`}

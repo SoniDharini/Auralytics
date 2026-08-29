@@ -9,8 +9,34 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.ai.creator_tiers import extract_subscriber_range, preferred_tier_keys
+from app.ai.creator_tiers import (
+    campaign_min_max_compatible_with_tiers,
+    extract_subscriber_range,
+    followers_match_selected_tiers,
+    preferred_tier_keys,
+    selected_tier_keys,
+    subscriber_ranges_for_tiers,
+)
 from app.models.campaign import Campaign
+
+
+def terms_match_text(haystack: str, terms: List[str]) -> Optional[bool]:
+    """True if any campaign niche/keyword appears in real creator text."""
+    if not terms:
+        return None
+    blob = (haystack or "").lower()
+    if not blob.strip():
+        return False
+    for raw in terms:
+        term = str(raw or "").strip().lower()
+        if len(term) < 3:
+            continue
+        if term in blob:
+            return True
+        for token in term.replace("-", " ").split():
+            if len(token) >= 4 and token in blob:
+                return True
+    return False
 
 
 def _as_str_list(value: Any) -> List[str]:
@@ -67,6 +93,8 @@ class DiscoveryRequirements:
     hard_location: Optional[str] = None
     hard_subscriber_min: Optional[int] = None
     hard_subscriber_max: Optional[int] = None
+    hard_creator_tiers: List[str] = field(default_factory=list)
+    subscriber_ranges: List[Dict[str, Any]] = field(default_factory=list)
     excluded_categories: List[str] = field(default_factory=list)
     mandatory_keywords: List[str] = field(default_factory=list)
 
@@ -87,7 +115,15 @@ class DiscoveryRequirements:
 
     def compact_campaign(self) -> Dict[str, Any]:
         sub_range = None
-        if self.hard_subscriber_min is not None or self.hard_subscriber_max is not None:
+        if self.hard_creator_tiers:
+            sub_range = {
+                "source": "USER_REQUIREMENT",
+                "selected_creator_tiers": self.hard_creator_tiers,
+                "ranges": self.subscriber_ranges,
+                "minimum": self.hard_subscriber_min,
+                "maximum": self.hard_subscriber_max,
+            }
+        elif self.hard_subscriber_min is not None or self.hard_subscriber_max is not None:
             sub_range = {
                 "minimum": self.hard_subscriber_min,
                 "maximum": self.hard_subscriber_max,
@@ -107,7 +143,9 @@ class DiscoveryRequirements:
             "location": self.hard_location or "NOT_AVAILABLE",
             "platforms": self.hard_platforms,
             "niches": self.hard_niches or self.preferred_niches,
+            "selected_creator_tiers": self.hard_creator_tiers,
             "subscriber_range": sub_range,
+            "subscriber_ranges": self.subscriber_ranges,
             "primary_kpi": self.primary_kpi or "NOT_AVAILABLE",
             "target_audience": self.target_audience or "NOT_AVAILABLE",
         }
@@ -132,6 +170,8 @@ class DiscoveryRequirements:
                 "platform": self.hard_platforms,
                 "niches": self.hard_niches,
                 "location": [self.hard_location] if self.hard_location else [],
+                "selected_creator_tiers": self.hard_creator_tiers,
+                "subscriber_ranges": self.subscriber_ranges,
                 "subscriber_min": self.hard_subscriber_min,
                 "subscriber_max": self.hard_subscriber_max,
                 "excluded_categories": self.excluded_categories,
@@ -149,11 +189,25 @@ class DiscoveryRequirements:
     def hard_subscriber_ok(self, followers: int, *, hidden: bool = False) -> bool:
         if hidden or followers <= 0:
             return True
+        if self.hard_creator_tiers:
+            if not followers_match_selected_tiers(
+                followers, self.hard_creator_tiers, hidden=hidden
+            ):
+                return False
         if self.hard_subscriber_min is not None and followers < self.hard_subscriber_min:
             return False
         if self.hard_subscriber_max is not None and followers > self.hard_subscriber_max:
             return False
         return True
+
+    def creator_tier_match_label(self, followers: int, *, hidden: bool = False) -> str:
+        if hidden or followers <= 0:
+            return "UNKNOWN"
+        if not self.hard_creator_tiers:
+            return "UNKNOWN"
+        if followers_match_selected_tiers(followers, self.hard_creator_tiers, hidden=hidden):
+            return "MATCH"
+        return "FAIL"
 
     def preferred_subscriber_ok(self, followers: int, *, hidden: bool = False) -> Optional[bool]:
         if self.preferred_subscriber_min is None and self.preferred_subscriber_max is None:
@@ -232,6 +286,12 @@ def build_discovery_requirements(
     strat_min, strat_max = extract_subscriber_range(strategy_json)
     user_min = getattr(campaign, "min_followers", None)
     user_max = getattr(campaign, "max_followers", None)
+    user_tiers = selected_tier_keys(getattr(campaign, "creator_tiers", None) or [])
+    apply_campaign_minmax = True
+    if user_tiers:
+        apply_campaign_minmax = campaign_min_max_compatible_with_tiers(
+            user_tiers, user_min, user_max
+        )
 
     characteristics = _as_str_list(creator.get("desired_creator_characteristics"))
     characteristics.extend(_as_str_list(creator.get("creator_characteristics")))
@@ -241,13 +301,16 @@ def build_discovery_requirements(
         hard_platforms=[str(p) for p in (getattr(campaign, "platforms", None) or []) if p],
         hard_niches=user_niches,
         hard_location=location,
-        hard_subscriber_min=int(user_min) if user_min is not None else None,
-        hard_subscriber_max=int(user_max) if user_max is not None else None,
+        hard_subscriber_min=int(user_min) if apply_campaign_minmax and user_min is not None else None,
+        hard_subscriber_max=int(user_max) if apply_campaign_minmax and user_max is not None else None,
+        hard_creator_tiers=user_tiers,
+        subscriber_ranges=subscriber_ranges_for_tiers(user_tiers),
         mandatory_keywords=_as_str_list(getattr(campaign, "keywords", None)),
-        preferred_creator_tiers=sorted(preferred_tier_keys(strategy_json))
+        preferred_creator_tiers=user_tiers
+        or sorted(preferred_tier_keys(strategy_json))
         or _as_str_list(getattr(campaign, "creator_tiers", None)),
-        preferred_subscriber_min=strat_min if user_min is None else None,
-        preferred_subscriber_max=strat_max if user_max is None else None,
+        preferred_subscriber_min=strat_min if not user_tiers and user_min is None else None,
+        preferred_subscriber_max=strat_max if not user_tiers and user_max is None else None,
         preferred_content_types=_content_type_labels(strategy_json)
         or _as_str_list(getattr(campaign, "campaign_types", None)),
         preferred_niches=strat_niches or user_niches,
@@ -315,8 +378,10 @@ def eligibility_for_creator(
 ) -> Tuple[str, Dict[str, str]]:
     platform_label = "MATCH" if reqs.hard_platform_ok(platform) else "FAIL"
     sub_label = reqs.subscriber_match_label(followers, hidden=hidden)
-    eligible = platform_label != "FAIL" and sub_label != "FAIL"
+    tier_label = reqs.creator_tier_match_label(followers, hidden=hidden)
+    eligible = platform_label != "FAIL" and sub_label != "FAIL" and tier_label != "FAIL"
     return ("ELIGIBLE" if eligible else "NOT_ELIGIBLE", {
         "platform": platform_label,
         "subscriber_range": sub_label if sub_label != "PARTIAL" else "MATCH",
+        "creator_tier": tier_label,
     })
