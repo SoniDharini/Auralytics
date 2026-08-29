@@ -52,7 +52,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const unread = notificationsList.filter((n) => !n.read).length
 
   const displayName = user?.full_name || 'Authenticated User'
-  const displayEmail = user?.email || 'user@influenceos.ai'
+  const displayEmail = user?.email || 'user@auralytics.ai'
   const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
 
   useEffect(() => {
