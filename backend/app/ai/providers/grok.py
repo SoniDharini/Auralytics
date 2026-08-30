@@ -244,6 +244,16 @@ def parse_structured(text: str, model: Type[T]) -> T:
     try:
         return model.model_validate(data)
     except ValidationError as exc:
+        logger.error(
+            "Groq output failed schema validation for %s: %s | data keys: %s",
+            getattr(model, "__name__", str(model)),
+            exc.errors(),
+            list(data.keys()) if isinstance(data, dict) else type(data),
+        )
+        first_err = exc.errors()[0] if exc.errors() else {}
+        loc = " -> ".join(str(l) for l in first_err.get("loc", []))
+        msg = first_err.get("msg", "schema mismatch")
+        err_hint = f" ({loc}: {msg})" if loc else ""
         raise AIProviderException(
-            detail=f"Groq output failed schema validation: {exc.error_count()} error(s)"
+            detail=f"Groq output failed schema validation: {exc.error_count()} error(s){err_hint}"
         ) from exc

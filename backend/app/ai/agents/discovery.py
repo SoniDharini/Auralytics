@@ -65,8 +65,8 @@ class CreatorClassification(BaseModel):
 
 class RecommendedInfluencer(BaseModel):
     influencer_id: str
-    rank: int = Field(ge=1)
-    ai_fit_score: float = Field(ge=0, le=100)
+    rank: int = Field(default=1, ge=1)
+    ai_fit_score: float = Field(default=75.0, ge=0, le=100)
     campaign_fit: str = "GOOD"
     recommendation_reason: str = ""
     strategy_alignment: List[str] = Field(default_factory=list)
@@ -77,7 +77,35 @@ class RecommendedInfluencer(BaseModel):
     requirements_match: RequirementsMatch = Field(default_factory=RequirementsMatch)
     requirement_match: RequirementMatchStatus = Field(default_factory=RequirementMatchStatus)
     classification: CreatorClassification = Field(default_factory=CreatorClassification)
-    confidence: float = Field(ge=0, le=1)
+    confidence: float = Field(default=0.9, ge=0, le=1)
+
+    @field_validator("strategy_alignment", "strengths", "risks", mode="before")
+    @classmethod
+    def coerce_influencer_lists(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
+
+    @field_validator("requirements_match", mode="before")
+    @classmethod
+    def coerce_requirements_match(cls, v: Any) -> Any:
+        if v is None:
+            return RequirementsMatch()
+        return v
+
+    @field_validator("requirement_match", mode="before")
+    @classmethod
+    def coerce_requirement_match(cls, v: Any) -> Any:
+        if v is None:
+            return RequirementMatchStatus()
+        return v
+
+    @field_validator("classification", mode="before")
+    @classmethod
+    def coerce_classification(cls, v: Any) -> Any:
+        if v is None:
+            return CreatorClassification()
+        return v
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -95,7 +123,14 @@ class DiscoveryAgentOutput(BaseModel):
     campaign_id: Optional[str] = None
     recommended_influencers: List[RecommendedInfluencer] = Field(default_factory=list)
     overall_reasoning: str = ""
-    confidence: float = Field(ge=0, le=1)
+    confidence: float = Field(default=0.9, ge=0, le=1)
+
+    @field_validator("recommended_influencers", mode="before")
+    @classmethod
+    def coerce_influencer_list(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
 
     @field_validator("confidence", mode="before")
     @classmethod

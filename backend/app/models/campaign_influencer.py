@@ -15,8 +15,19 @@ class CampaignInfluencerStatus:
     SHORTLISTED = "SHORTLISTED"
     REJECTED = "REJECTED"
     CONTACTED = "CONTACTED"
+    NEGOTIATING = "NEGOTIATING"
+    ACCEPTED = "ACCEPTED"
+    DECLINED = "DECLINED"
 
-    ALL = (DISCOVERED, SHORTLISTED, REJECTED, CONTACTED)
+    ALL = (
+        DISCOVERED,
+        SHORTLISTED,
+        REJECTED,
+        CONTACTED,
+        NEGOTIATING,
+        ACCEPTED,
+        DECLINED,
+    )
 
 
 class CampaignInfluencer(Base):

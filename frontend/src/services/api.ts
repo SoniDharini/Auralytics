@@ -21,6 +21,8 @@ import type {
   IntegrationStatus,
   AgentRun,
   AIStatus,
+  OutreachMessageItem,
+  OutreachNegotiateResponse,
   OutreachStatus,
   SupervisorStartResponse,
   TimelineEvent,
@@ -318,6 +320,11 @@ export const api = {
         `/campaigns/${campaignId}/agents/outreach${influencerId ? `?influencer_id=${influencerId}` : ''}`,
         { method: 'POST' },
       ),
+    runContract: (campaignId: string, influencerId: string) =>
+      request<SupervisorStartResponse>(
+        `/campaigns/${campaignId}/agents/contract?influencer_id=${influencerId}`,
+        { method: 'POST' },
+      ),
     getStrategy: (campaignId: string) =>
       request<CampaignStrategy | null>(`/campaigns/${campaignId}/agents/strategy`),
     listCampaignRuns: (campaignId: string) =>
@@ -348,10 +355,49 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ influencer_id: influencerId }),
       }),
-    updateStatus: (id: string, status: OutreachStatus | string, reply?: string, body?: string, short_dm?: string) =>
+    negotiate: (outreachId: string, influencerReply: string, userInstruction?: string) =>
+      request<OutreachNegotiateResponse>(`/outreach/${outreachId}/negotiate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          influencer_reply: influencerReply,
+          user_instruction: userInstruction,
+        }),
+      }),
+    decide: (outreachId: string, status: string, agreedTerms?: Record<string, any>, note?: string) =>
+      request<OutreachMessageItem>(`/outreach/${outreachId}/decision`, {
+        method: 'POST',
+        body: JSON.stringify({
+          status,
+          agreed_terms: agreedTerms,
+          note,
+        }),
+      }),
+    saveAcceptance: (outreachId: string, payload: import('@/types').OutreachAcceptancePayload) =>
+      request<OutreachMessageItem>(`/outreach/${outreachId}/acceptance`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    saveRejection: (outreachId: string, payload: import('@/types').OutreachRejectionPayload) =>
+      request<OutreachMessageItem>(`/outreach/${outreachId}/rejection`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    generateContract: (outreachId: string) =>
+      request<SupervisorStartResponse>(`/outreach/${outreachId}/generate-contract`, {
+        method: 'POST',
+      }),
+    updateStatus: (
+      id: string,
+      status: OutreachStatus | string,
+      reply?: string,
+      body?: string,
+      short_dm?: string,
+      negotiation_state?: string,
+      extracted_terms?: Record<string, any>,
+    ) =>
       request<any>(`/outreach/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status, reply, body, short_dm }),
+        body: JSON.stringify({ status, reply, body, short_dm, negotiation_state, extracted_terms }),
       }),
   },
 

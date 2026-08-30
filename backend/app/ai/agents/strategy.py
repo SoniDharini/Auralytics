@@ -58,10 +58,30 @@ class SubscriberRange(BaseModel):
     minimum: Optional[int] = Field(default=None, ge=0)
     maximum: Optional[int] = Field(default=None, ge=0)
 
+    @field_validator("minimum", "maximum", mode="before")
+    @classmethod
+    def parse_int_field(cls, v: Any) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        try:
+            return max(0, int(v))
+        except (TypeError, ValueError):
+            return None
+
 
 class CreatorCountRange(BaseModel):
     minimum: Optional[int] = Field(default=None, ge=0)
     maximum: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("minimum", "maximum", mode="before")
+    @classmethod
+    def parse_int_field(cls, v: Any) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        try:
+            return max(0, int(v))
+        except (TypeError, ValueError):
+            return None
 
 
 class CreatorStrategy(BaseModel):
@@ -69,8 +89,35 @@ class CreatorStrategy(BaseModel):
     preferred_creator_tiers: List[CreatorTierPreference] = Field(default_factory=list)
     preferred_locations: List[str] = Field(default_factory=list)
     desired_creator_characteristics: List[str] = Field(default_factory=list)
-    recommended_subscriber_range: SubscriberRange = Field(default_factory=SubscriberRange)
-    recommended_creator_count: CreatorCountRange = Field(default_factory=CreatorCountRange)
+    recommended_subscriber_range: Optional[SubscriberRange] = Field(default_factory=SubscriberRange)
+    recommended_creator_count: Optional[CreatorCountRange] = Field(default_factory=CreatorCountRange)
+
+    @field_validator(
+        "preferred_niches",
+        "preferred_creator_tiers",
+        "preferred_locations",
+        "desired_creator_characteristics",
+        mode="before",
+    )
+    @classmethod
+    def coerce_strategy_lists(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
+
+    @field_validator("recommended_subscriber_range", mode="before")
+    @classmethod
+    def coerce_subscriber_range(cls, v: Any) -> Any:
+        if v is None:
+            return SubscriberRange()
+        return v
+
+    @field_validator("recommended_creator_count", mode="before")
+    @classmethod
+    def coerce_creator_count(cls, v: Any) -> Any:
+        if v is None:
+            return CreatorCountRange()
+        return v
 
 
 class ContentStrategyItem(BaseModel):
@@ -96,6 +143,13 @@ class BudgetStrategy(BaseModel):
     tier_allocations: List[TierBudgetAllocation] = Field(default_factory=list)
     reasoning: str = ""
 
+    @field_validator("tier_allocations", mode="before")
+    @classmethod
+    def coerce_tier_allocations(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
+
 
 class KpiStrategyItem(BaseModel):
     kpi: str
@@ -110,9 +164,34 @@ class CampaignPhaseItem(BaseModel):
 
 
 class DiscoveryPriorityItem(BaseModel):
-    factor: str
-    priority: int = Field(ge=1, le=20)
+    factor: str = ""
+    priority: int = Field(default=10, ge=1, le=20)
     reason: str = ""
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def coerce_priority(cls, v: Any) -> int:
+        if v is None:
+            return 10
+        if isinstance(v, (int, float)):
+            return max(1, min(20, int(v)))
+        if isinstance(v, str):
+            mapping = {
+                "critical": 20,
+                "high": 18,
+                "medium": 15,
+                "low": 10,
+                "none": 5,
+                "none_selected": 5,
+            }
+            cleaned = v.strip().lower()
+            if cleaned in mapping:
+                return mapping[cleaned]
+            try:
+                return max(1, min(20, int(float(cleaned))))
+            except ValueError:
+                return 10
+        return 10
 
 
 class RiskItem(BaseModel):
@@ -132,7 +211,7 @@ class DiscoveryRequirements(BaseModel):
 class StrategyAgentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    campaign_summary: str
+    campaign_summary: str = ""
     strategy_objective: str = ""
     platform_strategy: List[PlatformStrategyItem] = Field(default_factory=list)
     creator_strategy: CreatorStrategy = Field(default_factory=CreatorStrategy)
@@ -148,7 +227,47 @@ class StrategyAgentOutput(BaseModel):
     optional_recommendations: List[OptionalRecommendation] = Field(default_factory=list)
     budget_limitations: List[str] = Field(default_factory=list)
     strategy_reasoning: str = ""
-    confidence: float = Field(ge=0, le=1)
+    confidence: float = Field(default=0.9, ge=0, le=1)
+
+    @field_validator(
+        "platform_strategy",
+        "content_strategy",
+        "kpi_strategy",
+        "campaign_phases",
+        "discovery_priorities",
+        "risks",
+        "tradeoffs",
+        "user_selected_creator_tiers",
+        "optional_recommendations",
+        "budget_limitations",
+        mode="before",
+    )
+    @classmethod
+    def coerce_output_lists(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        return v
+
+    @field_validator("creator_strategy", mode="before")
+    @classmethod
+    def coerce_creator_strategy(cls, v: Any) -> Any:
+        if v is None:
+            return CreatorStrategy()
+        return v
+
+    @field_validator("budget_strategy", mode="before")
+    @classmethod
+    def coerce_budget_strategy(cls, v: Any) -> Any:
+        if v is None:
+            return BudgetStrategy()
+        return v
+
+    @field_validator("discovery_requirements", mode="before")
+    @classmethod
+    def coerce_discovery_requirements(cls, v: Any) -> Any:
+        if v is None:
+            return DiscoveryRequirements()
+        return v
 
     @field_validator("confidence", mode="before")
     @classmethod

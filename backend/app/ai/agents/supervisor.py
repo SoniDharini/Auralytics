@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.agents.contract import ContractAgent
 from app.ai.agents.discovery import DiscoveryAgent
 from app.ai.agents.outreach import OutreachAgent
 from app.ai.agents.strategy import StrategyAgent
@@ -19,8 +20,10 @@ from app.core.exceptions import NotFoundException, WorkflowStateException
 from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
 from app.models.campaign import Campaign
-from app.models.campaign_influencer import CampaignInfluencer
+from app.models.campaign_activity import CampaignActivity
+from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
+from app.models.contract import Contract
 from app.models.outreach import OutreachMessage
 from app.models.user import User
 
@@ -485,3 +488,258 @@ class SupervisorAgent:
             campaign.id,
         )
         return msg
+
+    async def run_negotiation(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        outreach_message_id: str,
+        influencer_reply: str,
+        user_instruction: Optional[str] = None,
+        trigger: str = "manual",
+    ) -> Dict[str, Any]:
+        msg_stmt = select(OutreachMessage).where(OutreachMessage.id == outreach_message_id)
+        msg_res = await self.db.execute(msg_stmt)
+        outreach_msg = msg_res.scalar_one_or_none()
+        if not outreach_msg:
+            raise NotFoundException(detail=f"Outreach message {outreach_message_id} not found")
+
+        history = list(outreach_msg.conversation_history or [])
+        if not history:
+            history.append({
+                "sender": "BRAND",
+                "message": outreach_msg.body,
+                "subject": outreach_msg.subject,
+                "message_type": "INITIAL_OUTREACH",
+                "timestamp": (outreach_msg.created_at or datetime.now(timezone.utc)).isoformat(),
+            })
+
+        history.append({
+            "sender": "INFLUENCER",
+            "message": influencer_reply,
+            "message_type": "INFLUENCER_REPLY",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        extras = {
+            "mode": "NEGOTIATION_FOLLOWUP",
+            "influencer_id": outreach_msg.influencer_id,
+            "influencer_reply": influencer_reply,
+            "user_instruction": user_instruction,
+            "conversation_history": history,
+            "previous_subject": outreach_msg.subject or "Collaboration Opportunity",
+            "outreach_message": outreach_msg,
+        }
+
+        agent = OutreachAgent()
+        run = await self.execution.run(
+            agent=agent,
+            user=user,
+            campaign=campaign,
+            trigger=trigger,
+            extras=extras,
+        )
+
+        data = (run.output_json or {}).get("data") or {}
+        if run.status == AgentRunStatus.COMPLETED and data:
+            followup_msg = data.get("message") or ""
+            history.append({
+                "sender": "AI_DRAFT",
+                "message": followup_msg,
+                "subject": data.get("subject"),
+                "message_type": "FOLLOW_UP",
+                "extracted_terms": data.get("extracted_terms") or {},
+                "conversation_state": data.get("conversation_state"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+
+            outreach_msg.conversation_history = history
+            outreach_msg.extracted_terms = data.get("extracted_terms") or {}
+            outreach_msg.negotiation_state = data.get("conversation_state") or "NEGOTIATING_PRICE"
+            outreach_msg.reply = influencer_reply
+            outreach_msg.body = followup_msg
+            if data.get("subject"):
+                outreach_msg.subject = data.get("subject")
+            if data.get("short_dm"):
+                outreach_msg.short_dm = data.get("short_dm")
+
+            # Update CampaignInfluencer status if negotiating
+            link_stmt = select(CampaignInfluencer).where(
+                CampaignInfluencer.campaign_id == campaign.id,
+                CampaignInfluencer.influencer_id == outreach_msg.influencer_id,
+            )
+            link_res = await self.db.execute(link_stmt)
+            link = link_res.scalar_one_or_none()
+            if link and link.status not in (CampaignInfluencerStatus.ACCEPTED, CampaignInfluencerStatus.DECLINED):
+                link.status = CampaignInfluencerStatus.NEGOTIATING
+
+            await self.db.flush()
+
+        await self.db.commit()
+        await self.db.refresh(run)
+        await self.db.refresh(outreach_msg)
+
+        return {
+            "campaign_id": campaign.id,
+            "workflow_state": campaign.workflow_state,
+            "agent_run": run,
+            "outreach_message": outreach_msg,
+            "negotiation_data": data,
+        }
+
+    async def run_contract(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        influencer_id: str,
+        agreed_terms: Optional[Dict[str, Any]] = None,
+        trigger: str = "manual",
+    ) -> Dict[str, Any]:
+        state = campaign.workflow_state or WorkflowState.CAMPAIGN_CREATED
+        if state in (WorkflowState.OUTREACH_COMPLETED, WorkflowState.SHORTLIST_APPROVED):
+            await self._set_state(campaign, WorkflowState.CONTRACT_PENDING)
+
+        # Record activity
+        req_activity = CampaignActivity(
+            user_id=user.id,
+            campaign_id=campaign.id,
+            activity_type="contract_requested",
+            title="Contract generation requested",
+            description=f"Initiated contract drafting for creator {influencer_id}",
+        )
+        self.db.add(req_activity)
+        await self.db.flush()
+
+        extras = {
+            "influencer_id": influencer_id,
+            "agreed_terms": agreed_terms or {},
+        }
+
+        agent = ContractAgent()
+        run = await self.execution.run(
+            agent=agent,
+            user=user,
+            campaign=campaign,
+            trigger=trigger,
+            extras=extras,
+        )
+
+        contract_obj = None
+        if run.status == AgentRunStatus.COMPLETED and run.output_json:
+            contract_obj = await self._persist_contract(campaign, run, influencer_id)
+            if campaign.workflow_state == WorkflowState.CONTRACT_PENDING:
+                await self._set_state(campaign, WorkflowState.CONTRACT_COMPLETED)
+        elif run.status == AgentRunStatus.FAILED:
+            if campaign.workflow_state == WorkflowState.CONTRACT_PENDING:
+                campaign.workflow_state = WorkflowState.FAILED
+                await self.db.flush()
+
+        await self.db.commit()
+        await self.db.refresh(run)
+
+        return {
+            "campaign_id": campaign.id,
+            "workflow_state": campaign.workflow_state,
+            "next": "live" if run.status == AgentRunStatus.COMPLETED else None,
+            "message": (
+                "Contract Agent completed agreement specification"
+                if run.status == AgentRunStatus.COMPLETED
+                else f"Contract Agent {run.status}"
+            ),
+            "agent_run": run,
+            "contract": contract_obj,
+        }
+
+    async def _persist_contract(
+        self, campaign: Campaign, run: AgentRun, influencer_id: Optional[str] = None
+    ) -> Optional[Contract]:
+        data = (run.output_json or {}).get("data") or {}
+        inf_id = influencer_id or data.get("influencer_id")
+
+        # Check for existing contract to prevent duplicates
+        existing_stmt = select(Contract).where(
+            Contract.campaign == campaign.name,
+            Contract.creator == (data.get("creator_name") or "Creator"),
+        )
+        if campaign.id and inf_id:
+            existing_stmt = select(Contract).where(
+                (Contract.campaign_id == campaign.id) & (Contract.influencer_id == inf_id)
+            )
+
+        existing_res = await self.db.execute(existing_stmt)
+        contract = existing_res.scalar_one_or_none()
+
+        if not contract:
+            cntr_id = f"cntr-{uuid.uuid4().hex[:12]}"
+            contract = Contract(
+                id=cntr_id,
+                campaign_id=campaign.id,
+                influencer_id=inf_id,
+                outreach_id=data.get("outreach_id"),
+                creator=data.get("creator_name") or "Creator",
+                username=data.get("creator_username") or "creator",
+                campaign=campaign.name,
+                value=float(data.get("agreed_value") or 0.0),
+                currency=str(data.get("currency") or "INR"),
+                status="pending_signature",
+                start_date=data.get("start_date") or (campaign.start_date or "Launch Date"),
+                end_date=data.get("end_date") or (campaign.end_date or "Launch + 30"),
+                payment_due=data.get("payment_due") or "Net 30",
+                risk=str(data.get("risk_level") or "low").lower(),
+                deliverables=data.get("deliverables") or [],
+                usage_rights=data.get("usage_rights") or "12 months digital & social usage",
+                exclusivity=data.get("exclusivity") or "Non-exclusive",
+                additional_terms=data.get("additional_terms") or "",
+                contract_body=data.get("contract_body") or "",
+                ai_risks=data.get("ai_risks") or [],
+            )
+            self.db.add(contract)
+        else:
+            contract.value = float(data.get("agreed_value") or contract.value)
+            contract.currency = str(data.get("currency") or contract.currency)
+            contract.start_date = data.get("start_date") or contract.start_date
+            contract.end_date = data.get("end_date") or contract.end_date
+            contract.payment_due = data.get("payment_due") or contract.payment_due
+            contract.risk = str(data.get("risk_level") or contract.risk).lower()
+            contract.deliverables = data.get("deliverables") or contract.deliverables
+            contract.usage_rights = data.get("usage_rights") or contract.usage_rights
+            contract.exclusivity = data.get("exclusivity") or contract.exclusivity
+            contract.additional_terms = data.get("additional_terms") or contract.additional_terms
+            contract.contract_body = data.get("contract_body") or contract.contract_body
+            contract.ai_risks = data.get("ai_risks") or contract.ai_risks
+
+        await self.db.flush()
+
+        # Update matching OutreachMessage
+        if inf_id:
+            outreach_stmt = (
+                select(OutreachMessage)
+                .where(
+                    OutreachMessage.campaign_id == campaign.id,
+                    OutreachMessage.influencer_id == inf_id,
+                )
+                .order_by(OutreachMessage.created_at.desc())
+                .limit(1)
+            )
+            outreach_res = await self.db.execute(outreach_stmt)
+            outreach_msg = outreach_res.scalar_one_or_none()
+            if outreach_msg:
+                outreach_msg.contract_id = contract.id
+                outreach_msg.status = "CONTRACT_GENERATED"
+                await self.db.flush()
+
+        # Record activity
+        act = CampaignActivity(
+            user_id=campaign.owner_id,
+            campaign_id=campaign.id,
+            activity_type="contract_generated",
+            title=f"Contract generated: {contract.creator}",
+            description=f"Drafted agreement with value {contract.currency} {contract.value:,.2f} ({', '.join(contract.deliverables)})",
+        )
+        self.db.add(act)
+        await self.db.flush()
+
+        logger.info("Persisted contract %s for campaign %s", contract.id, campaign.id)
+        return contract

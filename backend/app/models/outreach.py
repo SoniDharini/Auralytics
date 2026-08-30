@@ -25,6 +25,20 @@ class OutreachMessage(Base):
     status: Mapped[str] = mapped_column(String(50), default="READY", nullable=False)
     sent_at: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     reply: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    negotiation_state: Mapped[Optional[str]] = mapped_column(String(50), default="INITIAL_OUTREACH", nullable=True)
+    response_status: Mapped[Optional[str]] = mapped_column(String(50), default="PENDING_RESPONSE", nullable=True)
+    response_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    final_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    currency: Mapped[Optional[str]] = mapped_column(String(10), default="INR", nullable=True)
+    deliverables: Mapped[Optional[List[str]]] = mapped_column(JSON, default=list, nullable=True)
+    timeline_start: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    timeline_end: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    additional_terms: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    rejection_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    contract_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    extracted_terms: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, default=dict, nullable=True)
+    conversation_history: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSON, default=list, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

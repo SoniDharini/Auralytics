@@ -158,7 +158,7 @@ export function CampaignDetailPage() {
         toast({
           type: 'error',
           title: 'Strategy Agent failed',
-          description: result.agentRun.errorMessage || result.message,
+          description: result.agentRun?.errorMessage || result.message,
         })
       } else {
         toast({

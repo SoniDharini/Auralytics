@@ -203,7 +203,117 @@ export interface Influencer {
   metricsSource?: string | null
 }
 
-export type CampaignCreatorStatus = 'DISCOVERED' | 'SHORTLISTED' | 'REJECTED' | 'CONTACTED'
+export type CampaignCreatorStatus =
+  | 'DISCOVERED'
+  | 'SHORTLISTED'
+  | 'REJECTED'
+  | 'CONTACTED'
+  | 'NEGOTIATING'
+  | 'ACCEPTED'
+  | 'DECLINED'
+
+export interface ConversationTurn {
+  sender: 'BRAND' | 'INFLUENCER' | 'AI_DRAFT' | string
+  message: string
+  subject?: string
+  message_type?: string
+  timestamp?: string
+  extracted_terms?: Record<string, any>
+  conversation_state?: string
+  terms?: Record<string, any>
+}
+
+export interface OutreachMessageItem {
+  id: string
+  campaignId?: string
+  campaign_id?: string
+  influencerId: string
+  influencer_id?: string
+  agentRunId?: string
+  agent_run_id?: string
+  influencerName: string
+  influencer_name?: string
+  influencerUsername: string
+  influencer_username?: string
+  campaignName: string
+  campaign_name?: string
+  channel: string
+  subject?: string
+  body: string
+  message?: string
+  shortDm?: string
+  short_dm?: string
+  callToAction?: string
+  call_to_action?: string
+  personalizationPoints?: string[]
+  personalization_points?: string[]
+  confidence?: number
+  status: string
+  sentAt?: string
+  sent_at?: string
+  reply?: string
+  negotiationState?: string
+  negotiation_state?: string
+  responseStatus?: 'PENDING_RESPONSE' | 'ACCEPTED' | 'REJECTED' | string
+  response_status?: string
+  responseText?: string
+  response_text?: string
+  finalAmount?: number
+  final_amount?: number
+  currency?: string
+  deliverables?: string[]
+  timelineStart?: string
+  timeline_start?: string
+  timelineEnd?: string
+  timeline_end?: string
+  additionalTerms?: string
+  additional_terms?: string
+  rejectionReason?: string
+  rejection_reason?: string
+  rejectionNotes?: string
+  rejection_notes?: string
+  contractId?: string
+  contract_id?: string
+  extractedTerms?: Record<string, any>
+  extracted_terms?: Record<string, any>
+  conversationHistory?: ConversationTurn[]
+  conversation_history?: ConversationTurn[]
+  contactInfo?: {
+    email?: string
+    instagram?: string
+    youtube?: string
+  }
+  createdAt?: string
+  created_at?: string
+}
+
+export interface OutreachAcceptancePayload {
+  response_notes?: string
+  final_amount: number
+  currency?: string
+  deliverables: string[]
+  timeline_start: string
+  timeline_end: string
+  additional_terms?: string
+}
+
+export interface OutreachRejectionPayload {
+  rejection_reason: string
+  rejection_notes?: string
+}
+
+export interface OutreachNegotiateResponse {
+  conversation_state: string
+  influencer_reply_summary: string
+  extracted_terms: Record<string, any>
+  recommended_action: string
+  subject?: string
+  message: string
+  short_dm?: string
+  confidence: number
+  budget_constraint_warning?: string | null
+  outreach_message?: OutreachMessageItem
+}
 
 /** One weighted, explainable input to a campaign match score. */
 export interface MatchFactor {
