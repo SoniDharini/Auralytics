@@ -8,11 +8,16 @@ from app.db.session import engine
 from app.db.seed import seed_database
 
 
+from app.db.migrate import auto_migrate_db
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Ensure all latest model columns exist
+    await auto_migrate_db(engine)
     # Seed initial development demo data if empty
     await seed_database()
     yield

@@ -115,12 +115,16 @@ async def run_contract_agent(
     result = await supervisor.run_contract(
         campaign=campaign, user=current_user, influencer_id=influencer_id, trigger="manual"
     )
+    contract_obj = result.get("contract")
+    contract_id = contract_obj.id if contract_obj else None
+
     return SupervisorStartResponse(
         campaignId=result["campaign_id"],
         workflowState=result["workflow_state"],
         next=result.get("next"),
         message=result["message"],
         agentRun=_serialize_run(result.get("agent_run")),
+        contractId=contract_id,
     )
 
 

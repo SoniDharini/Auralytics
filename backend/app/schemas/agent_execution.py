@@ -62,11 +62,15 @@ class CampaignStrategyResponse(BaseModel):
 
 
 class SupervisorStartResponse(BaseModel):
-    campaignId: str
-    workflowState: str
+    model_config = ConfigDict(populate_by_name=True, from_attributes=True)
+
+    campaignId: str = Field(..., validation_alias="campaign_id", serialization_alias="campaignId")
+    workflowState: str = Field(..., validation_alias="workflow_state", serialization_alias="workflowState")
     next: Optional[str] = None
     message: str
-    agentRun: Optional[AgentRunResponse] = None
+    agentRun: Optional[AgentRunResponse] = Field(None, validation_alias="agent_run", serialization_alias="agentRun")
+    contractId: Optional[str] = Field(None, validation_alias="contract_id", serialization_alias="contractId")
+    contract: Optional[Any] = None
 
 
 class AIStatusResponseSchema(BaseModel):

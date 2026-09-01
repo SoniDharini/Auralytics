@@ -14,6 +14,8 @@ import type {
   CampaignStrategy,
   CampaignWorkflow,
   Contract,
+  ContractReadiness,
+  ContractTermsPayload,
   DashboardSummary,
   DiscoveryResponse,
   Influencer,
@@ -337,8 +339,47 @@ export const api = {
 
   // Contracts API
   contracts: {
-    list: (status?: string) => request<Contract[]>(`/contracts${status ? `?status=${status}` : ''}`),
+    list: (status?: string, campaignId?: string, influencerId?: string) => {
+      const params = new URLSearchParams()
+      if (status && status !== 'all') params.set('status', status)
+      if (campaignId) params.set('campaign_id', campaignId)
+      if (influencerId) params.set('influencer_id', influencerId)
+      const qs = params.toString()
+      return request<Contract[]>(`/contracts${qs ? `?${qs}` : ''}`)
+    },
     get: (id: string) => request<Contract>(`/contracts/${id}`),
+    checkReadiness: (campaignId: string, influencerId: string) =>
+      request<ContractReadiness>(`/contracts/readiness?campaign_id=${campaignId}&influencer_id=${influencerId}`),
+    listCampaignReadiness: (campaignId: string) =>
+      request<ContractReadiness[]>(`/contracts/campaign-readiness/${campaignId}`),
+    analyze: (
+      campaignId: string,
+      payload: { influencer_id: string; contract_text?: string; custom_terms?: Record<string, any>; confirmed_terms?: ContractTermsPayload },
+    ) =>
+      request<SupervisorStartResponse>(`/contracts/analyze/${campaignId}`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    approve: (contractId: string, notes?: string) =>
+      request<Contract>(`/contracts/${contractId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
+      }),
+    requestChanges: (contractId: string, requestedChanges: string, reason: string) =>
+      request<Contract>(`/contracts/${contractId}/request-changes`, {
+        method: 'POST',
+        body: JSON.stringify({ requested_changes: requestedChanges, reason }),
+      }),
+    reject: (contractId: string, reason: string, notes?: string) =>
+      request<Contract>(`/contracts/${contractId}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason, notes }),
+      }),
+    updateBody: (contractId: string, contractBody: string, reanalyze = false) =>
+      request<Contract>(`/contracts/${contractId}/body`, {
+        method: 'PATCH',
+        body: JSON.stringify({ contract_body: contractBody, reanalyze }),
+      }),
   },
 
   // Outreach API
@@ -382,9 +423,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    generateContract: (outreachId: string) =>
+    generateContract: (outreachId: string, payload?: { confirmed_terms?: ContractTermsPayload; custom_terms?: Record<string, any>; contract_text?: string }) =>
       request<SupervisorStartResponse>(`/outreach/${outreachId}/generate-contract`, {
         method: 'POST',
+        body: payload ? JSON.stringify(payload) : undefined,
       }),
     updateStatus: (
       id: string,

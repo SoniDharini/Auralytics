@@ -249,6 +249,7 @@ async def save_outreach_rejection(
 @router.post("/{outreach_id}/generate-contract", response_model=SupervisorStartResponse, summary="Human-controlled trigger to run Contract Agent for accepted creator")
 async def generate_contract_for_outreach(
     outreach_id: str,
+    payload: Optional[ContractAnalyzeRequest] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -281,21 +282,33 @@ async def generate_contract_for_outreach(
         "additional_terms": message.additional_terms or "",
     }
 
+    confirmed_terms_dict = None
+    if payload and payload.confirmed_terms:
+        confirmed_terms_dict = payload.confirmed_terms.model_dump()
+    elif payload and payload.custom_terms:
+        confirmed_terms_dict = payload.custom_terms
+
     result = await supervisor.run_contract(
         campaign=campaign,
         user=current_user,
         influencer_id=message.influencer_id,
         agreed_terms=agreed_terms,
+        confirmed_terms=confirmed_terms_dict,
+        contract_text=payload.contract_text if payload else None,
         trigger="manual",
     )
 
     agent_run = result.get("agent_run")
+    contract_obj = result.get("contract")
+    contract_id = contract_obj.id if contract_obj else message.contract_id
+
     return SupervisorStartResponse(
         campaignId=result["campaign_id"],
         workflowState=result["workflow_state"],
         next=result.get("next"),
         message=result["message"],
         agentRun=AgentRunResponse.model_validate(agent_run) if agent_run else None,
+        contractId=contract_id,
     )
 
 

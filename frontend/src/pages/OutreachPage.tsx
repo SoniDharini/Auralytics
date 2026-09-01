@@ -41,7 +41,8 @@ import {
   useToast,
 } from '@/components/ui'
 import { cn, formatINR } from '@/utils'
-import type { OutreachMessageItem, ConversationTurn, OutreachAcceptancePayload, OutreachRejectionPayload } from '@/types'
+import { ContractTermsModal } from '@/components/contracts/ContractTermsModal'
+import type { ConversationTurn, ContractReadiness, ContractTermsPayload, OutreachAcceptancePayload, OutreachMessageItem, OutreachRejectionPayload } from '@/types'
 
 const REJECTION_REASONS = [
   'Budget mismatch',
@@ -67,6 +68,14 @@ export function OutreachPage() {
   const [generating, setGenerating] = useState(false)
   const [copiedEmail, setCopiedEmail] = useState(false)
   const [copiedDm, setCopiedDm] = useState(false)
+  const [savingAcceptance, setSavingAcceptance] = useState(false)
+  const [savingRejection, setSavingRejection] = useState(false)
+  const [generatingContract, setGeneratingContract] = useState(false)
+
+  // Contract Terms Confirmation Modal State
+  const [showTermsModal, setShowTermsModal] = useState(false)
+  const [readinessData, setReadinessData] = useState<ContractReadiness | null>(null)
+  const [loadingReadiness, setLoadingReadiness] = useState(false)
 
   // Negotiation box state
   const [influencerReply, setInfluencerReply] = useState('')
@@ -86,17 +95,12 @@ export function OutreachPage() {
     timeline_end: '',
     additional_terms: '',
   })
-  const [savingAcceptance, setSavingAcceptance] = useState(false)
 
   // Rejection Form State
   const [rejectionForm, setRejectionForm] = useState({
     rejection_reason: 'Budget mismatch',
     rejection_notes: '',
   })
-  const [savingRejection, setSavingRejection] = useState(false)
-
-  // Contract Generation State
-  const [generatingContract, setGeneratingContract] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
@@ -325,11 +329,10 @@ export function OutreachPage() {
     }
   }
 
-  // Handle Generate Contract
-  const handleGenerateContract = async () => {
+  // Handle Opening Pre-Contract Terms Review Modal
+  const handleOpenTermsModal = async () => {
     if (!selectedItem) return
 
-    // Validation check before contract generation
     const isAcceptedStatus = (selectedItem.responseStatus || selectedItem.response_status || selectedItem.status) === 'ACCEPTED'
     const finalAmountVal = selectedItem.finalAmount || selectedItem.final_amount
 
@@ -337,14 +340,34 @@ export function OutreachPage() {
       toast({
         type: 'error',
         title: 'Incomplete collaboration details',
-        description: 'Please complete the collaboration details before generating the contract.',
+        description: 'Please complete and save the agreed collaboration details before generating the contract.',
       })
       return
     }
 
+    setShowTermsModal(true)
+    setLoadingReadiness(true)
+    try {
+      const campId = selectedItem.campaignId || selectedItem.campaign_id
+      const infId = selectedItem.influencerId || selectedItem.influencer_id
+      if (campId && infId) {
+        const res = await api.contracts.checkReadiness(campId, infId)
+        setReadinessData(res)
+      }
+    } catch {
+      // safe fallback, modal uses selectedItem
+    } finally {
+      setLoadingReadiness(false)
+    }
+  }
+
+  // Handle Confirmed Contract Generation
+  const handleConfirmAndGenerateContract = async (confirmedTerms: ContractTermsPayload) => {
+    if (!selectedItem) return
+
     setGeneratingContract(true)
     try {
-      const res = await api.outreach.generateContract(selectedItem.id)
+      const res = await api.outreach.generateContract(selectedItem.id, { confirmed_terms: confirmedTerms })
       if (res.agentRun?.status === 'FAILED') {
         toast({
           type: 'error',
@@ -354,15 +377,29 @@ export function OutreachPage() {
       } else {
         toast({
           type: 'success',
-          title: 'Contract Drafted Successfully',
-          description: 'Contract Agent validated agreed terms and synthesized draft agreement.',
+          title: 'Contract Synthesized Successfully',
+          description: 'Redirecting to contract review and sign-off...',
         })
-        await loadData()
-        // If contract was generated, refresh selected item
-        const updatedList = await api.outreach.list()
-        const refreshed = updatedList?.find((i) => i.id === selectedItem.id)
-        if (refreshed) {
-          setSelectedItem(refreshed)
+        setShowTermsModal(false)
+
+        // Find the generated contract ID and immediately redirect
+        let targetContractId = res.contractId || (res as any).contract_id || (res.contract ? res.contract.id : null)
+
+        if (!targetContractId) {
+          const campaignId = selectedItem.campaignId || selectedItem.campaign_id
+          const influencerId = selectedItem.influencerId || selectedItem.influencer_id
+          const contracts = await api.contracts.list(undefined, campaignId, influencerId)
+          if (contracts && contracts.length > 0) {
+            targetContractId = contracts[0].id
+          }
+        }
+
+        if (targetContractId) {
+          navigate(`/app/contracts/${targetContractId}`)
+          return
+        } else {
+          navigate('/app/contracts')
+          return
         }
       }
     } catch (err: any) {
@@ -1020,21 +1057,12 @@ export function OutreachPage() {
                   <Button
                     size="md"
                     className="gap-2 bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-md"
-                    onClick={handleGenerateContract}
+                    onClick={handleOpenTermsModal}
                     disabled={generatingContract}
                   >
-                    {generatingContract ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Contract Agent Running (Grok)...</span>
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="h-4 w-4" />
-                        <span>GENERATE CONTRACT</span>
-                        <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                      </>
-                    )}
+                    <FileText className="h-4 w-4" />
+                    <span>REVIEW TERMS & GENERATE CONTRACT</span>
+                    <ArrowRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </div>
               </div>
@@ -1059,8 +1087,16 @@ export function OutreachPage() {
                   <Button
                     size="sm"
                     className="gap-2 bg-success hover:bg-success/90 text-white font-bold text-xs shadow-sm"
-                    onClick={() => {
-                      const contractId = selectedItem.contractId || selectedItem.contract_id
+                    onClick={async () => {
+                      let contractId = selectedItem.contractId || selectedItem.contract_id
+                      if (!contractId) {
+                        const campaignId = selectedItem.campaignId || selectedItem.campaign_id
+                        const influencerId = selectedItem.influencerId || selectedItem.influencer_id
+                        const contracts = await api.contracts.list(undefined, campaignId, influencerId)
+                        if (contracts && contracts.length > 0) {
+                          contractId = contracts[0].id
+                        }
+                      }
                       if (contractId) {
                         navigate(`/app/contracts/${contractId}`)
                       } else {
@@ -1214,6 +1250,30 @@ export function OutreachPage() {
           </div>
         )}
       </Drawer>
+
+      {/* Pre-Contract Terms Configuration Modal */}
+      {selectedItem && (
+        <ContractTermsModal
+          isOpen={showTermsModal}
+          onClose={() => setShowTermsModal(false)}
+          readinessData={readinessData}
+          creatorName={selectedItem.influencerName || selectedItem.influencer_name || 'Creator'}
+          creatorUsername={selectedItem.influencerUsername || selectedItem.influencer_username || 'creator'}
+          campaignName={selectedItem.campaignName || selectedItem.campaign_name || 'Campaign'}
+          agreedRate={Number(selectedItem.finalAmount || selectedItem.final_amount || 0)}
+          currency={selectedItem.currency || 'INR'}
+          initialDeliverables={
+            Array.isArray(selectedItem.deliverables) && selectedItem.deliverables.length > 0
+              ? selectedItem.deliverables
+              : ['1 Dedicated collaboration video']
+          }
+          startDate={selectedItem.timelineStart || selectedItem.timeline_start || 'Launch Date'}
+          endDate={selectedItem.timelineEnd || selectedItem.timeline_end || 'Launch + 30'}
+          additionalNotes={selectedItem.additionalTerms || selectedItem.additional_terms || ''}
+          onConfirm={handleConfirmAndGenerateContract}
+          loading={generatingContract || loadingReadiness}
+        />
+      )}
     </div>
   )
 }

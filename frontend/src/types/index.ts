@@ -415,21 +415,187 @@ export interface ApprovalItem {
   status: ApprovalStatus
 }
 
+export interface RiskFlag {
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | string
+  issue: string
+  reason: string
+  recommended_review?: string
+}
+
+export interface ContractConflict {
+  clause: string
+  negotiated_term: string
+  contract_term: string
+  explanation: string
+}
+
+export interface ChangeRequestItem {
+  version: number
+  requested_changes: string
+  reason: string
+  requested_by?: string
+  timestamp: string
+}
+
 export interface Contract {
   id: string
+  campaignId?: string
+  campaign_id?: string
+  influencerId?: string
+  influencer_id?: string
+  outreachId?: string
+  outreach_id?: string
+  agentRunId?: string
+  agent_run_id?: string
   creator: string
   username: string
   campaign: string
   value: number
-  status: ContractStatus
+  currency?: string
+  status: ContractStatus | string
+  version?: number
   startDate: string
+  start_date?: string
   endDate: string
+  end_date?: string
   paymentDue: string
+  payment_due?: string
   risk: string
   deliverables: string[]
   usageRights: string
+  usage_rights?: string
   exclusivity: string
+  additionalTerms?: string
+  additional_terms?: string
+  contractBody?: string
+  contract_body?: string
   aiRisks: string[]
+  ai_risks?: string[]
+  analysisJson?: Record<string, any>
+  analysis_json?: Record<string, any>
+  missingClauses?: string[]
+  missing_clauses?: string[]
+  conflicts?: ContractConflict[]
+  riskFlags?: RiskFlag[]
+  risk_flags?: RiskFlag[]
+  commercialTermsMatch?: Record<string, any>
+  commercial_terms_match?: Record<string, any>
+  overallStatus?: string
+  overall_status?: string
+  approvedBy?: string
+  approved_by?: string
+  approvedAt?: string
+  approved_at?: string
+  changeRequests?: ChangeRequestItem[]
+  change_requests?: ChangeRequestItem[]
+  createdAt?: string
+  created_at?: string
+  updatedAt?: string
+  updated_at?: string
+}
+
+export interface CompensationTerms {
+  total: number
+  currency: string
+}
+
+export interface PaymentScheduleTerms {
+  structure: '50_50' | '100_completion' | 'custom' | string
+  advance_percentage: number
+  advance_amount: number
+  balance_percentage: number
+  balance_amount: number
+  method: string
+  balance_due_days: number
+  terms_text?: string
+}
+
+export interface TimelineTerms {
+  start_date: string
+  end_date: string
+  draft_submission_deadline?: string
+  publishing_deadline?: string
+}
+
+export interface RevisionTerms {
+  allowed_rounds: number
+  scope: string
+}
+
+export interface ApprovalTerms {
+  pre_publication_required: boolean
+  review_window_days?: number
+}
+
+export interface ProductClaimsTerms {
+  policy: string
+  claim_guidelines?: string
+}
+
+export interface UsageRightsTerms {
+  organic_reposting: boolean
+  paid_ads: boolean
+  website_use: boolean
+  duration: string
+  territory: string
+}
+
+export interface OwnershipTerms {
+  copyright_owner: string
+  license_grant?: string
+}
+
+export interface ExclusivityTerms {
+  required: boolean
+  category?: string
+  duration_days: number
+  scope?: string
+}
+
+export interface CancellationTerms {
+  brand_cancellation?: string
+  influencer_cancellation?: string
+  force_majeure?: string
+}
+
+export interface TerminationTerms {
+  grounds: string[]
+}
+
+export interface ContractTermsPayload {
+  influencer_id?: string
+  campaign_id?: string
+  creator_name?: string
+  creator_username?: string
+  campaign_name?: string
+  brand_name?: string
+  compensation: CompensationTerms
+  payment: PaymentScheduleTerms
+  deliverables: string[]
+  timeline: TimelineTerms
+  revisions: RevisionTerms
+  approval: ApprovalTerms
+  product_claims: ProductClaimsTerms
+  usage_rights: UsageRightsTerms
+  ownership: OwnershipTerms
+  exclusivity: ExclusivityTerms
+  cancellation: CancellationTerms
+  termination: TerminationTerms
+  additional_terms?: string
+}
+
+export interface ContractReadiness {
+  ready: boolean
+  status: string
+  missing_fields: string[]
+  blocking_reason?: string | null
+  final_terms?: Record<string, any>
+  suggested_terms?: ContractTermsPayload | Record<string, any>
+  creator_name?: string
+  creator_username?: string
+  outreach_status?: string
+  shortlist_status?: string
+  contract_id?: string
 }
 
 export interface Insight {
@@ -497,6 +663,9 @@ export interface SupervisorStartResponse {
   next?: string | null
   message: string
   agentRun?: AgentRun | null
+  contractId?: string | null
+  contract_id?: string | null
+  contract?: Contract | null
 }
 
 export interface AIStatus {

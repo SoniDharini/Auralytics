@@ -45,6 +45,7 @@ import type {
   CampaignStrategy,
   CampaignWorkflow,
   CampaignWorkflowStep,
+  Contract,
 } from '@/types'
 
 
@@ -83,6 +84,7 @@ export function CampaignDetailPage() {
   const [discoveringCreators, setDiscoveringCreators] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [campaignContracts, setCampaignContracts] = useState<Contract[]>([])
   const [strategy, setStrategy] = useState<CampaignStrategy | null>(null)
   const [strategyLoading, setStrategyLoading] = useState(false)
   const [strategyRunning, setStrategyRunning] = useState(false)
@@ -117,13 +119,14 @@ export function CampaignDetailPage() {
     setStrategyLoading(true)
 
     try {
-      const [camp, acts, creatorsRes, strat, outrMsgs, wf] = await Promise.all([
+      const [camp, acts, creatorsRes, strat, outrMsgs, wf, cntrs] = await Promise.all([
         api.campaigns.get(id),
         api.campaigns.getActivities(id).catch(() => []),
         api.discovery.listCreators(id).catch(() => ({ creators: [] as CampaignCreator[] })),
         api.agents.getStrategy(id).catch(() => null),
         api.outreach.list(id).catch(() => []),
         api.campaigns.getWorkflow(id).catch(() => null),
+        api.contracts.list(undefined, id).catch(() => []),
       ])
       const creators = creatorsRes.creators || []
       setCampaign(camp)
@@ -132,6 +135,7 @@ export function CampaignDetailPage() {
       setStrategy(strat)
       setOutreachMessages(outrMsgs || [])
       setWorkflow(wf)
+      setCampaignContracts(cntrs || [])
       setEditName(camp.name)
       setEditBrand(camp.brand)
       setEditBudget(camp.budget)
@@ -446,8 +450,8 @@ export function CampaignDetailPage() {
     { id: 'overview', label: 'Overview' },
     { id: 'strategy', label: 'AI Strategy' },
     { id: 'influencers', label: 'Influencers', count: visibleCreators.length },
-    { id: 'outreach', label: 'Outreach', count: 0 },
-    { id: 'contracts', label: 'Contracts', count: 0 },
+    { id: 'outreach', label: 'Outreach', count: outreachMessages.length },
+    { id: 'contracts', label: 'Contracts', count: campaignContracts.length },
     { id: 'performance', label: 'Performance' },
     { id: 'activities', label: 'Activity History', count: activities.length },
   ]
@@ -1046,15 +1050,78 @@ export function CampaignDetailPage() {
       )}
 
       {activeTab === 'contracts' && (
-        <Card className="animate-fade-in">
-          <CardContent className="py-12 text-center text-text-secondary">
-            <FileText className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
-            <h3 className="text-base font-semibold text-text">No contracts generated yet</h3>
-            <p className="text-xs mt-1 max-w-sm mx-auto">
-              Contract Agent will draft agreements with AI risk protection when creators accept terms.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4 animate-fade-in">
+          {campaignContracts.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-text-secondary">
+                <FileText className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
+                <h3 className="text-base font-semibold text-text">No contracts generated yet</h3>
+                <p className="text-xs mt-1 max-w-sm mx-auto">
+                  When creators accept collaboration terms in Outreach, Contract Agent verifies terms and prepares agreements for human review.
+                </p>
+                <div className="mt-4">
+                  <Button size="sm" variant="secondary" onClick={() => setActiveTab('outreach')}>
+                    View Outreach Negotiations
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid md:grid-cols-2 gap-4">
+              {campaignContracts.map((c) => (
+                <Card
+                  key={c.id}
+                  className="hover:border-primary/40 transition-all cursor-pointer shadow-sm"
+                  onClick={() => navigate(`/app/contracts/${c.id}`)}
+                >
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-sm text-text">{c.creator}</h4>
+                        <p className="text-xs text-text-secondary">@{c.username}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <StatusChip status={c.status} />
+                        {c.version && c.version > 1 && (
+                          <Badge variant="outline" className="text-[10px] font-mono">
+                            v{c.version}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-border">
+                      <div>
+                        <span className="text-[10px] uppercase text-text-secondary font-semibold block">Agreed Fee</span>
+                        <span className="font-bold text-text">{formatINR(c.value)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase text-text-secondary font-semibold block">Payment Due</span>
+                        <span className="font-medium text-text">{c.paymentDue || c.payment_due || 'Net 30'}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <span className="text-[10px] uppercase text-text-secondary font-semibold block">Deliverables</span>
+                      <p className="text-xs text-text truncate">
+                        {c.deliverables?.join(', ') || '1 Dedicated video'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <Badge variant={c.risk === 'low' ? 'success' : c.risk === 'medium' ? 'warning' : 'danger'} className="text-[10px]">
+                        Risk: {c.risk?.toUpperCase() || 'LOW'}
+                      </Badge>
+                      <Button size="sm" variant="primary" className="text-xs h-7 gap-1">
+                        Review & Approve
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {activeTab === 'performance' && (

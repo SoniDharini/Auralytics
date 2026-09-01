@@ -595,6 +595,8 @@ class SupervisorAgent:
         user: User,
         influencer_id: str,
         agreed_terms: Optional[Dict[str, Any]] = None,
+        confirmed_terms: Optional[Dict[str, Any]] = None,
+        contract_text: Optional[str] = None,
         trigger: str = "manual",
     ) -> Dict[str, Any]:
         state = campaign.workflow_state or WorkflowState.CAMPAIGN_CREATED
@@ -606,8 +608,8 @@ class SupervisorAgent:
             user_id=user.id,
             campaign_id=campaign.id,
             activity_type="contract_requested",
-            title="Contract generation requested",
-            description=f"Initiated contract drafting for creator {influencer_id}",
+            title="Contract analysis requested",
+            description=f"Initiated contract analysis for creator {influencer_id}",
         )
         self.db.add(req_activity)
         await self.db.flush()
@@ -615,6 +617,8 @@ class SupervisorAgent:
         extras = {
             "influencer_id": influencer_id,
             "agreed_terms": agreed_terms or {},
+            "confirmed_terms": confirmed_terms or agreed_terms or {},
+            "contract_text": contract_text,
         }
 
         agent = ContractAgent()
@@ -627,10 +631,8 @@ class SupervisorAgent:
         )
 
         contract_obj = None
-        if run.status == AgentRunStatus.COMPLETED and run.output_json:
+        if run.status in (AgentRunStatus.COMPLETED, AgentRunStatus.WAITING_APPROVAL) and run.output_json:
             contract_obj = await self._persist_contract(campaign, run, influencer_id)
-            if campaign.workflow_state == WorkflowState.CONTRACT_PENDING:
-                await self._set_state(campaign, WorkflowState.CONTRACT_COMPLETED)
         elif run.status == AgentRunStatus.FAILED:
             if campaign.workflow_state == WorkflowState.CONTRACT_PENDING:
                 campaign.workflow_state = WorkflowState.FAILED
@@ -642,10 +644,10 @@ class SupervisorAgent:
         return {
             "campaign_id": campaign.id,
             "workflow_state": campaign.workflow_state,
-            "next": "live" if run.status == AgentRunStatus.COMPLETED else None,
+            "next": "review" if run.status in (AgentRunStatus.COMPLETED, AgentRunStatus.WAITING_APPROVAL) else None,
             "message": (
-                "Contract Agent completed agreement specification"
-                if run.status == AgentRunStatus.COMPLETED
+                "Contract Agent completed analysis"
+                if run.status in (AgentRunStatus.COMPLETED, AgentRunStatus.WAITING_APPROVAL)
                 else f"Contract Agent {run.status}"
             ),
             "agent_run": run,
@@ -658,18 +660,20 @@ class SupervisorAgent:
         data = (run.output_json or {}).get("data") or {}
         inf_id = influencer_id or data.get("influencer_id")
 
-        # Check for existing contract to prevent duplicates
         existing_stmt = select(Contract).where(
-            Contract.campaign == campaign.name,
-            Contract.creator == (data.get("creator_name") or "Creator"),
+            (Contract.campaign_id == campaign.id) & (Contract.influencer_id == inf_id)
         )
-        if campaign.id and inf_id:
-            existing_stmt = select(Contract).where(
-                (Contract.campaign_id == campaign.id) & (Contract.influencer_id == inf_id)
-            )
-
         existing_res = await self.db.execute(existing_stmt)
         contract = existing_res.scalar_one_or_none()
+
+        overall_status = data.get("overall_status") or "READY_FOR_REVIEW"
+        risk_level = str(data.get("risk_level") or "LOW").lower()
+        if data.get("risk_flags"):
+            severities = [f.get("severity", "LOW").upper() for f in data["risk_flags"] if isinstance(f, dict)]
+            if "HIGH" in severities:
+                risk_level = "high"
+            elif "MEDIUM" in severities and risk_level != "high":
+                risk_level = "medium"
 
         if not contract:
             cntr_id = f"cntr-{uuid.uuid4().hex[:12]}"
@@ -678,37 +682,55 @@ class SupervisorAgent:
                 campaign_id=campaign.id,
                 influencer_id=inf_id,
                 outreach_id=data.get("outreach_id"),
+                agent_run_id=run.id,
                 creator=data.get("creator_name") or "Creator",
                 username=data.get("creator_username") or "creator",
                 campaign=campaign.name,
                 value=float(data.get("agreed_value") or 0.0),
                 currency=str(data.get("currency") or "INR"),
                 status="pending_signature",
+                version=1,
                 start_date=data.get("start_date") or (campaign.start_date or "Launch Date"),
                 end_date=data.get("end_date") or (campaign.end_date or "Launch + 30"),
-                payment_due=data.get("payment_due") or "Net 30",
-                risk=str(data.get("risk_level") or "low").lower(),
+                payment_due=data.get("payment_due") or "Net 30 post delivery",
+                risk=risk_level,
                 deliverables=data.get("deliverables") or [],
-                usage_rights=data.get("usage_rights") or "12 months digital & social usage",
-                exclusivity=data.get("exclusivity") or "Non-exclusive",
+                usage_rights=str(data.get("usage_rights") or "Digital & social media usage"),
+                exclusivity=str(data.get("exclusivity") or "Non-exclusive"),
                 additional_terms=data.get("additional_terms") or "",
                 contract_body=data.get("contract_body") or "",
                 ai_risks=data.get("ai_risks") or [],
+                analysis_json=data,
+                missing_clauses=data.get("missing_clauses") or [],
+                conflicts=data.get("conflicts") or [],
+                risk_flags=data.get("risk_flags") or [],
+                commercial_terms_match=data.get("commercial_terms") or {},
+                overall_status=overall_status,
             )
             self.db.add(contract)
         else:
+            contract.agent_run_id = run.id
             contract.value = float(data.get("agreed_value") or contract.value)
             contract.currency = str(data.get("currency") or contract.currency)
             contract.start_date = data.get("start_date") or contract.start_date
             contract.end_date = data.get("end_date") or contract.end_date
             contract.payment_due = data.get("payment_due") or contract.payment_due
-            contract.risk = str(data.get("risk_level") or contract.risk).lower()
+            contract.risk = risk_level
             contract.deliverables = data.get("deliverables") or contract.deliverables
-            contract.usage_rights = data.get("usage_rights") or contract.usage_rights
-            contract.exclusivity = data.get("exclusivity") or contract.exclusivity
+            contract.usage_rights = str(data.get("usage_rights") or contract.usage_rights)
+            contract.exclusivity = str(data.get("exclusivity") or contract.exclusivity)
             contract.additional_terms = data.get("additional_terms") or contract.additional_terms
             contract.contract_body = data.get("contract_body") or contract.contract_body
             contract.ai_risks = data.get("ai_risks") or contract.ai_risks
+            contract.analysis_json = data
+            contract.missing_clauses = data.get("missing_clauses") or []
+            contract.conflicts = data.get("conflicts") or []
+            contract.risk_flags = data.get("risk_flags") or []
+            contract.commercial_terms_match = data.get("commercial_terms") or {}
+            contract.overall_status = overall_status
+            # Keep status as pending_signature or current if not yet approved
+            if contract.status not in ("APPROVED", "signed"):
+                contract.status = "pending_signature"
 
         await self.db.flush()
 
@@ -734,12 +756,146 @@ class SupervisorAgent:
         act = CampaignActivity(
             user_id=campaign.owner_id,
             campaign_id=campaign.id,
-            activity_type="contract_generated",
-            title=f"Contract generated: {contract.creator}",
-            description=f"Drafted agreement with value {contract.currency} {contract.value:,.2f} ({', '.join(contract.deliverables)})",
+            activity_type="contract_analyzed",
+            title=f"Contract analyzed: {contract.creator}",
+            description=f"Verified terms for {contract.creator} (Value: {contract.currency} {contract.value:,.2f} | Risk: {contract.risk.upper()})",
         )
         self.db.add(act)
         await self.db.flush()
 
         logger.info("Persisted contract %s for campaign %s", contract.id, campaign.id)
+        return contract
+
+    async def approve_contract(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        contract: Contract,
+        notes: Optional[str] = None,
+    ) -> Contract:
+        """Human approval of creator contract."""
+        now = datetime.now(timezone.utc)
+        contract.status = "APPROVED"
+        contract.approved_by = str(user.id)
+        contract.approved_at = now
+
+        # Create or update approval record
+        appr_id = f"appr-{uuid.uuid4().hex[:12]}"
+        appr = Approval(
+            id=appr_id,
+            agent="Contract Agent",
+            type="contract",
+            action=f"Approve collaboration agreement with {contract.creator}",
+            reason=notes or f"Approved contract with fee {contract.currency} {contract.value:,.2f}",
+            campaign=campaign.name,
+            financial_impact=f"{contract.currency} {contract.value:,.2f}",
+            confidence=1.0,
+            timestamp=now.strftime("%Y-%m-%d %H:%M UTC"),
+            status="approved",
+            user_id=user.id,
+            campaign_id=campaign.id,
+            agent_run_id=contract.agent_run_id,
+        )
+        self.db.add(appr)
+
+        # Record campaign activity
+        act = CampaignActivity(
+            user_id=user.id,
+            campaign_id=campaign.id,
+            activity_type="contract_approved",
+            title=f"Contract approved: {contract.creator}",
+            description=f"Collaboration contract approved for {contract.creator} ({contract.currency} {contract.value:,.2f}).",
+        )
+        self.db.add(act)
+        await self.db.flush()
+
+        # Check if all accepted creators now have approved contracts
+        accepted_stmt = select(CampaignInfluencer).where(
+            CampaignInfluencer.campaign_id == campaign.id,
+            CampaignInfluencer.status.in_([CampaignInfluencerStatus.ACCEPTED, "ACCEPTED"]),
+        )
+        acc_res = await self.db.execute(accepted_stmt)
+        accepted_creators = acc_res.scalars().all()
+
+        if accepted_creators:
+            approved_contracts_stmt = select(Contract).where(
+                Contract.campaign_id == campaign.id,
+                Contract.status.in_(["APPROVED", "signed"]),
+            )
+            app_res = await self.db.execute(approved_contracts_stmt)
+            approved_contracts = app_res.scalars().all()
+            approved_inf_ids = {c.influencer_id for c in approved_contracts if c.influencer_id}
+
+            all_accepted_approved = all(c.influencer_id in approved_inf_ids for c in accepted_creators)
+            if all_accepted_approved and campaign.workflow_state in (
+                WorkflowState.CONTRACT_PENDING,
+                WorkflowState.OUTREACH_COMPLETED,
+            ):
+                campaign.workflow_state = WorkflowState.CONTRACT_COMPLETED
+                await self.db.flush()
+
+        await self.db.commit()
+        await self.db.refresh(contract)
+        return contract
+
+    async def request_contract_changes(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        contract: Contract,
+        requested_changes: str,
+        reason: str,
+    ) -> Contract:
+        """Human request for changes on creator contract."""
+        now = datetime.now(timezone.utc)
+        contract.status = "CHANGES_REQUESTED"
+        contract.version = (contract.version or 1) + 1
+
+        history = list(contract.change_requests or [])
+        history.append({
+            "version": contract.version,
+            "requested_changes": requested_changes,
+            "reason": reason,
+            "requested_by": str(user.id),
+            "timestamp": now.isoformat(),
+        })
+        contract.change_requests = history
+
+        # Record activity
+        act = CampaignActivity(
+            user_id=user.id,
+            campaign_id=campaign.id,
+            activity_type="contract_changes_requested",
+            title=f"Changes requested for {contract.creator} contract",
+            description=f"Version {contract.version}: {reason}",
+        )
+        self.db.add(act)
+        await self.db.commit()
+        await self.db.refresh(contract)
+        return contract
+
+    async def reject_contract(
+        self,
+        *,
+        campaign: Campaign,
+        user: User,
+        contract: Contract,
+        reason: str,
+        notes: Optional[str] = None,
+    ) -> Contract:
+        """Human rejection of creator contract."""
+        contract.status = "REJECTED"
+
+        act = CampaignActivity(
+            user_id=user.id,
+            campaign_id=campaign.id,
+            activity_type="contract_rejected",
+            title=f"Contract rejected: {contract.creator}",
+            description=f"Reason: {reason}" + (f" | Notes: {notes}" if notes else ""),
+        )
+        self.db.add(act)
+        await self.db.commit()
+        await self.db.refresh(contract)
         return contract
