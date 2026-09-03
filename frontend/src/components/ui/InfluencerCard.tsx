@@ -33,12 +33,22 @@ function creatorTierLabel(followers?: number | null): string | null {
 function discoveryExtras(reasons?: MatchFactor[] | null) {
   const ai = reasons?.find((r) => r.key === 'ai_discovery')
   if (!ai) return null
+  const persona = ai.persona_relevance
   return {
     reason: ai.recommendation_reason || ai.detail,
     tier: ai.creator_tier,
     tierMatch: ai.tier_match || ai.requirement_match?.creator_tier,
     nicheMatch: ai.requirement_match?.niche,
     contentMatch: ai.requirement_match?.content_style,
+    locationMatch: ai.requirement_match?.location,
+    viewMatch: ai.requirement_match?.view_requirement,
+    entityType: ai.creator_entity_type,
+    collaboration: ai.collaboration_suitability,
+    personaTarget: persona?.target,
+    personaLevel: persona?.level,
+    personaSource: persona?.source,
+    recentAvgViews: ai.recent_avg_views,
+    trendMomentum: ai.recent_momentum || ai.classification?.recent_momentum || ai.classification?.trend_relevance,
   }
 }
 
@@ -139,7 +149,7 @@ export function InfluencerCard({
           <div>
             <p className="text-text-secondary">{isYouTube ? 'Subscribers' : 'Followers'}</p>
             <p className="font-semibold">
-              {hasSubscribers ? formatNumber(influencer.followers) : NOT_AVAILABLE}
+              {hasSubscribers ? `${formatNumber(influencer.followers)}${tierMatch === 'MATCH' ? ' ✓' : ''}` : NOT_AVAILABLE}
             </p>
           </div>
           <div>
@@ -162,10 +172,41 @@ export function InfluencerCard({
           </div>
         </div>
 
-        {(extras?.nicheMatch || extras?.contentMatch || extras?.reason) && (
+        {(extras?.nicheMatch || extras?.contentMatch || extras?.reason || extras?.entityType || extras?.personaLevel || extras?.recentAvgViews) && (
           <div className="mt-3 space-y-1 text-[11px] text-text-secondary">
+            {extras.entityType && (
+              <p>
+                Creator type: {extras.entityType.replace(/_/g, ' ')}
+                {extras.entityType === 'INDIVIDUAL_CREATOR' || extras.entityType === 'CREATOR_LED_CHANNEL' ? ' ✓' : ''}
+              </p>
+            )}
+            {extras.locationMatch && extras.locationMatch !== 'UNKNOWN' && (
+              <p>
+                Location: {influencer.country || influencer.location || 'N/A'}
+                {extras.locationMatch === 'MATCH' ? ' ✓' : ''}
+              </p>
+            )}
+            {extras.personaTarget && extras.personaTarget !== 'UNKNOWN' && (
+              <p>
+                Target persona: {extras.personaTarget.replace(/_/g, ' ')}
+                {extras.personaLevel ? ` · ${extras.personaLevel}` : ''}
+                {extras.personaSource ? ` · ${extras.personaSource.replace(/_/g, '-')}` : ''}
+              </p>
+            )}
+            {extras.trendMomentum && extras.trendMomentum !== 'UNKNOWN' && (
+              <p>Trend momentum: {extras.trendMomentum}</p>
+            )}
+            {typeof extras.recentAvgViews === 'number' && extras.recentAvgViews > 0 && (
+              <p>Recent avg views: {formatNumber(extras.recentAvgViews)}</p>
+            )}
+            {extras.viewMatch && extras.viewMatch !== 'UNKNOWN' && (
+              <p>View requirement: {extras.viewMatch === 'MATCH' ? '✓ Match' : extras.viewMatch}</p>
+            )}
+            {extras.collaboration && extras.collaboration !== 'UNKNOWN' && (
+              <p>Collaboration suitability: {extras.collaboration}</p>
+            )}
             {extras.nicheMatch && extras.nicheMatch !== 'UNKNOWN' && (
-              <p>Niche match: {extras.nicheMatch}</p>
+              <p>Product match: {extras.nicheMatch}</p>
             )}
             {extras.contentMatch && extras.contentMatch !== 'UNKNOWN' && (
               <p>Content match: {extras.contentMatch}</p>

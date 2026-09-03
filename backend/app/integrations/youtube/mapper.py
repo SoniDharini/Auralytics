@@ -102,11 +102,23 @@ def map_youtube_channel_to_creator(
 
     if video_stats and len(video_stats) > 0:
         n = len(video_stats)
-        sum_views = sum(v.get("view_count", 0) for v in video_stats)
+        view_counts = []
+        for item in video_stats:
+            try:
+                view_counts.append(int(item.get("view_count") or 0))
+            except (TypeError, ValueError):
+                view_counts.append(0)
+        sum_views = sum(view_counts)
         sum_likes = sum(v.get("like_count", 0) for v in video_stats)
         sum_comments = sum(v.get("comment_count", 0) for v in video_stats)
-
-        avg_views = int(sum_views / n)
+        ordered = sorted(view_counts)
+        if n >= 5:
+            trimmed = ordered[1:-1]
+            avg_views = int(sum(trimmed) / len(trimmed)) if trimmed else 0
+        elif n >= 3:
+            avg_views = ordered[n // 2]
+        else:
+            avg_views = int(sum_views / n) if n else 0
         avg_likes = int(sum_likes / n)
         avg_comments = int(sum_comments / n)
         metrics_sample_size = n
@@ -128,6 +140,12 @@ def map_youtube_channel_to_creator(
         for v in (video_stats or [])
         if v.get("title") and str(v.get("title")).strip()
     ]
+    recent_view_counts = []
+    for item in video_stats or []:
+        try:
+            recent_view_counts.append(int(item.get("view_count") or 0))
+        except (TypeError, ValueError):
+            continue
     raw_payload = {
         "channel_id": channel.id,
         "kind": channel.kind,
@@ -135,6 +153,9 @@ def map_youtube_channel_to_creator(
         "statistics": statistics.model_dump() if statistics else {},
         "recent_video_sample_count": len(video_stats) if video_stats else 0,
         "recent_video_titles": recent_titles[:15],
+        "recent_max_views": max(recent_view_counts) if recent_view_counts else 0,
+        "recent_view_counts": recent_view_counts[:15],
+        "recent_median_views": int(sorted(recent_view_counts)[len(recent_view_counts) // 2]) if recent_view_counts else 0,
     }
 
     return NormalizedCreator(

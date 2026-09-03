@@ -311,33 +311,47 @@ export function CreateCampaignPage() {
     return Array.from(new Set([...selectedNiches, ...typed]))
   }
 
-  const buildPayload = (status: 'active' | 'draft') => ({
-    name: name.trim() || 'New Influencer Campaign',
-    brand: brand.trim() || 'GlowNaturals',
-    description: description.trim() || undefined,
-    budget: totalBudget,
-    objective: objectiveLabel,
-    start_date: startDate,
-    end_date: endDate,
-    status,
-    health: 'healthy',
-    campaign_types: selectedTypes,
-    target_locations: locations,
-    target_age_min: ageMin,
-    target_age_max: ageMax,
-    target_gender: gender,
-    interests: selectedInterests,
-    languages: selectedLanguages,
-    platforms: selectedPlatforms,
-    creator_tiers: selectedTiers,
-    budget_allocation: allocation,
-    primary_kpi: primaryKpi,
-    target_roas: parseFloat(targetRoas) || 3.0,
-    target_cpa: parseFloat(targetCpa) || 150,
-    keywords: buildDiscoveryKeywords(),
-    min_followers: minFollowers ? Number(minFollowers) : undefined,
-    max_followers: maxFollowers ? Number(maxFollowers) : undefined,
-  })
+  const buildPayload = (status: 'active' | 'draft') => {
+    const personaLine = persona.trim()
+    const baseDescription = description.trim()
+    let composedDescription: string | undefined
+    if (personaLine && baseDescription) {
+      composedDescription = baseDescription.toLowerCase().includes(personaLine.toLowerCase())
+        ? baseDescription
+        : `${baseDescription}\n\nTarget audience: ${personaLine}`
+    } else if (personaLine) {
+      composedDescription = `Target audience: ${personaLine}`
+    } else {
+      composedDescription = baseDescription || undefined
+    }
+    return {
+      name: name.trim() || 'New Influencer Campaign',
+      brand: brand.trim() || 'GlowNaturals',
+      description: composedDescription,
+      budget: totalBudget,
+      objective: objectiveLabel,
+      start_date: startDate,
+      end_date: endDate,
+      status,
+      health: 'healthy',
+      campaign_types: selectedTypes,
+      target_locations: locations,
+      target_age_min: ageMin,
+      target_age_max: ageMax,
+      target_gender: gender,
+      interests: selectedInterests,
+      languages: selectedLanguages,
+      platforms: selectedPlatforms,
+      creator_tiers: selectedTiers,
+      budget_allocation: allocation,
+      primary_kpi: primaryKpi,
+      target_roas: parseFloat(targetRoas) || 3.0,
+      target_cpa: parseFloat(targetCpa) || 150,
+      keywords: buildDiscoveryKeywords(),
+      min_followers: minFollowers ? Number(minFollowers) : undefined,
+      max_followers: maxFollowers ? Number(maxFollowers) : undefined,
+    }
+  }
 
   const handleLaunch = async () => {
     setShowLaunchModal(true)

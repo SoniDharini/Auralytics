@@ -139,7 +139,15 @@ export function LoginPage() {
               <div className="h-px flex-1 bg-border" />
             </div>
 
-            <Button type="button" variant="secondary" className="w-full" size="lg">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              size="lg"
+              onClick={() =>
+                setError('Google sign-in is not available yet. Use your email and password, or create an account.')
+              }
+            >
               Sign in with Google
             </Button>
 

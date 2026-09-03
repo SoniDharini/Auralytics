@@ -239,7 +239,7 @@ class SupervisorAgent:
             await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
         elif state == WorkflowState.FAILED:
             await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
-        elif state == WorkflowState.SHORTLIST_APPROVAL_PENDING:
+        elif state in (WorkflowState.SHORTLIST_APPROVAL_PENDING, WorkflowState.DISCOVERY_COMPLETED):
             await self._set_state(campaign, WorkflowState.DISCOVERY_PENDING)
         elif state not in (WorkflowState.DISCOVERY_PENDING,):
             raise WorkflowStateException(
@@ -347,6 +347,15 @@ class SupervisorAgent:
                 "requirement_match": rec.get("requirement_match") or {},
                 "creator_tier": rec.get("creator_tier"),
                 "tier_match": rec.get("tier_match"),
+                "creator_entity_type": rec.get("creator_entity_type"),
+                "single_creator_authority": rec.get("single_creator_authority"),
+                "collaboration_suitability": rec.get("collaboration_suitability"),
+                "persona_relevance": rec.get("persona_relevance") or {},
+                "recommendation_type": rec.get("recommendation_type"),
+                "recent_avg_views": rec.get("recent_avg_views"),
+                "recent_momentum": rec.get("recent_momentum"),
+                "auralytics_trend_score": rec.get("auralytics_trend_score"),
+                "ranking_score": rec.get("ranking_score"),
                 "best_use_case": rec.get("best_use_case"),
                 "confidence": rec.get("confidence"),
             }

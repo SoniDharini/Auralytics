@@ -37,6 +37,8 @@ from app.models.campaign_activity import CampaignActivity
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
 from app.models.influencer import Influencer, InfluencerSourceSnapshot
+from app.ai.creator_entity import classify_creator_entity, is_collaborable_entity
+from app.ai.discovery_requirements import build_discovery_requirements
 from app.services.creator_scoring_service import (
     CreatorScoringService,
     CreatorSignals,
@@ -44,7 +46,6 @@ from app.services.creator_scoring_service import (
     resolve_target_country,
 )
 from app.services.query_builder import CampaignQueryBuilder
-from app.ai.discovery_requirements import build_discovery_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -92,18 +93,18 @@ class CreatorDiscoveryService:
         hidden: bool,
         strategy_json: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
-        """Campaigns keep creators whose subscriber count is unknown.
+        """User-selected creator tiers and explicit follower ranges are hard filters.
 
-        A hidden subscriber count is missing information, not a disqualification, so
-        the creator is kept and the uncertainty is reflected in the match score.
-        User-selected creator tiers are hard filters. Strategy ranges are ranking
-        preferences, not YouTube exclusions.
+        Missing or hidden subscriber counts cannot satisfy those filters.
+        Strategy ranges are ranking preferences, not YouTube exclusions.
         """
+        reqs = build_discovery_requirements(campaign, strategy_json)
         if hidden or followers <= 0:
+            if reqs.requires_subscriber_facts():
+                return False, "insufficient_subscriber_data"
             return True, "subscriber_count_hidden"
 
-        reqs = build_discovery_requirements(campaign, strategy_json)
-        if reqs.hard_subscriber_ok(followers, hidden=hidden):
+        if reqs.hard_subscriber_ok(followers, hidden=False):
             if reqs.hard_creator_tiers:
                 return True, "selected_tier"
             return True, "within_range"
@@ -303,6 +304,10 @@ class CreatorDiscoveryService:
 
         # Apply campaign rules before spending quota on per-channel video lookups.
         survivors = []
+        drop_entity = 0
+        drop_location = 0
+        drop_followers = 0
+        reqs = build_discovery_requirements(campaign, strategy_json)
         for channel in channels:
             statistics = channel.statistics
             hidden = bool(statistics.hiddenSubscriberCount) if statistics else False
@@ -311,13 +316,32 @@ class CreatorDiscoveryService:
             except (TypeError, ValueError):
                 followers = 0
 
-            keep, _reason = self._passes_subscriber_filter(
+            keep, reason = self._passes_subscriber_filter(
                 campaign, followers, hidden, strategy_json=strategy_json
             )
-            if keep:
-                survivors.append(channel)
-            else:
+            if not keep:
+                drop_followers += 1
                 stats.filtered_out += 1
+                continue
+
+            snippet = channel.snippet
+            country = snippet.country if snippet else None
+            loc_label = reqs.location_match(country, country)
+            if loc_label == "FAIL" or (reqs.hard_location and loc_label == "UNKNOWN"):
+                drop_location += 1
+                stats.filtered_out += 1
+                continue
+
+            entity, _hits = classify_creator_entity(
+                name=snippet.title if snippet else None,
+                description=snippet.description if snippet else None,
+            )
+            if not is_collaborable_entity(entity):
+                drop_entity += 1
+                stats.filtered_out += 1
+                continue
+
+            survivors.append(channel)
 
         # Keep YouTube's relevance ordering, then cap so quota stays predictable.
         max_enriched = int(getattr(settings, "YOUTUBE_DISCOVERY_MAX_CREATORS", 50) or 50)
@@ -328,11 +352,13 @@ class CreatorDiscoveryService:
         survivors.sort(key=lambda ch: ch.id)
         stats.passed_filters = len(survivors)
         logger.info(
-            "Campaign %s: %d channels passed campaign filters (%d filtered out). Enriching up to %d.",
+            "Campaign %s discovery filters: raw=%s dropped_followers=%s dropped_location=%s dropped_entity=%s passed=%s",
             campaign.id,
-            stats.passed_filters,
-            stats.filtered_out,
-            max_enriched,
+            stats.unique_channels,
+            drop_followers,
+            drop_location,
+            drop_entity,
+            len(survivors),
         )
 
         cache_ttl = timedelta(hours=settings.INFLUENCER_CACHE_TTL_HOURS)

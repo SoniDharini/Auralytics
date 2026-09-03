@@ -327,6 +327,17 @@ export interface MatchFactor {
   creator_tier?: string
   tier_match?: string
   eligibility?: string
+  creator_entity_type?: string
+  collaboration_suitability?: string
+  recommendation_type?: string
+  recent_avg_views?: number | null
+  recent_momentum?: string
+  persona_relevance?: {
+    target?: string
+    level?: string
+    source?: string
+    reason?: string
+  }
   requirement_match?: Record<string, string>
   classification?: Record<string, string>
 }

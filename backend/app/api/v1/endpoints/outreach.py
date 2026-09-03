@@ -12,6 +12,7 @@ from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluence
 from app.models.outreach import OutreachMessage
 from app.models.user import User
 from app.schemas.agent_execution import AgentRunResponse, SupervisorStartResponse
+from app.schemas.contract import ContractAnalyzeRequest
 from app.schemas.outreach import (
     OutreachAcceptanceRequest,
     OutreachGenerateRequest,

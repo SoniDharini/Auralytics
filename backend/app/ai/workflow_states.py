@@ -55,7 +55,10 @@ ALLOWED_TRANSITIONS = {
         WorkflowState.DISCOVERY_COMPLETED,
         WorkflowState.FAILED,
     },
-    WorkflowState.DISCOVERY_COMPLETED: {WorkflowState.SHORTLIST_APPROVAL_PENDING},
+    WorkflowState.DISCOVERY_COMPLETED: {
+        WorkflowState.SHORTLIST_APPROVAL_PENDING,
+        WorkflowState.DISCOVERY_PENDING,
+    },
     WorkflowState.SHORTLIST_APPROVAL_PENDING: {
         WorkflowState.SHORTLIST_APPROVED,
         WorkflowState.DISCOVERY_PENDING,
