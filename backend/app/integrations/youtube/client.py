@@ -97,6 +97,30 @@ class YouTubeClient:
         data = await self._request("search", params)
         return YouTubeSearchListResponse.model_validate(data)
 
+    async def get_channels_by_handle(self, handle: str) -> YouTubeChannelListResponse:
+        """Exact channel lookup by @handle. Does not invent a match when YouTube returns none."""
+        cleaned = (handle or "").strip().lstrip("@")
+        if not cleaned:
+            return YouTubeChannelListResponse(items=[])
+        params = {
+            "part": "snippet,statistics,contentDetails,brandingSettings",
+            "forHandle": cleaned,
+        }
+        data = await self._request("channels", params)
+        return YouTubeChannelListResponse.model_validate(data)
+
+    async def get_channels_by_username(self, username: str) -> YouTubeChannelListResponse:
+        """Legacy /user/ username lookup."""
+        cleaned = (username or "").strip().lstrip("@")
+        if not cleaned:
+            return YouTubeChannelListResponse(items=[])
+        params = {
+            "part": "snippet,statistics,contentDetails,brandingSettings",
+            "forUsername": cleaned,
+        }
+        data = await self._request("channels", params)
+        return YouTubeChannelListResponse.model_validate(data)
+
     async def get_channels_by_id(self, channel_ids: List[str]) -> YouTubeChannelListResponse:
         """Batch fetch full channel details and statistics (up to 50 IDs per call)."""
         if not channel_ids:

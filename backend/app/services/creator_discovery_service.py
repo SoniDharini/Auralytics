@@ -213,8 +213,17 @@ class CreatorDiscoveryService:
             db.add(link)
 
         # Re-running discovery refreshes the score but must never undo a user decision.
+        merged = list(match_reasons or [])
+        for reason in (link.match_reasons or []):
+            if not isinstance(reason, dict) or reason.get("selection_source") != "MANUAL_SEARCH":
+                continue
+            if not any(
+                isinstance(item, dict) and item.get("selection_source") == "MANUAL_SEARCH"
+                for item in merged
+            ):
+                merged.append(reason)
         link.match_score = match_score
-        link.match_reasons = match_reasons
+        link.match_reasons = merged
         if discovery_query:
             link.discovery_query = discovery_query
         link.updated_at = now

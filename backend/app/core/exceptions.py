@@ -100,6 +100,16 @@ class InvalidRequestException(InfluenceOSException):
         )
 
 
+class ConflictException(InfluenceOSException):
+    """The request is valid but requires an explicit confirmation to continue."""
+
+    def __init__(self, detail: str = "Conflict"):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+        )
+
+
 class AINotConfiguredException(InfluenceOSException):
     """Grok/xAI credentials are missing or blank."""
 

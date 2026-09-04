@@ -28,7 +28,11 @@ from app.schemas.influencer import (
     DiscoveryResponse,
     DiscoveryStatsSchema,
     InfluencerResponse,
+    ManualCreatorSearchResponse,
+    ManualShortlistRequest,
 )
+from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
+from app.services.manual_creator_search_service import ManualCreatorSearchService
 from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
 
 logger = logging.getLogger(__name__)
@@ -126,6 +130,56 @@ async def _fetch_links(db: AsyncSession, campaign_id: str, link_ids: List[str]) 
 
 
 @router.get(
+    "/{campaign_id}/influencers/search",
+    response_model=ManualCreatorSearchResponse,
+    summary="Search YouTube for a specific creator without rerunning Discovery",
+)
+async def search_campaign_influencer(
+    campaign_id: str,
+    q: str = Query(..., min_length=1, description="Creator name, @handle, channel URL, or channel ID"),
+    limit: int = Query(8, ge=1, le=10),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    campaign = await _load_owned_campaign(db, campaign_id, current_user)
+    payload = await ManualCreatorSearchService().search(db, campaign, q, limit=limit)
+    await db.commit()
+    return ManualCreatorSearchResponse.model_validate(payload)
+
+
+@router.post(
+    "/{campaign_id}/influencers/manual-shortlist",
+    response_model=CampaignCreatorResponse,
+    summary="Persist a manually searched YouTube creator onto the existing campaign shortlist",
+)
+async def manual_shortlist_campaign_influencer(
+    campaign_id: str,
+    payload: ManualShortlistRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    campaign = await _load_owned_campaign(db, campaign_id, current_user)
+    link, _evaluation = await ManualCreatorSearchService().shortlist(
+        db,
+        campaign,
+        current_user,
+        channel_id=payload.channel_id,
+        confirm_override=payload.confirm_override,
+        query=payload.query,
+    )
+    await _apply_shortlist_side_effects(db, campaign, current_user, link)
+    await db.commit()
+
+    result = await db.execute(
+        select(CampaignInfluencer)
+        .options(selectinload(CampaignInfluencer.influencer))
+        .where(CampaignInfluencer.id == link.id)
+    )
+    saved = result.scalar_one()
+    return _to_creator_response(saved)
+
+
+@router.get(
     "/{campaign_id}/influencers",
     response_model=CampaignCreatorListResponse,
     summary="List creators already discovered for this campaign (reads PostgreSQL only)",
@@ -219,6 +273,40 @@ async def get_campaign_influencer(
     return _to_creator_response(link)
 
 
+async def _apply_shortlist_side_effects(
+    db: AsyncSession,
+    campaign: Campaign,
+    user: User,
+    link: CampaignInfluencer,
+) -> None:
+    """Same outreach/shortlist flag path used by Discovery cards and manual search."""
+    if link.status != CampaignInfluencerStatus.SHORTLISTED or not link.influencer:
+        return
+    link.influencer.shortlisted = True
+    existing_msg = await db.execute(
+        select(OutreachMessage).where(
+            OutreachMessage.campaign_id == campaign.id,
+            OutreachMessage.influencer_id == link.influencer_id,
+        )
+    )
+    if existing_msg.scalars().first():
+        return
+    supervisor = SupervisorAgent(db)
+    try:
+        await supervisor.run_outreach(
+            campaign=campaign,
+            user=user,
+            influencer_id=link.influencer_id,
+            trigger="shortlist_event",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Auto outreach generation on shortlist event failed for creator %s: %s",
+            link.influencer_id,
+            exc,
+        )
+
+
 @router.patch(
     "/{campaign_id}/influencers/{influencer_id}",
     response_model=CampaignCreatorResponse,
@@ -253,34 +341,10 @@ async def update_campaign_influencer_status(
 
     link.status = new_status
 
-    # Keep the cross-campaign shortlist flag in sync for the global Shortlist workspace.
     if new_status == CampaignInfluencerStatus.SHORTLISTED:
-        link.influencer.shortlisted = True
-
-        # Trigger Supervisor Outreach Agent if draft does not already exist for this creator
-        existing_msg = await db.execute(
-            select(OutreachMessage).where(
-                OutreachMessage.campaign_id == campaign_id,
-                OutreachMessage.influencer_id == influencer_id,
-            )
-        )
-        if not existing_msg.scalars().first():
-            supervisor = SupervisorAgent(db)
-            campaign = await db.get(Campaign, campaign_id)
-            if campaign:
-                try:
-                    await supervisor.run_outreach(
-                        campaign=campaign,
-                        user=current_user,
-                        influencer_id=influencer_id,
-                        trigger="shortlist_event",
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Auto outreach generation on shortlist event failed for creator %s: %s",
-                        influencer_id,
-                        exc,
-                    )
+        campaign = await db.get(Campaign, campaign_id)
+        if campaign:
+            await _apply_shortlist_side_effects(db, campaign, current_user, link)
     elif new_status in (CampaignInfluencerStatus.DISCOVERED, CampaignInfluencerStatus.REJECTED):
         still_shortlisted = await db.execute(
             select(func.count())

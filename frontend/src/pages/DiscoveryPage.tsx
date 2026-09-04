@@ -17,6 +17,7 @@ import {
   Users,
 } from 'lucide-react'
 import { api } from '@/services/api'
+import { ManualCreatorSearch } from '@/components/discovery/ManualCreatorSearch'
 import {
   Badge,
   Button,
@@ -381,6 +382,16 @@ export function DiscoveryPage() {
         </Card>
       )}
 
+      {selectedCampaignId && (
+        <ManualCreatorSearch
+          campaignId={selectedCampaignId}
+          disabled={discovering}
+          onShortlisted={() => {
+            void loadCreators(selectedCampaignId)
+          }}
+        />
+      )}
+
       {/* Search & filters */}
       <div className="space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
@@ -482,6 +493,10 @@ export function DiscoveryPage() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
           <p>Loading discovered creators...</p>
         </div>
+      )}
+
+      {hasLoadedOnce && !bootstrapping && (
+        <h2 className="text-sm font-semibold text-text px-1">AI recommended creators</h2>
       )}
 
       {/* Never discovered for this campaign */}

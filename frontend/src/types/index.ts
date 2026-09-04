@@ -385,6 +385,54 @@ export interface DiscoveryResponse {
   creators: CampaignCreator[]
 }
 
+export interface ManualSearchMismatch {
+  code: string
+  label: string
+  detail: string
+}
+
+export interface ManualSearchResult {
+  channel_id: string
+  influencer_id?: string | null
+  link_id?: string | null
+  campaign_status?: string | null
+  already_in_campaign: boolean
+  already_recommended: boolean
+  already_shortlisted: boolean
+  previously_rejected: boolean
+  selection_source: string
+  creator: Influencer
+  entity_type: string
+  collaboration_suitable: boolean
+  shortlist_allowed: boolean
+  meets_requirements: boolean
+  manual_override_required: boolean
+  eligibility?: string | null
+  requirement_match?: Record<string, string>
+  mismatches: ManualSearchMismatch[]
+  warning?: string | null
+  tier?: string | null
+  match_score?: number | null
+  persona_relevance?: {
+    target?: string
+    level?: string
+    source?: string
+    reason?: string
+  } | null
+  recent_avg_views?: number | null
+  recent_momentum?: string | null
+  query?: string | null
+}
+
+export interface ManualCreatorSearchResponse {
+  campaign_id: string
+  query: string
+  query_kind: string
+  count: number
+  results: ManualSearchResult[]
+  message?: string | null
+}
+
 export interface IntegrationStatus {
   youtube: {
     configured: boolean

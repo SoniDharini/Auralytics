@@ -23,6 +23,7 @@ import type {
   IntegrationStatus,
   AgentRun,
   AIStatus,
+  ManualCreatorSearchResponse,
   OutreachMessageItem,
   OutreachNegotiateResponse,
   OutreachStatus,
@@ -268,6 +269,22 @@ export const api = {
 
     getCreator: (campaignId: string, influencerId: string) =>
       request<CampaignCreator>(`/campaigns/${campaignId}/influencers/${influencerId}`),
+
+    searchCreator: (campaignId: string, q: string, limit = 8) => {
+      const params = new URLSearchParams({ q, limit: String(limit) })
+      return request<ManualCreatorSearchResponse>(
+        `/campaigns/${campaignId}/influencers/search?${params.toString()}`,
+      )
+    },
+
+    shortlistManual: (
+      campaignId: string,
+      payload: { channel_id: string; confirm_override?: boolean; query?: string },
+    ) =>
+      request<CampaignCreator>(`/campaigns/${campaignId}/influencers/manual-shortlist`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
 
     setStatus: (campaignId: string, influencerId: string, status: CampaignCreatorStatus) =>
       request<CampaignCreator>(`/campaigns/${campaignId}/influencers/${influencerId}`, {

@@ -130,6 +130,68 @@ class CampaignCreatorStatusUpdate(BaseModel):
     status: str = Field(..., description="DISCOVERED | SHORTLISTED | REJECTED | CONTACTED")
 
 
+class ManualCreatorSearchRequest(BaseModel):
+    q: Optional[str] = Field(None, description="Creator name, @handle, channel URL, or channel ID")
+
+
+class ManualShortlistRequest(BaseModel):
+    channel_id: str = Field(..., min_length=2, description="YouTube channel ID (UC...)")
+    confirm_override: bool = False
+    query: Optional[str] = None
+
+
+class RequirementMismatchSchema(BaseModel):
+    code: str
+    label: str
+    detail: str
+
+
+class PersonaRelevanceSchema(BaseModel):
+    target: str = "UNKNOWN"
+    level: str = "UNKNOWN"
+    source: str = "UNKNOWN"
+    reason: str = ""
+
+
+class ManualSearchResultSchema(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    channel_id: str
+    influencer_id: Optional[str] = None
+    link_id: Optional[str] = None
+    campaign_status: Optional[str] = None
+    already_in_campaign: bool = False
+    already_recommended: bool = False
+    already_shortlisted: bool = False
+    previously_rejected: bool = False
+    selection_source: str = "MANUAL_SEARCH"
+    creator: Optional[InfluencerResponse] = None
+    entity_type: str = "INDIVIDUAL_CREATOR"
+    collaboration_suitable: bool = True
+    shortlist_allowed: bool = True
+    meets_requirements: bool = False
+    manual_override_required: bool = False
+    eligibility: Optional[str] = None
+    requirement_match: Dict[str, Any] = Field(default_factory=dict)
+    mismatches: List[RequirementMismatchSchema] = Field(default_factory=list)
+    warning: Optional[str] = None
+    tier: Optional[str] = None
+    match_score: Optional[float] = None
+    persona_relevance: Optional[PersonaRelevanceSchema] = None
+    recent_avg_views: Optional[int] = None
+    recent_momentum: Optional[str] = None
+    query: Optional[str] = None
+
+
+class ManualCreatorSearchResponse(BaseModel):
+    campaign_id: str
+    query: str
+    query_kind: str
+    count: int
+    results: List[ManualSearchResultSchema] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
 class InfluencerFetchRequest(BaseModel):
     platforms: Optional[List[str]] = Field(default=None, description="Platforms to query, e.g. ['youtube', 'instagram']")
     limit: Optional[int] = Field(default=25, ge=1, le=100)

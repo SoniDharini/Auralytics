@@ -4,6 +4,7 @@ from app.integrations.social_provider import ContentMetrics, NormalizedCreator, 
 from app.integrations.youtube.client import YouTubeClient, YouTubeAPIError
 from app.integrations.youtube.mapper import map_youtube_channel_to_creator
 from app.integrations.youtube.schemas import YouTubeChannelItem
+from app.services.youtube_query import ParsedCreatorQuery
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,78 @@ class YouTubeProvider(SocialProvider):
         except Exception as exc:
             logger.debug("Recent video statistics unavailable for channel %s: %s", channel.id, exc)
             return []
+
+    async def resolve_manual_query(
+        self,
+        parsed: ParsedCreatorQuery,
+        *,
+        region_code: Optional[str] = None,
+        max_results: int = 8,
+    ) -> List[YouTubeChannelItem]:
+        """Resolve a user search to real YouTube channels. Never invents a channel."""
+        if not self.is_configured():
+            return []
+
+        region = region_code if region_code and len(region_code) == 2 else None
+        channels: List[YouTubeChannelItem] = []
+
+        if parsed.kind == "channel_id":
+            response = await self.client.get_channels_by_id([parsed.value])
+            channels = list(response.items)
+        elif parsed.kind == "handle":
+            try:
+                response = await self.client.get_channels_by_handle(parsed.value)
+                channels = list(response.items)
+            except YouTubeAPIError as exc:
+                if exc.status_code == 400:
+                    channels = []
+                else:
+                    raise
+            if not channels:
+                search_res = await self.client.search_channels(
+                    query=f"@{parsed.value}",
+                    max_results=max_results,
+                    region_code=region,
+                )
+                ids = [item.id.channelId for item in search_res.items if item.id.channelId]
+                if ids:
+                    channels = list((await self.client.get_channels_by_id(ids)).items)
+        elif parsed.kind == "username":
+            try:
+                response = await self.client.get_channels_by_username(parsed.value)
+                channels = list(response.items)
+            except YouTubeAPIError as exc:
+                if exc.status_code == 400:
+                    channels = []
+                else:
+                    raise
+            if not channels:
+                search_res = await self.client.search_channels(
+                    query=parsed.value,
+                    max_results=max_results,
+                    region_code=region,
+                )
+                ids = [item.id.channelId for item in search_res.items if item.id.channelId]
+                if ids:
+                    channels = list((await self.client.get_channels_by_id(ids)).items)
+        else:
+            search_res = await self.client.search_channels(
+                query=parsed.value,
+                max_results=max_results,
+                region_code=region,
+            )
+            ids = [item.id.channelId for item in search_res.items if item.id.channelId]
+            if ids:
+                channels = list((await self.client.get_channels_by_id(ids)).items)
+
+        seen = set()
+        unique: List[YouTubeChannelItem] = []
+        for channel in channels:
+            if not channel.id or channel.id in seen:
+                continue
+            seen.add(channel.id)
+            unique.append(channel)
+        return unique[:max_results]
 
     async def get_creator(self, external_id: str) -> Optional[NormalizedCreator]:
         if not self.is_configured():
