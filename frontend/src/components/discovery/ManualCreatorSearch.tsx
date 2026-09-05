@@ -109,19 +109,21 @@ export function ManualCreatorSearch({ campaignId, disabled, onShortlisted }: Man
 
   return (
     <div className="space-y-3">
-      <Card className="p-4">
-        <p className="text-sm font-semibold text-text">Have a creator in mind?</p>
-        <p className="text-xs text-text-secondary mt-0.5">
+      <Card className="relative overflow-hidden p-4 border-primary/15">
+        <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-accent to-transparent" />
+        <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/10 blur-2xl pointer-events-none" />
+        <p className="relative text-sm font-semibold text-text">Have a creator in mind?</p>
+        <p className="relative text-xs text-text-secondary mt-0.5">
           Search a real YouTube creator by name, @handle, or channel URL. This does not replace AI recommendations.
         </p>
-        <form className="mt-3 flex flex-col sm:flex-row gap-2" onSubmit={onSubmit}>
+        <form className="relative mt-3 flex flex-col sm:flex-row gap-2" onSubmit={onSubmit}>
           <div className="relative flex-1">
-            <Search className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary" />
+            <Search className="h-4 w-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-primary/70" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search creator name, @handle or YouTube channel URL..."
-              className="w-full h-10 pl-10 pr-4 rounded-[10px] border border-border bg-white text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+              className="w-full h-10 pl-10 pr-4 rounded-[12px] border border-border bg-surface text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 text-text transition"
               aria-label="Search YouTube creator"
               disabled={searching || disabled}
             />

@@ -43,23 +43,32 @@ export function OptimizationPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[32px] font-bold tracking-tight">Optimization Center</h1>
-          <p className="text-text-secondary mt-1">
-            AI-powered recommendations to improve campaign ROI.
-          </p>
+      <header className="relative overflow-hidden rounded-[20px] border border-border bg-surface px-5 py-5 shadow-[0_8px_30px_rgba(17,24,39,0.04)] sm:px-6">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(1200px_circle_at_0%_-20%,rgba(91,95,239,0.10),transparent_45%),radial-gradient(800px_circle_at_100%_0%,rgba(139,92,246,0.08),transparent_40%)]" />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Optimization Agent</p>
+            <h1 className="mt-1 text-[28px] font-bold tracking-tight sm:text-[32px]">What should we change?</h1>
+            <p className="mt-1 text-text-secondary">
+              AI recommends budget and creator adjustments. You decide before anything is applied.
+            </p>
+          </div>
+          <Link to="/app/analytics">
+            <Button variant="secondary" className="gap-2">
+              View Analytics <ArrowRight className="h-4 w-4" />
+            </Button>
+          </Link>
         </div>
-      </div>
+      </header>
 
-      <Card className="border-l-4 border-l-warning bg-amber-50/30">
+      <Card className="border-l-4 border-l-warning bg-amber-50/40">
         <CardContent className="py-4 flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="flex items-start gap-3 flex-1">
             <div className="h-10 w-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
               <ShieldAlert className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-text">Human approval required for budget changes</p>
+              <p className="text-sm font-semibold text-text">AI recommends. You decide.</p>
               <p className="text-sm text-text-secondary mt-1 leading-relaxed">
                 All budget reallocations, rate adjustments, and spend modifications require your explicit approval
                 before the Optimization Agent executes changes. No financial actions are applied automatically.
@@ -83,7 +92,7 @@ export function OptimizationPage() {
             <div>
               <h3 className="text-lg font-bold text-text">No optimization recommendations yet</h3>
               <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
-                Optimization Agent will analyze performance and recommend creator mix or budget adjustments once active campaigns begin collecting data.
+                Optimization Agent will analyze performance and recommend creator mix or budget adjustments once active campaigns begin collecting data. Approve, modify, or reject will appear here when recommendations exist — nothing is applied automatically.
               </p>
             </div>
             <Link to="/app/campaigns/new" className="inline-block mt-2">

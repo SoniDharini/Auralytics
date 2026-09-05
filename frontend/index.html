@@ -9,6 +9,20 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>Auralytics — Autonomous Influencer Marketing</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('auralytics-theme')
+          if (theme === 'dark') {
+            document.documentElement.classList.add('dark')
+            document.documentElement.style.colorScheme = 'dark'
+          } else {
+            document.documentElement.classList.remove('dark')
+            document.documentElement.style.colorScheme = 'light'
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

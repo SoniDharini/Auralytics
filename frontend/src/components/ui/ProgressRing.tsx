@@ -29,7 +29,7 @@ export function ProgressRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#EEF0FF"
+          stroke="var(--auralytics-primary-soft)"
           strokeWidth={stroke}
         />
         <circle
@@ -37,7 +37,7 @@ export function ProgressRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={color}
+          stroke={color || 'var(--auralytics-primary)'}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}

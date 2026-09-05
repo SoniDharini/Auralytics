@@ -10,7 +10,7 @@ export function Skeleton({ className }: SkeletonProps) {
 
 export function MetricSkeleton() {
   return (
-    <div className="bg-surface border border-border rounded-[14px] p-5 space-y-3">
+    <div className="ui-card-surface rounded-[14px] p-5 space-y-3">
       <Skeleton className="h-3 w-24" />
       <Skeleton className="h-8 w-20" />
       <Skeleton className="h-3 w-32" />

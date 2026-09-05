@@ -36,7 +36,7 @@ export function LogoutConfirmationModal({ open, onClose, onConfirm }: LogoutConf
           <LogOut className="h-5 w-5" />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-text">Log out of InfluenceOS?</h3>
+          <h3 className="text-lg font-semibold text-text">Log out of Auralytics?</h3>
           <p className="mt-1.5 text-sm text-text-secondary leading-relaxed">
             Are you sure you want to log out of your account?
           </p>

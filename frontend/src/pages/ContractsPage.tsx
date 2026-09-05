@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowUpRight, FileText, Loader2 } from 'lucide-react'
 import { api } from '@/services/api'
+import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
 import { Badge, Card, CardContent, CardHeader, CardTitle, MetricCard, StatusChip } from '@/components/ui'
 import { formatINR } from '@/utils'
 import type { Contract, MetricCard as MetricCardType } from '@/types'
@@ -93,36 +94,37 @@ export function ContractsPage() {
   ]
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[32px] font-bold tracking-tight">Contracts & Legal Verification</h1>
-          <p className="text-text-secondary mt-1">
-            Review AI agreement analyses, verify commercial term matches, and sign off creator contracts.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-text-secondary bg-white px-3 py-1.5 rounded-xl border border-border">
-          <FileText className="h-4 w-4 text-primary" />
-          <span>Supervised by Contract Agent</span>
-        </div>
-      </div>
+    <div className="relative space-y-5 animate-fade-in">
+      <PageAmbientBackground variant="contract" className="h-[340px]" />
 
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <PageHeader
+        eyebrow="Contracts"
+        title="Contracts & Legal Verification"
+        description="Review AI agreement analyses, verify commercial term matches, and sign off creator contracts."
+        actions={
+          <div className="flex items-center gap-2 text-xs text-text-secondary bg-surface px-3 py-1.5 rounded-xl border border-border">
+            <FileText className="h-4 w-4 text-primary" />
+            <span>Document workspace</span>
+          </div>
+        }
+      />
+
+      <div className="relative grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {metrics.map((m) => (
           <MetricCard key={m.id} metric={m} />
         ))}
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      <div className="relative flex items-center gap-2 overflow-x-auto pb-1">
         {filterTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setStatusFilter(tab.id)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
+            className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all border ${
               statusFilter === tab.id
-                ? 'bg-primary text-white shadow-sm'
-                : 'bg-white text-text-secondary border border-border hover:bg-page hover:text-text'
+                ? 'bg-primary-soft border-primary/30 text-primary font-semibold'
+                : 'bg-surface border-border text-text-secondary hover:bg-muted hover:text-text'
             }`}
           >
             {tab.label}
@@ -130,7 +132,7 @@ export function ContractsPage() {
         ))}
       </div>
 
-      <Card>
+      <Card className="relative">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>

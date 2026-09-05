@@ -26,9 +26,17 @@ export function ProgressBar({
           <span className="font-semibold text-text">{Math.round(pct)}%</span>
         </div>
       )}
-      <div className={cn('w-full rounded-full bg-muted overflow-hidden', size === 'sm' ? 'h-1.5' : 'h-2')}>
+      <div
+        className={cn(
+          'w-full rounded-full bg-muted/90 overflow-hidden ring-1 ring-border/50',
+          size === 'sm' ? 'h-1.5' : 'h-2',
+        )}
+      >
         <div
-          className={cn('h-full rounded-full bg-primary transition-all duration-700 ease-out', barClassName)}
+          className={cn(
+            'h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-500 ease-out',
+            barClassName,
+          )}
           style={{ width: `${pct}%` }}
         />
       </div>

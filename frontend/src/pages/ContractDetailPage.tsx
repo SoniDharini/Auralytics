@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   AlertCircle,
@@ -22,6 +22,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '@/services/api'
+import { PageAmbientBackground } from '@/components/brand/VisualSystem'
 import {
   Badge,
   Button,
@@ -243,7 +244,7 @@ export function ContractDetailPage() {
     }
 
     const contractText = contract.contractBody || contract.contract_body || 'No contract draft text available.'
-    const agreedFee = contract.value ? `${contract.currency || 'INR'} ${contract.value.toLocaleString()}` : '₹0'
+    const agreedFee = contract.value ? `${contract.currency || 'INR'} ${contract.value.toLocaleString()}` : 'â‚¹0'
     const deliverablesList = Array.isArray(contract.deliverables)
       ? contract.deliverables.join(', ')
       : contract.deliverables || 'As mutually agreed in outreach negotiation'
@@ -419,7 +420,7 @@ export function ContractDetailPage() {
         <div class="party-title">Signed on behalf of Brand / Sponsor:</div>
         <div>Authorized Signatory: ________________________</div>
         <div>Date: ________________________</div>
-        <div>Sign-off Status: ${contract.status === 'APPROVED' ? 'APPROVED & VERIFIED ✓' : 'PENDING SIGNATURE'}</div>
+        <div>Sign-off Status: ${contract.status === 'APPROVED' ? 'APPROVED & VERIFIED âœ“' : 'PENDING SIGNATURE'}</div>
       </div>
       <div class="sig-box">
         <div class="party-title">Signed on behalf of Creator / Influencer:</div>
@@ -483,13 +484,15 @@ export function ContractDetailPage() {
   const overallStatus = contract.overallStatus || contract.overall_status || 'READY_FOR_REVIEW'
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-6xl pb-16">
+    <div className="relative space-y-5 animate-fade-in max-w-6xl pb-16">
+      <PageAmbientBackground variant="contract" className="h-[320px]" />
+
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-4">
+      <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[18px] ui-card-surface p-4 sm:p-5">
         <div className="flex items-center gap-3">
           <Link
             to="/app/contracts"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-white text-text-secondary hover:bg-page hover:text-text transition"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface text-text-secondary hover:bg-page hover:text-text transition"
             aria-label="Back to contracts"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -506,7 +509,7 @@ export function ContractDetailPage() {
               )}
             </div>
             <p className="text-xs text-text-secondary mt-0.5">
-              @{contract.username} · Campaign: <span className="font-medium text-text">{contract.campaign}</span>
+              @{contract.username} Â· Campaign: <span className="font-medium text-text">{contract.campaign}</span>
             </p>
           </div>
         </div>
@@ -596,19 +599,19 @@ export function ContractDetailPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-4 text-xs">
-              <div className="rounded-lg bg-white p-2.5 shadow-sm border border-border">
+              <div className="rounded-lg bg-surface p-2.5 shadow-sm border border-border">
                 <span className="text-text-secondary block text-[10px] uppercase font-semibold">Agreed Fee</span>
                 <span className="font-bold text-base text-text">
                   {formatINR(contract.value)}
                 </span>
               </div>
-              <div className="rounded-lg bg-white p-2.5 shadow-sm border border-border">
+              <div className="rounded-lg bg-surface p-2.5 shadow-sm border border-border">
                 <span className="text-text-secondary block text-[10px] uppercase font-semibold">Flight Window</span>
                 <span className="font-semibold text-text">
-                  {formatDate(contract.startDate || contract.start_date)} – {formatDate(contract.endDate || contract.end_date)}
+                  {formatDate(contract.startDate || contract.start_date)} â€“ {formatDate(contract.endDate || contract.end_date)}
                 </span>
               </div>
-              <div className="rounded-lg bg-white p-2.5 shadow-sm border border-border">
+              <div className="rounded-lg bg-surface p-2.5 shadow-sm border border-border">
                 <span className="text-text-secondary block text-[10px] uppercase font-semibold">Payment Schedule</span>
                 <span className="font-semibold text-text">{contract.paymentDue || contract.payment_due || 'Net 30'}</span>
               </div>
@@ -843,7 +846,7 @@ export function ContractDetailPage() {
             </CardHeader>
             <CardContent className="pt-4">
               {!isEditingBody ? (
-                <div className="rounded-xl border border-border bg-page/30 p-4 font-mono text-xs leading-relaxed text-text whitespace-pre-wrap max-h-[500px] overflow-y-auto">
+                <div className="document-surface rounded-[14px] border border-border px-6 sm:px-10 py-8 font-serif text-sm leading-relaxed text-text whitespace-pre-wrap max-h-[560px] overflow-y-auto">
                   {contract.contractBody || contract.contract_body || 'No agreement draft synthesized yet.'}
                 </div>
               ) : (
@@ -851,7 +854,7 @@ export function ContractDetailPage() {
                   value={draftBody}
                   onChange={(e) => setDraftBody(e.target.value)}
                   rows={16}
-                  className="w-full rounded-xl border border-border bg-white p-3 font-mono text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-[14px] border border-border bg-surface p-4 font-mono text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               )}
             </CardContent>
@@ -952,7 +955,7 @@ export function ContractDetailPage() {
       {/* Modal: Approve Contract */}
       {showApproveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4 border border-border">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl space-y-4 border border-border">
             <div className="flex items-center gap-2.5 text-emerald-700">
               <CheckCircle2 className="h-6 w-6" />
               <h3 className="text-lg font-bold text-text">Approve Collaboration Contract</h3>
@@ -990,7 +993,7 @@ export function ContractDetailPage() {
       {/* Modal: Request Changes */}
       {showChangesModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4 border border-border">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl space-y-4 border border-border">
             <div className="flex items-center gap-2.5 text-amber-700">
               <FileEdit className="h-6 w-6" />
               <h3 className="text-lg font-bold text-text">Request Contract Changes</h3>
@@ -1014,7 +1017,7 @@ export function ContractDetailPage() {
                   value={changeNotes}
                   onChange={(e) => setChangeNotes(e.target.value)}
                   rows={4}
-                  className="w-full rounded-xl border border-border bg-white p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full rounded-xl border border-border bg-surface p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </div>
             </div>
@@ -1038,7 +1041,7 @@ export function ContractDetailPage() {
       {/* Modal: Reject Contract */}
       {showRejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4 border border-border">
+          <div className="w-full max-w-md rounded-2xl bg-surface p-6 shadow-2xl space-y-4 border border-border">
             <div className="flex items-center gap-2.5 text-rose-700">
               <XCircle className="h-6 w-6" />
               <h3 className="text-lg font-bold text-text">Reject Collaboration Agreement</h3>

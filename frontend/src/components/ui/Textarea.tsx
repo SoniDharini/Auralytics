@@ -17,8 +17,10 @@ export function Textarea({ className, label, id, ...props }: TextareaProps) {
       <textarea
         id={areaId}
         className={cn(
-          'w-full min-h-[100px] px-3 py-2.5 rounded-[10px] border border-border bg-white text-sm text-text placeholder:text-text-secondary/70',
-          'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition resize-y',
+          'w-full min-h-[100px] px-3 py-2.5 rounded-[10px] border border-border bg-elevated text-sm text-text placeholder:text-text-secondary/70',
+          'shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-200 resize-y',
+          'hover:border-primary/30',
+          'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary',
           className,
         )}
         {...props}

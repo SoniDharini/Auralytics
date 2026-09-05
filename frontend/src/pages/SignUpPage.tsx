@@ -1,18 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  AlertCircle,
-  BarChart3,
-  CheckCircle2,
-  Loader2,
-  Lock,
-  Search,
-  Sparkles,
-  Target,
-  Workflow,
-} from 'lucide-react'
+import { AlertCircle, CheckCircle2, Loader2, Lock } from 'lucide-react'
 import { Button, Input, Select } from '@/components/ui'
 import { PasswordInput } from '@/components/auth/PasswordInput'
+import { PageAmbientBackground } from '@/components/brand/VisualSystem'
+import { AuthBrandPanel, ThemeToggleButton } from '@/components/brand/PremiumVisuals'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/utils'
 
@@ -22,13 +14,6 @@ const roles = [
   { value: 'agency', label: 'Agency' },
   { value: 'founder', label: 'Founder' },
   { value: 'other', label: 'Other' },
-]
-
-const highlights = [
-  { icon: Search, text: 'Discover the right creators' },
-  { icon: Workflow, text: 'Automate campaign workflows' },
-  { icon: BarChart3, text: 'Monitor performance' },
-  { icon: Target, text: 'Optimize ROI' },
 ]
 
 export function SignUpPage() {
@@ -85,70 +70,41 @@ export function SignUpPage() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      <aside className="relative hidden lg:flex flex-col justify-between p-10 xl:p-14 overflow-hidden bg-[#0f1225] text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_20%,rgba(91,95,239,0.35),transparent_50%),radial-gradient(ellipse_at_80%_80%,rgba(124,58,237,0.25),transparent_45%)]" />
-        <div className="relative">
-          <Link to="/" className="inline-flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl ai-gradient-bg flex items-center justify-center font-bold">A</div>
-            <div>
-              <p className="font-bold">InfluenceOS</p>
-              <p className="text-xs text-white/60">From Discovery to ROI</p>
-            </div>
-          </Link>
+    <div className="min-h-screen grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+      <AuthBrandPanel
+        variant="signup"
+        title="Start. Build. Collaborate. Grow."
+        subtitle="Build campaigns, find creators, and collaborate — with humans still in control."
+        words={['Start', 'Build', 'Collaborate', 'Grow']}
+      />
+
+      <main className="relative flex items-center justify-center p-6 sm:p-10 bg-page overflow-hidden">
+        <PageAmbientBackground variant="auth" className="!mx-0 !mt-0" />
+        <div className="absolute top-5 right-5 z-10">
+          <ThemeToggleButton />
         </div>
-
-        <div className="relative max-w-lg">
-          <h1 className="text-4xl xl:text-5xl font-extrabold leading-tight tracking-tight">
-            Your AI-powered influencer marketing team starts here.
-          </h1>
-          <p className="mt-5 text-white/70 text-base leading-relaxed">
-            Autonomous Influencer Marketing. From Discovery to ROI.
-          </p>
-
-          <ul className="mt-10 space-y-3">
-            {highlights.map(({ icon: Icon, text }) => (
-              <li
-                key={text}
-                className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <span className="h-8 w-8 rounded-lg bg-white/10 flex items-center justify-center">
-                  <Icon className="h-4 w-4 text-[#a5b4fc]" />
-                </span>
-                <span className="text-sm font-medium text-white/90">{text}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <p className="relative text-xs text-white/40 flex items-center gap-1.5">
-          <Sparkles className="h-3.5 w-3.5" />
-          Autonomous Influencer Marketing. From Discovery to ROI.
-        </p>
-      </aside>
-
-      <main className="flex items-center justify-center p-6 sm:p-10 bg-page">
-        <div className="w-full max-w-md">
+        <div className="relative w-full max-w-md animate-fade-in">
           <div className="lg:hidden mb-8 flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg ai-gradient-bg text-white font-bold flex items-center justify-center">
-              A
-            </div>
-            <div>
-              <p className="font-bold leading-tight">InfluenceOS</p>
-              <p className="text-[11px] text-text-secondary">
-                Autonomous Influencer Marketing. From Discovery to ROI.
-              </p>
-            </div>
+            <Link to="/" className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg ai-gradient-bg text-white font-bold flex items-center justify-center">
+                A
+              </div>
+              <div>
+                <p className="font-bold leading-tight text-text">Auralytics</p>
+                <p className="text-[11px] text-text-secondary">From Discovery to ROI</p>
+              </div>
+            </Link>
           </div>
 
-          <div className="bg-white border border-border rounded-[16px] p-6 sm:p-8 shadow-sm">
-            <h2 className="text-2xl font-bold">Create your account</h2>
+          <div className="rounded-[22px] border border-border bg-surface dark:bg-elevated p-6 sm:p-8 relative overflow-hidden shadow-[0_16px_48px_rgba(91,95,239,0.08)] dark:shadow-[0_16px_48px_rgba(0,0,0,0.35)]">
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-accent via-primary to-transparent" />
+            <h2 className="text-2xl font-bold tracking-tight text-text">Create your account</h2>
             <p className="text-sm text-text-secondary mt-1">
               Start managing smarter influencer campaigns with your AI marketing team.
             </p>
 
             {serverError && (
-              <div className="mt-4 p-3 rounded-xl bg-red-50 border border-danger/30 text-danger text-sm flex items-start gap-2.5">
+              <div className="mt-4 p-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-danger/30 text-danger text-sm flex items-start gap-2.5">
                 <AlertCircle className="h-4.5 w-4.5 shrink-0 mt-0.5" />
                 <span>{serverError}</span>
               </div>
@@ -163,6 +119,7 @@ export function SignUpPage() {
                 error={errors.fullName}
                 autoComplete="name"
                 required
+                className="h-11"
               />
               <Input
                 label="Work Email"
@@ -173,6 +130,7 @@ export function SignUpPage() {
                 error={errors.email}
                 autoComplete="email"
                 required
+                className="h-11"
               />
               <PasswordInput
                 label="Password"
@@ -182,6 +140,7 @@ export function SignUpPage() {
                 error={errors.password}
                 autoComplete="new-password"
                 required
+                className="h-11 bg-elevated"
               />
               <PasswordInput
                 label="Confirm Password"
@@ -190,6 +149,7 @@ export function SignUpPage() {
                 error={errors.confirmPassword}
                 autoComplete="new-password"
                 required
+                className="h-11 bg-elevated"
               />
               <Input
                 label="Company / Brand Name"
@@ -199,13 +159,9 @@ export function SignUpPage() {
                 error={errors.company}
                 autoComplete="organization"
                 required
+                className="h-11"
               />
-              <Select
-                label="Role"
-                options={roles}
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              />
+              <Select label="Role" options={roles} value={role} onChange={(e) => setRole(e.target.value)} />
 
               <div className="space-y-1.5">
                 <label className="flex items-start gap-2.5 cursor-pointer">
@@ -233,7 +189,12 @@ export function SignUpPage() {
                 {errors.agreed && <p className="text-xs text-danger">{errors.agreed}</p>}
               </div>
 
-              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+              <Button
+                type="submit"
+                className="w-full shadow-[0_8px_22px_rgba(91,95,239,0.28)] hover:shadow-[0_10px_26px_rgba(91,95,239,0.36)]"
+                size="lg"
+                disabled={loading}
+              >
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />

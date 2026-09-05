@@ -90,11 +90,22 @@ export function InfluencerCard({
   const tierMatch = extras?.tierMatch
 
   return (
-    <Card className={cn('p-4 hover:border-primary/35 hover:shadow-sm transition-all group flex flex-col justify-between', className)}>
+    <Card
+      className={cn(
+        'relative p-4 pl-5 ui-card-hover group flex flex-col justify-between overflow-hidden',
+        className,
+      )}
+    >
+      <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-primary via-accent to-transparent opacity-80" />
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Avatar name={influencer.name} src={influencer.avatar} size="lg" className="border border-border" />
+            <Avatar
+              name={influencer.name}
+              src={influencer.avatar}
+              size="lg"
+              className="border border-border ring-2 ring-primary/10"
+            />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 <h3 className="text-sm font-semibold text-text truncate">{influencer.name}</h3>

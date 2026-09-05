@@ -32,8 +32,10 @@ export function PasswordInput({
           id={inputId}
           type={visible ? 'text' : 'password'}
           className={cn(
-            'w-full h-10 px-3 pr-10 rounded-[10px] border border-border bg-white text-sm text-text placeholder:text-text-secondary/70',
-            'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition',
+            'w-full h-10 px-3 pr-10 rounded-[10px] border border-border bg-surface text-sm text-text placeholder:text-text-secondary/65',
+            'shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-all duration-200',
+            'hover:border-primary/25',
+            'focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary',
             error && 'border-danger focus:ring-danger/30 focus:border-danger',
             className,
           )}

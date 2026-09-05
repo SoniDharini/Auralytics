@@ -15,6 +15,7 @@ import {
   Webhook,
 } from 'lucide-react'
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Select, useToast } from '@/components/ui'
+import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
 import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
 import { useAuth } from '@/context/AuthContext'
 import { api } from '@/services/api'
@@ -85,13 +86,15 @@ export function SettingsPage() {
   const displayOrg = user?.company_name || companyName
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-[32px] font-bold tracking-tight">Settings</h1>
-        <p className="text-text-secondary mt-1">Manage your workspace, AI behavior, and team preferences.</p>
-      </div>
+    <div className="relative space-y-5 animate-fade-in">
+      <PageAmbientBackground variant="default" className="h-[300px]" />
+      <PageHeader
+        eyebrow="Workspace"
+        title="Settings"
+        description="Manage your workspace, AI behavior, and team preferences."
+      />
 
-      <div className="flex flex-col lg:flex-row gap-6">
+      <div className="relative flex flex-col lg:flex-row gap-6">
         <nav className="lg:w-56 shrink-0">
           <Card className="p-2 lg:sticky lg:top-6">
             <ul className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible">
@@ -100,9 +103,9 @@ export function SettingsPage() {
                   <button
                     onClick={() => setActiveSection(id)}
                     className={cn(
-                      'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition whitespace-nowrap',
+                      'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-[10px] text-sm font-medium transition whitespace-nowrap',
                       activeSection === id
-                        ? 'bg-primary-soft text-primary'
+                        ? 'bg-primary-soft text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--auralytics-primary)_18%,transparent)]'
                         : 'text-text-secondary hover:bg-muted hover:text-text',
                     )}
                   >

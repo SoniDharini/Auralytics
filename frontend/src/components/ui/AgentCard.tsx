@@ -21,10 +21,10 @@ interface AgentCardProps {
 
 export function AgentCard({ agent, className, compact }: AgentCardProps) {
   return (
-    <Card className={cn('p-5 hover:border-primary/30 transition-all', className)}>
+    <Card className={cn('p-5 ui-card-hover', className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl ai-gradient-bg text-white flex items-center justify-center shadow-sm">
+          <div className="h-10 w-10 rounded-xl ai-gradient-bg text-white flex items-center justify-center shadow-[0_4px_12px_rgba(124,58,237,0.25)]">
             <Bot className="h-5 w-5" />
           </div>
           <div>

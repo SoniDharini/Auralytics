@@ -19,6 +19,11 @@ import {
 import { api } from '@/services/api'
 import { ManualCreatorSearch } from '@/components/discovery/ManualCreatorSearch'
 import {
+  PageAmbientBackground,
+  DiscoveryScanVisual,
+  PageHeader,
+} from '@/components/brand/VisualSystem'
+import {
   Badge,
   Button,
   Card,
@@ -258,14 +263,14 @@ export function DiscoveryPage() {
   // --- No campaign yet -------------------------------------------------------
   if (!bootstrapping && campaigns.length === 0) {
     return (
-      <div className="space-y-6 animate-fade-in">
-        <div>
-          <h1 className="text-[32px] font-bold tracking-tight">Creator Discovery</h1>
-          <p className="text-text-secondary mt-1">
-            Find real YouTube creators that match a specific campaign brief.
-          </p>
-        </div>
-        <div className="py-16 text-center border border-dashed border-border rounded-2xl bg-white p-8 space-y-4">
+      <div className="relative space-y-6 animate-fade-in">
+        <PageAmbientBackground variant="discovery" className="h-[320px]" />
+        <PageHeader
+          eyebrow="Discovery"
+          title="Creator Discovery"
+          description="Find real YouTube creators that match a specific campaign brief."
+        />
+        <div className="relative py-14 text-center border border-dashed border-border rounded-[18px] bg-surface/80 p-8 space-y-4">
           <div className="mx-auto h-14 w-14 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
             <Users className="h-7 w-7" />
           </div>
@@ -289,84 +294,90 @@ export function DiscoveryPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-[32px] font-bold tracking-tight">Creator Discovery</h1>
+    <div className="relative space-y-5 animate-fade-in">
+      <PageAmbientBackground variant="discovery" className="h-[360px]" />
+
+      <PageHeader
+        eyebrow="Discovery"
+        title="Creator Discovery"
+        description={
+          selectedCampaign
+            ? `Real YouTube creators discovered for "${selectedCampaign.name}".`
+            : 'Select a campaign to view its discovered creators.'
+        }
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
             {integrationStatus?.youtube?.configured ? (
               <Badge variant="success" className="gap-1 text-xs">
-                <Sparkles className="h-3 w-3" /> YouTube API connected
+                <Sparkles className="h-3 w-3" /> YouTube connected
               </Badge>
             ) : (
               <Badge variant="warning" className="text-xs">
                 YouTube API not configured
               </Badge>
             )}
-          </div>
-          <p className="text-text-secondary mt-1">
-            {selectedCampaign
-              ? `Real YouTube creators discovered for "${selectedCampaign.name}".`
-              : 'Select a campaign to view its discovered creators.'}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {campaigns.length > 0 && (
-            <div className="w-48 sm:w-60">
-              <Select
-                options={campaigns.map((c) => ({ value: c.id, label: c.name }))}
-                value={selectedCampaignId}
-                onChange={(e) => setSelectedCampaignId(e.target.value)}
-                aria-label="Select campaign"
-              />
-            </div>
-          )}
-
-          <Button onClick={() => handleDiscover(false)} disabled={discovering || !selectedCampaignId} className="gap-2 shrink-0">
-            {discovering ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin text-white" />
-                <span>Finding creators...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                <span>Discover Creators</span>
-              </>
+            {campaigns.length > 0 && (
+              <div className="w-44 sm:w-56">
+                <Select
+                  options={campaigns.map((c) => ({ value: c.id, label: c.name }))}
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                  aria-label="Select campaign"
+                />
+              </div>
             )}
-          </Button>
-
-          {creators.length > 0 && (
             <Button
-              variant="secondary"
-              onClick={() => handleDiscover(true)}
-              disabled={discovering}
+              onClick={() => handleDiscover(false)}
+              disabled={discovering || !selectedCampaignId}
               className="gap-2 shrink-0"
-              title="Re-fetch the latest statistics from YouTube"
             >
-              <RefreshCw className={cn('h-4 w-4', discovering && 'animate-spin')} />
-              Refresh
+              {discovering ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-white" />
+                  <span>Finding creators...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  <span>Discover Creators</span>
+                </>
+              )}
             </Button>
-          )}
-
-          {shortlistCount > 0 && (
-            <Link to="/app/shortlist">
-              <Button variant="soft" className="gap-2 shrink-0">
-                <Bookmark className="h-4 w-4" /> Shortlist ({shortlistCount})
+            {creators.length > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => handleDiscover(true)}
+                disabled={discovering}
+                className="gap-2 shrink-0"
+                title="Re-fetch the latest statistics from YouTube"
+              >
+                <RefreshCw className={cn('h-4 w-4', discovering && 'animate-spin')} />
+                Refresh
               </Button>
-            </Link>
-          )}
-        </div>
-      </div>
+            )}
+            {shortlistCount > 0 && (
+              <Link to="/app/shortlist">
+                <Button variant="soft" className="gap-2 shrink-0">
+                  <Bookmark className="h-4 w-4" /> Shortlist ({shortlistCount})
+                </Button>
+              </Link>
+            )}
+          </div>
+        }
+      />
 
       {discovering && (
-        <Card className="p-4 flex items-center gap-3 bg-primary-soft/40 border-primary/20">
+        <Card className="relative p-4 flex items-center gap-4 bg-primary-soft/40 border-primary/20 overflow-hidden">
+          <div className="absolute inset-0 opacity-30 pointer-events-none">
+            <div className="absolute -right-6 top-1/2 -translate-y-1/2">
+              <DiscoveryScanVisual />
+            </div>
+          </div>
           <Loader2 className="h-5 w-5 animate-spin text-primary shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-text">Finding creators matching your campaign...</p>
+          <div className="relative">
+            <p className="text-sm font-semibold text-text">Scanning YouTube creators...</p>
             <p className="text-xs text-text-secondary">
-              Searching YouTube, enriching channel statistics and scoring campaign fit. This may take a moment.
+              Enriching channel statistics and scoring campaign fit. No placeholder creators are shown.
             </p>
           </div>
         </Card>
@@ -408,7 +419,7 @@ export function DiscoveryPage() {
               onChange={(e) => setQuery(e.target.value)}
               onBlur={() => setAppliedQuery(query.trim())}
               placeholder="Search discovered creators by channel name, handle or description..."
-              className="w-full h-10 pl-10 pr-4 rounded-[10px] border border-border bg-white text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+              className="w-full h-10 pl-10 pr-4 rounded-[10px] border border-border bg-surface text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 text-text"
               aria-label="Search discovered creators"
             />
           </form>
@@ -421,14 +432,14 @@ export function DiscoveryPage() {
             <div className="flex border border-border rounded-[10px] p-0.5 bg-page">
               <button
                 onClick={() => setView('grid')}
-                className={cn('p-1.5 rounded-md transition', view === 'grid' ? 'bg-white shadow-xs text-text' : 'text-text-secondary hover:text-text')}
+                className={cn('p-1.5 rounded-md transition', view === 'grid' ? 'bg-surface shadow-xs text-text' : 'text-text-secondary hover:text-text')}
                 aria-label="Grid view"
               >
                 <LayoutGrid className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setView('table')}
-                className={cn('p-1.5 rounded-md transition', view === 'table' ? 'bg-white shadow-xs text-text' : 'text-text-secondary hover:text-text')}
+                className={cn('p-1.5 rounded-md transition', view === 'table' ? 'bg-surface shadow-xs text-text' : 'text-text-secondary hover:text-text')}
                 aria-label="Table view"
               >
                 <List className="h-4 w-4" />
@@ -438,7 +449,7 @@ export function DiscoveryPage() {
         </div>
 
         {showFilters && (
-          <Card className="p-4 animate-fade-in bg-white">
+          <Card className="p-4 animate-fade-in bg-surface">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <Select
                 label="Status"
@@ -501,7 +512,7 @@ export function DiscoveryPage() {
 
       {/* Never discovered for this campaign */}
       {!bootstrapping && hasLoadedOnce && !discovering && creators.length === 0 && !hasFilters && (
-        <div className="py-16 text-center border border-dashed border-border rounded-2xl bg-white p-8 space-y-4">
+        <div className="py-16 text-center border border-dashed border-border rounded-2xl bg-surface p-8 space-y-4">
           <div className="mx-auto h-14 w-14 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
             <Users className="h-7 w-7" />
           </div>

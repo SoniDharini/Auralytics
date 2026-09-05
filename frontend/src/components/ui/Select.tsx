@@ -18,8 +18,10 @@ export function Select({ className, label, options, id, ...props }: SelectProps)
       <select
         id={selectId}
         className={cn(
-          'w-full h-10 px-3 rounded-[10px] border border-border bg-white text-sm text-text',
-          'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition',
+          'w-full h-10 px-3 rounded-[10px] border border-border bg-elevated text-sm text-text',
+          'shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-200',
+          'hover:border-primary/30',
+          'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary',
           className,
         )}
         {...props}

@@ -42,10 +42,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }
 
   const colors = {
-    success: 'border-green-200 bg-green-50 text-success',
-    info: 'border-indigo-200 bg-indigo-50 text-primary',
-    warning: 'border-amber-200 bg-amber-50 text-amber-700',
-    error: 'border-red-200 bg-red-50 text-danger',
+    success:
+      'border-emerald-200/80 bg-emerald-50/95 text-success dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300',
+    info: 'border-indigo-200/80 bg-indigo-50/95 text-primary dark:border-primary/30 dark:bg-primary-soft dark:text-primary',
+    warning:
+      'border-amber-200/80 bg-amber-50/95 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-300',
+    error:
+      'border-red-200/80 bg-red-50/95 text-danger dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-300',
   }
 
   return (
@@ -58,7 +61,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={item.id}
               className={cn(
-                'rounded-[12px] border px-4 py-3 shadow-lg animate-fade-in flex items-start gap-3 bg-white',
+                'rounded-[12px] border px-4 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.12)] animate-fade-in flex items-start gap-3 backdrop-blur-sm',
                 colors[item.type],
               )}
               role="status"
@@ -67,12 +70,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-text">{item.title}</p>
                 {item.description && (
-                  <p className="text-xs text-text-secondary mt-0.5">{item.description}</p>
+                  <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">{item.description}</p>
                 )}
               </div>
               <button
                 onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}
-                className="text-text-secondary hover:text-text"
+                className="text-text-secondary hover:text-text rounded-md p-0.5 transition-colors"
                 aria-label="Dismiss"
               >
                 <X className="h-4 w-4" />

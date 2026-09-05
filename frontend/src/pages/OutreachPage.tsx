@@ -28,6 +28,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '@/services/api'
+import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
 import {
   Avatar,
   Badge,
@@ -438,23 +439,24 @@ export function OutreachPage() {
   const conversationHistory: ConversationTurn[] = selectedItem?.conversationHistory || selectedItem?.conversation_history || []
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-[30px] font-bold tracking-tight">AI Outreach & Response Hub</h1>
-          <p className="text-text-secondary mt-1">
-            Track creator outreach proposals, record received influencer responses, confirm commercial terms, and coordinate Contract Agent handoff.
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20">
-          <Sparkles className="h-3.5 w-3.5" />
-          <span>Outreach + Contract Agent Active</span>
-        </div>
-      </div>
+    <div className="relative space-y-5 animate-fade-in">
+      <PageAmbientBackground variant="outreach" className="h-[340px]" />
+
+      <PageHeader
+        eyebrow="Outreach"
+        title="AI Outreach & Response Hub"
+        description="Track creator proposals, record responses, confirm terms, and hand off to contracts."
+        actions={
+          <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>Outreach workspace</span>
+          </div>
+        }
+      />
 
       {/* Dynamic Workflow Timeline & Progress Card */}
-      <Card className="border-border/80 bg-gradient-to-r from-card via-page to-card">
+      <Card className="relative border-border/80 overflow-hidden">
+        <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary via-accent to-transparent" />
         <CardContent className="p-5 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
             <div className="flex items-center gap-2">
@@ -741,27 +743,29 @@ export function OutreachPage() {
             </div>
 
             {/* Optional AI Negotiation Box (if user wants to test counteroffers) */}
-            <div className="rounded-xl border border-border/80 bg-page/40 p-4 space-y-3">
-              <div className="flex items-center justify-between">
+            <div className="relative overflow-hidden rounded-[14px] border border-primary/20 bg-primary-soft/20 p-4 space-y-3">
+              <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-primary/15 blur-2xl pointer-events-none" />
+              <div className="relative flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs font-semibold text-text">
                   <Sparkles className="h-3.5 w-3.5 text-primary" />
-                  <span>AI Negotiation Assistant (Optional)</span>
+                  <span>Negotiation Assistant</span>
                 </div>
                 <Badge variant="outline" className="text-[10px]">
-                  Groq LLM Engine
+                  Optional
                 </Badge>
               </div>
+              <p className="relative text-[11px] text-text-secondary">Paste the latest influencer reply to generate a follow-up.</p>
               <Textarea
-                placeholder="Paste influencer message here to analyze or generate follow-up counteroffers..."
+                placeholder="Paste influencer message here..."
                 value={influencerReply}
                 onChange={(e) => setInfluencerReply(e.target.value)}
                 rows={2}
               />
-              <div className="flex items-center justify-between gap-2">
+              <div className="relative flex items-center justify-between gap-2">
                 <input
                   type="text"
-                  placeholder="Optional steering (e.g. 'Counteroffer ₹60,000')"
-                  className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-border bg-card text-text font-mono"
+                  placeholder="Optional instruction (e.g. Counteroffer ₹60,000)"
+                  className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-border bg-surface text-text"
                   value={userInstruction}
                   onChange={(e) => setUserInstruction(e.target.value)}
                 />
@@ -1213,10 +1217,10 @@ export function OutreachPage() {
                       className={cn(
                         'p-3 rounded-lg text-xs space-y-1',
                         turn.sender === 'INFLUENCER'
-                          ? 'bg-primary/5 border border-primary/20 text-text ml-4'
+                          ? 'bg-surface border border-border text-text ml-4 shadow-xs'
                           : turn.sender === 'BRAND'
-                          ? 'bg-card border border-border mr-4'
-                          : 'bg-ai-soft/30 border border-ai/20 text-text',
+                          ? 'bg-primary/8 border border-primary/20 mr-4 text-text'
+                          : 'bg-ai-soft/40 border border-ai/25 text-text',
                       )}
                     >
                       <div className="flex items-center justify-between font-semibold">

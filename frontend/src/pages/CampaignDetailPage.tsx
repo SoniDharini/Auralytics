@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  ArrowRight,
   Calendar,
   Clock,
   Edit3,
@@ -13,7 +14,6 @@ import {
   Trash2,
   TrendingUp,
   Users,
-  Wallet,
   Zap,
 } from 'lucide-react'
 import { api } from '@/services/api'
@@ -36,6 +36,7 @@ import {
   Textarea,
   useToast,
 } from '@/components/ui'
+import { PageAmbientBackground } from '@/components/brand/VisualSystem'
 import { formatINR, recommendedCampaignCreators, statusLabel } from '@/utils'
 import type {
   Campaign,
@@ -456,112 +457,92 @@ export function CampaignDetailPage() {
     { id: 'activities', label: 'Activity History', count: activities.length },
   ]
 
+  const currentWorkflowStep =
+    workflow?.steps?.find((s) => s.status === 'CURRENT' || s.status === 'NEXT') ||
+    workflow?.steps?.find((s) => s.status === 'WAITING_APPROVAL')
+
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          <Link to="/app/campaigns">
-            <Button variant="ghost" size="icon" aria-label="Back to campaigns">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight truncate">
-                {campaign.name}
-              </h1>
-              <StatusChip status={campaign.status} />
-              <Badge variant={campaign.health === 'excellent' ? 'success' : campaign.health === 'healthy' ? 'primary' : 'danger'}>
-                {statusLabel(campaign.health)}
-              </Badge>
-            </div>
-            <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-text-secondary">
-              <span className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
-                {formatDate(campaignStart)} – {formatDate(campaignEnd)}
-              </span>
-              <span>{campaign.brand}</span>
-              <span className="bg-muted px-2 py-0.5 rounded-md text-xs font-semibold">{campaign.objective}</span>
-            </div>
-          </div>
-        </div>
+    <div className="relative space-y-4 animate-fade-in max-w-[1200px]">
+      <PageAmbientBackground variant="campaign" className="h-[360px]" />
 
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            className="gap-2"
-            onClick={() => setEditModalOpen(true)}
-          >
-            <Edit3 className="h-4 w-4" /> Edit
-          </Button>
-          <Button
-            variant="danger"
-            className="gap-2"
-            onClick={() => setDeleteModalOpen(true)}
-          >
-            <Trash2 className="h-4 w-4" /> Delete
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-text-secondary">Total Budget</p>
-            <Wallet className="h-4 w-4 text-text-secondary" />
-          </div>
-          <p className="text-xl font-bold mt-1">{formatINR(campaign.budget)}</p>
-          <p className="text-xs text-text-secondary mt-1">{Math.round(budgetUsedPct)}% spent</p>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-text-secondary">Spend</p>
-            <Wallet className="h-4 w-4 text-text-secondary" />
-          </div>
-          <p className="text-xl font-bold mt-1 text-text">{formatINR(campaign.spend || 0)}</p>
-          <p className="text-xs text-text-secondary mt-1">Live expenditure</p>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-text-secondary">Revenue</p>
-            <TrendingUp className="h-4 w-4 text-success" />
-          </div>
-          <p className="text-xl font-bold mt-1 text-success">{formatINR(campaign.revenue || 0)}</p>
-          <p className="text-xs text-text-secondary mt-1">Direct & attributed</p>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-text-secondary">ROAS</p>
-            <Sparkles className="h-4 w-4 text-primary" />
-          </div>
-          <p className="text-xl font-bold mt-1 text-primary">{(campaign.roas || 0).toFixed(2)}x</p>
-          <p className="text-xs text-text-secondary mt-1">Target {campaign.target_roas || 2.5}x</p>
-        </Card>
-        <Card className="p-4">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-text-secondary">Creators</p>
-            <Users className="h-4 w-4 text-text-secondary" />
-          </div>
-          <p className="text-xl font-bold mt-1 text-text">{campaign.influencers || 0}</p>
-          <p className="text-xs text-text-secondary mt-1">Partners active</p>
-        </Card>
-      </div>
-
-      {workflow && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <div>
-                <CardTitle>Campaign Journey</CardTitle>
-                <p className="text-xs text-text-secondary mt-1">
-                  {workflow.progress_percentage}% of the live workflow complete
+      {/* Compact campaign header */}
+      <section className="relative overflow-hidden rounded-[16px] ui-card-surface">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_100%_0%,color-mix(in_srgb,var(--auralytics-primary)_10%,transparent),transparent_50%)] pointer-events-none" />
+        <div className="relative px-4 py-3.5 sm:px-5">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+              <Link to="/app/campaigns">
+                <Button variant="ghost" size="icon" aria-label="Back to campaigns" className="shrink-0 h-8 w-8">
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              </Link>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate text-text">
+                    {campaign.name}
+                  </h1>
+                  <StatusChip status={campaign.status} />
+                </div>
+                {campaign.description && (
+                  <p className="text-xs sm:text-sm text-text-secondary mt-1 line-clamp-1 max-w-2xl">
+                    {campaign.description}
+                  </p>
+                )}
+                <p className="mt-1.5 text-[11px] text-text-secondary flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                  <span className="inline-flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    {formatDate(campaignStart)} – {formatDate(campaignEnd)}
+                  </span>
+                  {campaign.platforms?.[0] && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{campaign.platforms.slice(0, 2).join(', ')}</span>
+                    </>
+                  )}
+                  {(campaign.target_locations || campaign.objective) && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span className="truncate max-w-[200px]">
+                        {campaign.target_locations || campaign.objective}
+                      </span>
+                    </>
+                  )}
+                  <span aria-hidden>·</span>
+                  <span>{campaign.brand}</span>
+                  {currentWorkflowStep && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span className="font-semibold text-primary">{currentWorkflowStep.label}</span>
+                    </>
+                  )}
                 </p>
               </div>
-            </CardHeader>
-            <CardContent>
-              <CampaignJourney steps={workflow.steps} onStepClick={handleWorkflowStepClick} />
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 sm:pt-0.5">
+              <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => setEditModalOpen(true)}>
+                <Edit3 className="h-3.5 w-3.5" /> Edit
+              </Button>
+              <Button variant="danger" size="sm" className="gap-1.5" onClick={() => setDeleteModalOpen(true)}>
+                <Trash2 className="h-3.5 w-3.5" /> Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Compact workflow + next action */}
+      {workflow && (
+        <div className="relative space-y-2.5">
+          <div className="rounded-[14px] border border-border bg-surface/80 px-3 py-2.5 sm:px-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-text-secondary">Journey</p>
+              <p className="text-[11px] text-text-secondary tabular-nums">
+                {workflow.progress_percentage}% complete
+              </p>
+            </div>
+            <CampaignJourney steps={workflow.steps} onStepClick={handleWorkflowStepClick} compact />
+          </div>
           <NextStepCard
             workflow={workflow}
             busy={strategyRunning || discoveringCreators || outreachRunning}
@@ -573,9 +554,34 @@ export function CampaignDetailPage() {
       <Tabs tabs={tabs} active={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
       {activeTab === 'overview' && (
-        <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
+        <div className="space-y-4 animate-fade-in">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            <div className="rounded-[12px] border border-border bg-surface/80 p-3">
+              <p className="text-[10px] text-text-secondary">Budget</p>
+              <p className="text-sm font-bold mt-0.5 text-text">{formatINR(campaign.budget)}</p>
+              <p className="text-[10px] text-text-secondary mt-0.5">{Math.round(budgetUsedPct)}% spent</p>
+            </div>
+            <div className="rounded-[12px] border border-border bg-surface/80 p-3">
+              <p className="text-[10px] text-text-secondary">Spend</p>
+              <p className="text-sm font-bold mt-0.5 text-text">{formatINR(campaign.spend || 0)}</p>
+            </div>
+            <div className="rounded-[12px] border border-border bg-surface/80 p-3">
+              <p className="text-[10px] text-text-secondary">Revenue</p>
+              <p className="text-sm font-bold mt-0.5 text-success">{formatINR(campaign.revenue || 0)}</p>
+            </div>
+            <div className="rounded-[12px] border border-border bg-surface/80 p-3">
+              <p className="text-[10px] text-text-secondary">ROAS</p>
+              <p className="text-sm font-bold mt-0.5 text-primary">{(campaign.roas || 0).toFixed(2)}x</p>
+            </div>
+            <div className="rounded-[12px] border border-border bg-surface/80 p-3 col-span-2 sm:col-span-1">
+              <p className="text-[10px] text-text-secondary">Creators</p>
+              <p className="text-sm font-bold mt-0.5 text-text">{campaign.influencers || 0}</p>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-3 gap-4">
           <Card className="lg:col-span-2">
-            <CardHeader>
+            <CardHeader className="pb-2">
               <CardTitle>Campaign Brief</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -612,7 +618,7 @@ export function CampaignDetailPage() {
                       </span>
                     ))
                   ) : (
-                    <span className="text-xs text-text-secondary">Instagram, YouTube</span>
+                    <span className="text-xs text-text-secondary">No platforms specified</span>
                   )}
                 </div>
               </div>
@@ -657,19 +663,19 @@ export function CampaignDetailPage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Key Performance Indicators</CardTitle>
+            <CardHeader className="pb-2">
+              <CardTitle>Status</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-xl border border-border p-4 bg-page/50">
+              <div className="rounded-xl border border-border p-3.5 bg-page/50">
                 <p className="text-xs text-text-secondary">Primary KPI</p>
-                <p className="text-lg font-bold text-text mt-0.5">{campaign.primary_kpi || 'ROAS'}</p>
-                <p className="text-xs text-text-secondary mt-1">
-                  Target: {campaign.target_roas || 3.0}x ROAS
-                </p>
+                <p className="text-base font-bold text-text mt-0.5">{campaign.primary_kpi || 'ROAS'}</p>
+                {campaign.target_roas != null && (
+                  <p className="text-xs text-text-secondary mt-1">Target: {campaign.target_roas}x ROAS</p>
+                )}
               </div>
 
-              <div className="space-y-2 pt-2">
+              <div className="space-y-2">
                 <div className="flex justify-between text-xs">
                   <span className="text-text-secondary">Budget Utilization</span>
                   <span className="font-semibold">{Math.round(budgetUsedPct)}%</span>
@@ -677,15 +683,31 @@ export function CampaignDetailPage() {
                 <ProgressBar value={Math.round(budgetUsedPct)} size="sm" />
               </div>
 
-              <div className="space-y-2 pt-2">
+              <div className="space-y-2">
                 <div className="flex justify-between text-xs">
                   <span className="text-text-secondary">Campaign Progress</span>
                   <span className="font-semibold">{campaign.progress || 0}%</span>
                 </div>
                 <ProgressBar value={campaign.progress || 0} size="sm" />
               </div>
+              {campaign.health && (
+                <div className="pt-1">
+                  <Badge
+                    variant={
+                      campaign.health === 'excellent'
+                        ? 'success'
+                        : campaign.health === 'healthy'
+                          ? 'primary'
+                          : 'danger'
+                    }
+                  >
+                    {statusLabel(campaign.health)}
+                  </Badge>
+                </div>
+              )}
             </CardContent>
           </Card>
+          </div>
         </div>
       )}
 
@@ -1125,15 +1147,64 @@ export function CampaignDetailPage() {
       )}
 
       {activeTab === 'performance' && (
-        <Card className="animate-fade-in">
-          <CardContent className="py-12 text-center text-text-secondary">
-            <TrendingUp className="h-10 w-10 mx-auto text-text-secondary/40 mb-3" />
-            <h3 className="text-base font-semibold text-text">No live performance metrics yet</h3>
-            <p className="text-xs mt-1 max-w-sm mx-auto">
-              Performance metrics (ROAS, conversions, reel impressions) will be tracked live as creators publish content.
-            </p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4 animate-fade-in">
+          <Card className="overflow-hidden">
+            <div
+              className={
+                campaign.health === 'excellent'
+                  ? 'h-1.5 bg-success'
+                  : campaign.health === 'needs_attention'
+                    ? 'h-1.5 bg-danger'
+                    : 'h-1.5 bg-gradient-to-r from-primary to-accent'
+              }
+            />
+            <CardContent className="py-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Campaign health</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Badge variant={campaign.health === 'excellent' ? 'success' : campaign.health === 'needs_attention' ? 'danger' : 'primary'}>
+                    {statusLabel(campaign.health)}
+                  </Badge>
+                  <StatusChip status={campaign.status} />
+                </div>
+                <p className="mt-2 text-sm text-text-secondary">
+                  Health and totals below come from this campaign's stored records. Individual video tracking is not connected yet.
+                </p>
+              </div>
+              <Link to={`/app/analytics?campaignId=${campaign.id}`}>
+                <Button className="gap-1.5">
+                  Open Analytics <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {[
+              { label: 'Spend', value: formatINR(campaign.spend || 0, true), context: `${Math.round(budgetUsedPct)}% of budget` },
+              { label: 'Revenue', value: formatINR(campaign.revenue || 0, true), context: 'Campaign records' },
+              { label: 'ROAS', value: `${(campaign.roas || 0).toFixed(2)}x`, context: campaign.target_roas ? `Target ${campaign.target_roas}x` : 'Stored ROAS' },
+              { label: 'Reach', value: String(campaign.reach || 0), context: `${campaign.conversions || 0} conversions` },
+            ].map((item) => (
+              <Card key={item.label} className="p-4">
+                <p className="text-xs text-text-secondary">{item.label}</p>
+                <p className="mt-1 text-xl font-bold tracking-tight">{item.value}</p>
+                <p className="mt-1 text-xs text-text-secondary">{item.context}</p>
+              </Card>
+            ))}
+          </div>
+
+          <Card>
+            <CardContent className="py-10 text-center">
+              <TrendingUp className="h-10 w-10 mx-auto text-primary/40 mb-3" />
+              <h3 className="text-base font-semibold text-text">No campaign content is being tracked yet</h3>
+              <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
+                Views, likes, comments, and creator baseline lift will appear here once sponsored content is registered.
+                Campaign-level spend, revenue, and ROAS are already visible above.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {activeTab === 'activities' && (

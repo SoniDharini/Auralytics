@@ -12,7 +12,8 @@ export function formatINR(amount: number, compact = false): string {
       return `₹${lakhs % 1 === 0 ? lakhs.toFixed(0) : lakhs.toFixed(1)}L`
     }
     if (amount >= 1000) {
-      return `₹${(amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 0)}K`
+      const thousands = amount / 1000
+      return `₹${thousands % 1 === 0 ? thousands.toFixed(0) : thousands.toFixed(1)}K`
     }
   }
   return new Intl.NumberFormat('en-IN', {

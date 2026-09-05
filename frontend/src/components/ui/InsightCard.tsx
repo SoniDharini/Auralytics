@@ -23,10 +23,10 @@ export function InsightCard({
   className,
 }: InsightCardProps) {
   return (
-    <Card className={cn('p-4 border-l-4 border-l-ai', className)}>
+    <Card className={cn('p-4 border-l-4 border-l-ai ui-card-hover bg-gradient-to-br from-white to-violet-50/30', className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-violet-50 text-ai flex items-center justify-center">
+          <div className="h-8 w-8 rounded-lg bg-violet-50 text-ai flex items-center justify-center ring-1 ring-violet-100">
             <Sparkles className="h-4 w-4" />
           </div>
           <div>

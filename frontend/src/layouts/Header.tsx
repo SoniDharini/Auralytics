@@ -10,11 +10,14 @@ import {
   User,
   Settings,
   LogOut,
+  Moon,
+  Sun,
 } from 'lucide-react'
 import { api } from '@/services/api'
 import { Avatar, Badge, Button } from '@/components/ui'
 import { LogoutConfirmationModal } from '@/components/auth/LogoutConfirmationModal'
 import { useAuth } from '@/context/AuthContext'
+import { useTheme } from '@/context/ThemeContext'
 import { cn } from '@/utils'
 import type { Agent, NotificationItem } from '@/types'
 
@@ -25,6 +28,7 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const [aiOpen, setAiOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -32,7 +36,6 @@ export function Header({ onMenuClick }: HeaderProps) {
   const [agentsList, setAgentsList] = useState<Agent[]>([])
   const [notificationsList] = useState<NotificationItem[]>([])
   const profileRef = useRef<HTMLDivElement>(null)
-
 
   useEffect(() => {
     let mounted = true
@@ -53,7 +56,9 @@ export function Header({ onMenuClick }: HeaderProps) {
 
   const displayName = user?.full_name || 'Authenticated User'
   const displayEmail = user?.email || 'user@auralytics.ai'
-  const displayRole = user?.role ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase()) : 'Marketing Manager'
+  const displayRole = user?.role
+    ? user.role.replace('_', ' ').replace(/\b\w/g, (l) => l.toUpperCase())
+    : 'Marketing Manager'
 
   useEffect(() => {
     if (!profileOpen) return
@@ -81,23 +86,23 @@ export function Header({ onMenuClick }: HeaderProps) {
   }
 
   return (
-    <header className="sticky top-0 z-20 h-16 bg-white/90 backdrop-blur border-b border-border flex items-center gap-3 px-4 lg:px-6">
+    <header className="sticky top-0 z-20 h-16 bg-surface/85 backdrop-blur-md border-b border-border/80 flex items-center gap-3 px-4 lg:px-6 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
       <button
-        className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-[10px] hover:bg-muted"
+        className="lg:hidden h-9 w-9 inline-flex items-center justify-center rounded-[10px] hover:bg-muted/80 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         onClick={onMenuClick}
         aria-label="Open navigation"
       >
         <Menu className="h-5 w-5" />
       </button>
 
-      <div className="hidden md:flex flex-1 max-w-md items-center gap-2 h-10 px-3 rounded-[10px] border border-border bg-page">
+      <div className="hidden md:flex flex-1 max-w-md items-center gap-2 h-10 px-3 rounded-[10px] border border-border bg-elevated transition-colors focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20">
         <Search className="h-4 w-4 text-text-secondary" />
         <input
           placeholder="Search campaigns, creators, contracts..."
-          className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-secondary"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-text-secondary/70 text-text"
           aria-label="Global search"
         />
-        <kbd className="hidden lg:inline text-[10px] text-text-secondary bg-white border border-border rounded px-1.5 py-0.5">
+        <kbd className="hidden lg:inline text-[10px] text-text-secondary bg-muted border border-border rounded px-1.5 py-0.5">
           ⌘K
         </kbd>
       </div>
@@ -105,6 +110,16 @@ export function Header({ onMenuClick }: HeaderProps) {
       <div className="flex-1 md:hidden" />
 
       <div className="flex items-center gap-1.5 ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          onClick={toggleTheme}
+          className="text-text-secondary hover:text-text"
+        >
+          {theme === 'dark' ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
+        </Button>
+
         <div className="relative">
           <button
             onClick={() => {
@@ -113,10 +128,10 @@ export function Header({ onMenuClick }: HeaderProps) {
               setProfileOpen(false)
             }}
             className={cn(
-              'inline-flex items-center gap-2 h-9 px-3 rounded-full text-xs font-semibold border transition',
+              'inline-flex items-center gap-2 h-9 px-3 rounded-full text-xs font-semibold border transition-all duration-200',
               aiOpen
                 ? 'bg-primary-soft border-primary/30 text-primary'
-                : 'bg-white border-border text-text hover:bg-muted',
+                : 'bg-surface border-border text-text hover:bg-muted/80 hover:border-primary/20',
             )}
             aria-expanded={aiOpen}
             aria-label="AI activity"
@@ -125,24 +140,25 @@ export function Header({ onMenuClick }: HeaderProps) {
               <span
                 className={cn(
                   'absolute inline-flex h-full w-full rounded-full opacity-60',
-                  activeAgents.length > 0 ? 'bg-success animate-pulse-dot' : 'bg-gray-400',
+                  activeAgents.length > 0 ? 'bg-success animate-pulse-dot' : 'bg-text-secondary/50',
                 )}
               />
               <span
                 className={cn(
                   'relative inline-flex h-2 w-2 rounded-full',
-                  activeAgents.length > 0 ? 'bg-success' : 'bg-gray-400',
+                  activeAgents.length > 0 ? 'bg-success' : 'bg-text-secondary/50',
                 )}
               />
             </span>
             <Bot className="h-3.5 w-3.5 text-ai hidden sm:block" />
-            <span>{activeAgents.length} Agents Active</span>
+            <span className="hidden sm:inline">{activeAgents.length} Agents Active</span>
+            <span className="sm:hidden">{activeAgents.length}</span>
           </button>
 
           {aiOpen && (
-            <div className="absolute right-0 mt-2 w-[340px] bg-white border border-border rounded-[14px] shadow-xl p-3 animate-fade-in z-50">
+            <div className="absolute right-0 mt-2 w-[340px] bg-surface/95 backdrop-blur-md border border-border/80 rounded-[14px] shadow-[0_16px_40px_rgba(15,23,42,0.16)] p-3 animate-scale-in z-50">
               <div className="flex items-center justify-between mb-2 px-1">
-                <p className="text-sm font-semibold">AI Activity</p>
+                <p className="text-sm font-semibold text-text">AI Activity</p>
                 <button onClick={() => setAiOpen(false)} aria-label="Close">
                   <X className="h-4 w-4 text-text-secondary" />
                 </button>
@@ -151,14 +167,14 @@ export function Header({ onMenuClick }: HeaderProps) {
                 <div className="py-8 text-center text-xs text-text-secondary">
                   <Bot className="h-8 w-8 mx-auto text-text-secondary/40 mb-2" />
                   <p className="font-semibold text-text">No active agents</p>
-                  <p className="mt-1">Agents will coordinate when campaigns are active.</p>
+                  <p className="mt-1">Agents coordinate inside your campaigns as you work.</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[360px] overflow-y-auto">
                   {agentsList.slice(0, 4).map((agent) => (
-                    <div key={agent.id} className="rounded-[12px] border border-border p-3">
+                    <div key={agent.id} className="rounded-[12px] border border-border bg-page/40 p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold">{agent.name}</p>
+                        <p className="text-sm font-semibold text-text">{agent.name}</p>
                         <Badge
                           variant={
                             agent.status === 'active' || agent.status === 'processing'
@@ -178,11 +194,11 @@ export function Header({ onMenuClick }: HeaderProps) {
                 </div>
               )}
               <Link
-                to="/app/agents"
+                to="/app/campaigns"
                 onClick={() => setAiOpen(false)}
                 className="mt-2 block text-center text-xs font-semibold text-primary hover:underline py-1"
               >
-                Open AI Agent Center
+                View campaigns
               </Link>
             </div>
           )}
@@ -208,9 +224,9 @@ export function Header({ onMenuClick }: HeaderProps) {
           </Button>
 
           {notifOpen && (
-            <div className="absolute right-0 mt-2 w-[360px] bg-white border border-border rounded-[14px] shadow-xl p-3 animate-fade-in z-50">
+            <div className="absolute right-0 mt-2 w-[360px] bg-surface/95 backdrop-blur-md border border-border/80 rounded-[14px] shadow-[0_16px_40px_rgba(15,23,42,0.16)] p-3 animate-scale-in z-50">
               <div className="flex items-center justify-between mb-2 px-1">
-                <p className="text-sm font-semibold">Notifications</p>
+                <p className="text-sm font-semibold text-text">Notifications</p>
                 <Link
                   to="/app/notifications"
                   onClick={() => setNotifOpen(false)}
@@ -232,10 +248,10 @@ export function Header({ onMenuClick }: HeaderProps) {
                       key={n.id}
                       className={cn(
                         'rounded-[12px] border p-3',
-                        n.read ? 'border-border bg-white' : 'border-primary/20 bg-primary-soft/40',
+                        n.read ? 'border-border bg-surface' : 'border-primary/20 bg-primary-soft/40',
                       )}
                     >
-                      <p className="text-sm font-semibold">{n.title}</p>
+                      <p className="text-sm font-semibold text-text">{n.title}</p>
                       <p className="text-xs text-text-secondary mt-0.5">{n.body}</p>
                       <p className="text-[11px] text-text-secondary mt-1.5">{n.timestamp}</p>
                     </div>
@@ -256,7 +272,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           <button
             type="button"
             className={cn(
-              'flex items-center gap-2 rounded-[10px] px-1.5 py-1 hover:bg-muted',
+              'flex items-center gap-2 rounded-[10px] px-1.5 py-1 hover:bg-muted/80 transition-colors duration-200',
               profileOpen && 'bg-muted',
             )}
             aria-expanded={profileOpen}
@@ -270,7 +286,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           >
             <Avatar name={displayName} size="sm" />
             <div className="hidden xl:block text-left">
-              <p className="text-xs font-semibold leading-tight">{displayName.split(' ')[0]}</p>
+              <p className="text-xs font-semibold leading-tight text-text">{displayName.split(' ')[0]}</p>
               <p className="text-[10px] text-text-secondary">{displayRole}</p>
             </div>
           </button>
@@ -278,7 +294,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           {profileOpen && (
             <div
               role="menu"
-              className="absolute right-0 mt-2 w-[260px] bg-white border border-border rounded-[14px] shadow-xl py-2 animate-fade-in z-50"
+              className="absolute right-0 mt-2 w-[260px] bg-surface/95 backdrop-blur-md border border-border/80 rounded-[14px] shadow-[0_16px_40px_rgba(15,23,42,0.16)] py-2 animate-scale-in z-50"
             >
               <div className="px-3 py-2.5 flex items-center gap-3">
                 <Avatar name={displayName} size="md" />
@@ -318,7 +334,7 @@ export function Header({ onMenuClick }: HeaderProps) {
                   setProfileOpen(false)
                   setLogoutOpen(true)
                 }}
-                className="w-[calc(100%-8px)] mx-1 flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm font-medium text-danger hover:bg-red-50"
+                className="w-[calc(100%-8px)] mx-1 flex items-center gap-2.5 px-3 py-2 rounded-[10px] text-sm font-medium text-danger hover:bg-red-50 dark:hover:bg-red-500/10"
               >
                 <LogOut className="h-4 w-4" />
                 Logout

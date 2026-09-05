@@ -11,10 +11,11 @@ export function MetricCard({ metric, className }: MetricCardProps) {
   return (
     <div
       className={cn(
-        'bg-surface border border-border rounded-[14px] p-5 hover:border-primary/30 hover:shadow-sm transition-all',
+        'group relative overflow-hidden ui-card-surface ui-card-hover rounded-[14px] p-5',
         className,
       )}
     >
+      <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-primary/70 via-accent/50 to-transparent opacity-80" />
       <p className="text-sm font-medium text-text-secondary">{metric.label}</p>
       <div className="mt-2 flex items-end justify-between gap-3">
         <p className="text-[28px] leading-none font-bold tracking-tight text-text">{metric.value}</p>
@@ -26,7 +27,7 @@ export function MetricCard({ metric, className }: MetricCardProps) {
               return (
                 <span
                   key={i}
-                  className="w-1.5 rounded-sm bg-primary/25 last:bg-primary"
+                  className="w-1.5 rounded-sm bg-primary/25 last:bg-primary transition-all duration-300"
                   style={{ height: `${h}%` }}
                 />
               )

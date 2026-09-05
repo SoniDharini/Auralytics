@@ -32,22 +32,23 @@ export function Drawer({ open, onClose, title, subtitle, children, width = 'max-
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <button
-        className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
         aria-label="Close drawer"
         onClick={onClose}
       />
       <aside
         className={cn(
-          'relative h-full w-full bg-white border-l border-border shadow-xl flex flex-col animate-slide-in-right',
+          'relative h-full w-full bg-surface border-l border-border',
+          'shadow-[-12px_0_40px_rgba(15,23,42,0.12)] flex flex-col animate-slide-in-right',
           width,
         )}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border">
+        <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border/80 bg-gradient-to-r from-surface to-primary-soft/30">
           <div>
-            <h2 className="text-lg font-semibold text-text">{title}</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-text">{title}</h2>
             {subtitle && <p className="text-sm text-text-secondary mt-0.5">{subtitle}</p>}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
@@ -55,7 +56,7 @@ export function Drawer({ open, onClose, title, subtitle, children, width = 'max-
           </Button>
         </header>
         <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <footer className="border-t border-border px-5 py-4">{footer}</footer>}
+        {footer && <footer className="border-t border-border/80 px-5 py-4 bg-page/50">{footer}</footer>}
       </aside>
     </div>
   )

@@ -10,6 +10,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { api } from '@/services/api'
+import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
 import {
   Badge,
   Button,
@@ -124,15 +125,15 @@ export function ApprovalsPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-[32px] font-bold tracking-tight">Approvals</h1>
-        <p className="text-text-secondary mt-1">
-          Review and approve actions proposed by your AI agent team.
-        </p>
-      </div>
+    <div className="relative space-y-5 animate-fade-in">
+      <PageAmbientBackground variant="default" className="h-[320px]" />
+      <PageHeader
+        eyebrow="Approvals"
+        title="Approval Center"
+        description="Review and approve actions proposed by your AI agent team."
+      />
 
-      <Card>
+      <Card className="relative">
         <CardHeader className="pb-0">
           <div>
             <CardTitle>Pending Approvals</CardTitle>
@@ -222,7 +223,7 @@ function ApprovalCard({
   onEdit: () => void
 }) {
   return (
-    <div className="rounded-xl border border-border p-5 hover:border-primary/25 transition-colors bg-white">
+    <div className="rounded-xl border border-border p-5 hover:border-primary/25 transition-colors bg-surface">
       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-lg bg-primary-soft text-primary flex items-center justify-center">
