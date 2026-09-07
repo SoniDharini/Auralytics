@@ -29,6 +29,10 @@ import type {
   OutreachStatus,
   SupervisorStartResponse,
   TimelineEvent,
+  CampaignContent,
+  ContentPerformanceSnapshot,
+  TrackContentRequest,
+  AttributionUpdateRequest,
 } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
@@ -226,6 +230,30 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload || {}),
       }),
+    trackContent: (campaignId: string, payload: TrackContentRequest) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/track`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    listContent: (campaignId: string, influencerId?: string) =>
+      request<CampaignContent[]>(
+        `/campaigns/${campaignId}/content${influencerId ? `?influencer_id=${influencerId}` : ''}`,
+      ),
+    refreshContent: (campaignId: string, contentId: string) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/${contentId}/refresh`, {
+        method: 'POST',
+      }),
+    getContentSnapshots: (campaignId: string, contentId: string) =>
+      request<ContentPerformanceSnapshot[]>(`/campaigns/${campaignId}/content/${contentId}/snapshots`),
+    updateContentAttribution: (
+      campaignId: string,
+      contentId: string,
+      payload: AttributionUpdateRequest,
+    ) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/${contentId}/attribution`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
   },
 
   // Campaign-scoped creator discovery.
@@ -314,7 +342,13 @@ export const api = {
 
   // Approvals API
   approvals: {
-    list: (status?: string) => request<ApprovalItem[]>(`/approvals${status ? `?status=${status}` : ''}`),
+    list: (status?: string, campaignId?: string) => {
+      const params = new URLSearchParams()
+      if (status) params.append('status', status)
+      if (campaignId) params.append('campaign_id', campaignId)
+      const qs = params.toString()
+      return request<ApprovalItem[]>(`/approvals${qs ? `?${qs}` : ''}`)
+    },
     decide: (id: string, decision: 'approve' | 'reject' | 'edit', reason?: string) =>
       request<ApprovalItem>(`/approvals/${id}`, {
         method: 'POST',
@@ -440,7 +474,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    generateContract: (outreachId: string, payload?: { confirmed_terms?: ContractTermsPayload; custom_terms?: Record<string, any>; contract_text?: string }) =>
+    generateContract: (
+      outreachId: string,
+      payload?: {
+        influencer_id?: string
+        confirmed_terms?: ContractTermsPayload
+        custom_terms?: Record<string, any>
+        contract_text?: string
+      },
+    ) =>
       request<SupervisorStartResponse>(`/outreach/${outreachId}/generate-contract`, {
         method: 'POST',
         body: payload ? JSON.stringify(payload) : undefined,

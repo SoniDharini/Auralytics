@@ -60,6 +60,23 @@ async def auto_migrate_db(engine: AsyncEngine) -> None:
                     logger.info("Auto-migrating SQLite table 'outreach_messages': adding column '%s'", col_name)
                     await conn.execute(text(f"ALTER TABLE outreach_messages ADD COLUMN {col_name} {col_def};"))
 
+            # 3. Inspect campaign_contents
+            res_content = await conn.execute(text("PRAGMA table_info(campaign_contents);"))
+            existing_content_cols = {row[1] for row in res_content.fetchall()}
+            content_columns = [
+                ("attributed_orders", "INTEGER"),
+                ("average_order_value", "FLOAT"),
+                ("attributed_revenue", "FLOAT"),
+                ("gross_margin_percent", "FLOAT"),
+                ("attributed_profit", "FLOAT"),
+                ("attribution_source", "VARCHAR(100)"),
+                ("attribution_updated_at", "DATETIME"),
+            ]
+            for col_name, col_def in content_columns:
+                if col_name not in existing_content_cols:
+                    logger.info("Auto-migrating SQLite table 'campaign_contents': adding column '%s'", col_name)
+                    await conn.execute(text(f"ALTER TABLE campaign_contents ADD COLUMN {col_name} {col_def};"))
+
         elif dialect_name in ("postgresql", "postgres"):
             # PostgreSQL schema updates using IF NOT EXISTS
             postgres_statements = [
@@ -85,6 +102,13 @@ async def auto_migrate_db(engine: AsyncEngine) -> None:
                 "ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS additional_terms VARCHAR(1000);",
                 "ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS rejection_reason VARCHAR(255);",
                 "ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS rejection_notes VARCHAR(2000);",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS attributed_orders INTEGER;",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS average_order_value DOUBLE PRECISION;",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS attributed_revenue DOUBLE PRECISION;",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS gross_margin_percent DOUBLE PRECISION;",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS attributed_profit DOUBLE PRECISION;",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS attribution_source VARCHAR(100);",
+                "ALTER TABLE campaign_contents ADD COLUMN IF NOT EXISTS attribution_updated_at TIMESTAMP WITH TIME ZONE;",
             ]
             for stmt in postgres_statements:
                 await conn.execute(text(stmt))

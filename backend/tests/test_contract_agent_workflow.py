@@ -778,3 +778,118 @@ async def test_contract_agent_synthesizes_complete_contract_with_zero_placeholde
         for forbidden in ["[Insert", "[Enter", "[Specify", "[Add", "TBD", "Lorem Ipsum"]:
             assert forbidden.lower() not in body.lower(), f"Found forbidden placeholder '{forbidden}' in contract body"
 
+
+@pytest.mark.asyncio
+async def test_outreach_generate_contract_endpoint_with_confirmed_terms(client: AsyncClient, db_session: AsyncSession):
+    """Test that POST /outreach/{outreach_id}/generate-contract accepts confirmed_terms without 422 Unprocessable Content."""
+    user = User(
+        id=uuid.uuid4(),
+        email=f"user_{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="hash",
+        full_name="Brand Manager",
+        company_name="GlowCo",
+    )
+    db_session.add(user)
+    token = create_access_token(subject=str(user.id))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    campaign = Campaign(
+        id=f"camp-{uuid.uuid4().hex[:6]}",
+        owner_id=user.id,
+        name="Beauty Campaign",
+        brand="GlowCo",
+        budget=100000.0,
+        objective="Awareness",
+        start_date="2026-09-01",
+        end_date="2026-09-30",
+        workflow_state=WorkflowState.OUTREACH_PENDING,
+    )
+    db_session.add(campaign)
+
+    inf = Influencer(
+        id=f"inf-{uuid.uuid4().hex[:6]}",
+        external_id=f"yt-{uuid.uuid4().hex[:6]}",
+        name="Beauty Star",
+        username="beautystar",
+        platform="youtube",
+    )
+    db_session.add(inf)
+
+    link = CampaignInfluencer(
+        id=f"ci-{uuid.uuid4().hex[:8]}",
+        campaign_id=campaign.id,
+        influencer_id=inf.id,
+        status=CampaignInfluencerStatus.ACCEPTED,
+    )
+    db_session.add(link)
+
+    outreach = OutreachMessage(
+        id=f"outr-{uuid.uuid4().hex[:8]}",
+        campaign_id=campaign.id,
+        influencer_id=inf.id,
+        influencer_name="Beauty Star",
+        influencer_username="beautystar",
+        campaign_name=campaign.name,
+        body="Hi, excited to collaborate!",
+        status="ACCEPTED",
+        response_status="ACCEPTED",
+        final_amount=35000.0,
+        currency="INR",
+        deliverables=["1 Dedicated Video + 1 Story"],
+    )
+    db_session.add(outreach)
+    await db_session.commit()
+
+    confirmed_terms = {
+        "creator_name": "Beauty Star",
+        "creator_username": "beautystar",
+        "campaign_name": "Beauty Campaign",
+        "compensation": {"total": 35000.0, "currency": "INR"},
+        "payment": {
+            "structure": "50_50",
+            "advance_percentage": 50.0,
+            "advance_amount": 17500.0,
+            "balance_percentage": 50.0,
+            "balance_amount": 17500.0,
+            "method": "Bank Transfer",
+            "balance_due_days": 7,
+            "terms_text": "INR 17,500.00 advance upon execution; INR 17,500.00 via Bank Transfer.",
+        },
+        "deliverables": ["1 Dedicated Video + 1 Story"],
+        "timeline": {"start_date": "2026-09-05", "end_date": "2026-09-20"},
+        "revisions": {"allowed_rounds": 2, "scope": "Factual accuracy"},
+        "approval": {"pre_publication_required": True, "review_window_days": 3},
+        "product_claims": {"policy": "BRAND_APPROVED_ONLY", "claim_guidelines": "No unapproved claims."},
+        "usage_rights": {"organic_reposting": True, "paid_ads": False, "website_use": True, "duration": "3 Months", "territory": "India"},
+        "ownership": {"copyright_owner": "INFLUENCER", "license_grant": "Standard license"},
+        "exclusivity": {"required": False, "duration_days": 30},
+        "cancellation": {"brand_cancellation": "Standard cancellation"},
+        "termination": {"grounds": ["Material breach"]},
+        "additional_terms": "",
+    }
+
+    mock_llm_response = ContractAgentOutput(
+        contract_title="Collaboration Agreement",
+        contract_summary="Summary text",
+        parties={"brand": "GlowCo", "influencer": "Beauty Star"},
+        contract_body="Full Contract Body without placeholders.",
+        overall_status="READY_FOR_REVIEW",
+    )
+
+    with patch("app.ai.llm_service.LLMService.generate_structured_with_meta", new_callable=AsyncMock) as mock_gen:
+        from app.ai.schemas import LLMRawResponse
+        meta = LLMRawResponse(provider="groq", model="llama-3.3-70b-versatile", latency_ms=100.0, raw_text="{}", content="{}")
+        mock_gen.return_value = (mock_llm_response, meta)
+
+        # Notice: payload sends { "confirmed_terms": confirmed_terms } WITHOUT outer influencer_id
+        res = await client.post(
+            f"/api/v1/outreach/{outreach.id}/generate-contract",
+            json={"confirmed_terms": confirmed_terms},
+            headers=headers,
+        )
+        assert res.status_code == 200, f"Expected 200, got {res.status_code}: {res.text}"
+        data = res.json()
+        assert data["workflowState"] is not None
+        assert data["contractId"] is not None
+
+

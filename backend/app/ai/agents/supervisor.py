@@ -147,6 +147,7 @@ class SupervisorAgent:
             "agent_run": None,
         }
 
+
     async def run_strategy(
         self,
         *,
@@ -908,3 +909,5 @@ class SupervisorAgent:
         await self.db.commit()
         await self.db.refresh(contract)
         return contract
+
+

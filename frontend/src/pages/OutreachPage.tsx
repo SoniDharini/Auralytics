@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ArrowRight,
   Bot,
@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/services/api'
 import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
+import { CampaignContextHeader } from '@/components/campaigns/CampaignContextHeader'
 import {
   Avatar,
   Badge,
@@ -43,7 +44,16 @@ import {
 } from '@/components/ui'
 import { cn, formatINR } from '@/utils'
 import { ContractTermsModal } from '@/components/contracts/ContractTermsModal'
-import type { ConversationTurn, ContractReadiness, ContractTermsPayload, OutreachAcceptancePayload, OutreachMessageItem, OutreachRejectionPayload } from '@/types'
+import type {
+  Campaign,
+  CampaignWorkflow,
+  ConversationTurn,
+  ContractReadiness,
+  ContractTermsPayload,
+  OutreachAcceptancePayload,
+  OutreachMessageItem,
+  OutreachRejectionPayload,
+} from '@/types'
 
 const REJECTION_REASONS = [
   'Budget mismatch',
@@ -59,6 +69,9 @@ const REJECTION_REASONS = [
 export function OutreachPage() {
   const { toast } = useToast()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const campaignId = searchParams.get('campaignId') || undefined
+
   const [outreachList, setOutreachList] = useState<OutreachMessageItem[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedItem, setSelectedItem] = useState<OutreachMessageItem | null>(null)
@@ -72,6 +85,31 @@ export function OutreachPage() {
   const [savingAcceptance, setSavingAcceptance] = useState(false)
   const [savingRejection, setSavingRejection] = useState(false)
   const [generatingContract, setGeneratingContract] = useState(false)
+
+  // Campaign Context
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [workflow, setWorkflow] = useState<CampaignWorkflow | null>(null)
+
+  useEffect(() => {
+    if (!campaignId) {
+      setCampaign(null)
+      setWorkflow(null)
+      return
+    }
+    let mounted = true
+    Promise.all([
+      api.campaigns.get(campaignId).catch(() => null),
+      api.campaigns.getWorkflow(campaignId).catch(() => null),
+    ]).then(([c, wf]) => {
+      if (mounted) {
+        if (c) setCampaign(c)
+        if (wf) setWorkflow(wf)
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [campaignId])
 
   // Contract Terms Confirmation Modal State
   const [showTermsModal, setShowTermsModal] = useState(false)
@@ -106,7 +144,7 @@ export function OutreachPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const data = await api.outreach.list()
+      const data = await api.outreach.list(campaignId)
       setOutreachList(data || [])
     } catch (err: any) {
       toast({ type: 'error', title: 'Failed to load outreach messages', description: err?.message })
@@ -118,7 +156,7 @@ export function OutreachPage() {
 
   useEffect(() => {
     loadData()
-  }, [])
+  }, [campaignId])
 
   const openReview = (item: OutreachMessageItem) => {
     setSelectedItem(item)
@@ -368,7 +406,15 @@ export function OutreachPage() {
 
     setGeneratingContract(true)
     try {
-      const res = await api.outreach.generateContract(selectedItem.id, { confirmed_terms: confirmedTerms })
+      const influencerId = selectedItem.influencerId || selectedItem.influencer_id || confirmedTerms.influencer_id
+      const res = await api.outreach.generateContract(selectedItem.id, {
+        influencer_id: influencerId,
+        confirmed_terms: {
+          ...confirmedTerms,
+          influencer_id: influencerId,
+          campaign_id: selectedItem.campaignId || selectedItem.campaign_id,
+        },
+      })
       if (res.agentRun?.status === 'FAILED') {
         toast({
           type: 'error',
@@ -395,8 +441,12 @@ export function OutreachPage() {
           }
         }
 
+        const campId = selectedItem.campaignId || selectedItem.campaign_id || campaignId
         if (targetContractId) {
-          navigate(`/app/contracts/${targetContractId}`)
+          navigate(`/app/contracts/${targetContractId}${campId ? `?campaignId=${campId}` : ''}`)
+          return
+        } else if (campId) {
+          navigate(`/app/campaigns/${campId}?tab=contracts`)
           return
         } else {
           navigate('/app/contracts')
@@ -442,10 +492,45 @@ export function OutreachPage() {
     <div className="relative space-y-5 animate-fade-in">
       <PageAmbientBackground variant="outreach" className="h-[340px]" />
 
+      {campaign && (
+        <CampaignContextHeader
+          campaign={campaign}
+          workflow={workflow}
+          currentStageName="Outreach"
+          currentTab="outreach"
+        />
+      )}
+
+      {campaignId && workflowStats.accepted > 0 && (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
+            <div>
+              <h4 className="text-sm font-semibold text-text">Negotiation & Acceptance Complete</h4>
+              <p className="text-xs text-text-secondary">
+                {workflowStats.accepted} creator{workflowStats.accepted === 1 ? '' : 's'} accepted terms. Proceed to contract synthesis, review, and legal verification.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            className="text-xs gap-1.5 shrink-0"
+            onClick={() => navigate(`/app/campaigns/${campaignId}?tab=contracts`)}
+          >
+            Continue to Contracts <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       <PageHeader
-        eyebrow="Outreach"
+        eyebrow={campaign ? campaign.name : 'Outreach'}
         title="AI Outreach & Response Hub"
-        description="Track creator proposals, record responses, confirm terms, and hand off to contracts."
+        description={
+          campaign
+            ? `Outreach negotiations and communication pipeline for ${campaign.name}.`
+            : 'Track creator proposals, record responses, confirm terms, and hand off to contracts.'
+        }
         actions={
           <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20">
             <Sparkles className="h-3.5 w-3.5" />

@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
+from app.models.campaign_content import CampaignContent, ContentType, TrackingStatus
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
+from app.models.contract import Contract
 from app.models.influencer import Influencer
 from app.models.outreach import OutreachMessage
 
@@ -387,3 +389,288 @@ async def test_workflow_is_isolated_between_users(client: AsyncClient):
 
     own = await client.get(f"/api/v1/campaigns/{camp_id}/workflow", headers=headers_a)
     assert own.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_accepted_creator_advances_to_contract_step(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.contract1@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Influencer(
+            id="inf-wf-c1",
+            platform="youtube",
+            external_id="ext-wf-c1",
+            username="contract_creator",
+            name="Contract Creator",
+        )
+    )
+    db_session.add(
+        CampaignInfluencer(
+            id="cinf-wf-c1",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c1",
+            status=CampaignInfluencerStatus.ACCEPTED,
+        )
+    )
+    db_session.add(
+        OutreachMessage(
+            id="outr-wf-c1",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c1",
+            influencer_name="Contract Creator",
+            influencer_username="contract_creator",
+            campaign_name="GlowUp Summer Campaign",
+            body="Agreed terms",
+            status="ACCEPTED",
+        )
+    )
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["current_step"] == "CONTRACT"
+    assert body["next_step"] == "CONTRACT"
+    assert body["next_action"]["label"] == "Generate Contract"
+    assert _step(body, "OUTREACH")["status"] == "COMPLETED"
+    assert _step(body, "CONTRACT")["status"] == "NEXT"
+
+
+@pytest.mark.asyncio
+async def test_pending_contract_is_waiting_approval(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.contract2@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Contract(
+            id="cont-wf-1",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c2",
+            creator="Contract Creator",
+            username="contract_creator",
+            campaign="GlowUp Summer Campaign",
+            value=50000.0,
+            currency="INR",
+            status="pending_signature",
+            version=1,
+            start_date="2026-09-01",
+            end_date="2026-10-01",
+            payment_due="Net 30",
+            risk="low",
+            deliverables=["1 Dedicated Video"],
+            usage_rights="Digital rights",
+            exclusivity="Category exclusive",
+            overall_status="READY_FOR_REVIEW",
+        )
+    )
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["current_step"] == "CONTRACT"
+    assert _step(body, "CONTRACT")["status"] == "WAITING_APPROVAL"
+
+
+@pytest.mark.asyncio
+async def test_approved_contract_advances_to_performance_step(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.perf1@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Contract(
+            id="cont-wf-approved",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c3",
+            creator="Contract Creator",
+            username="contract_creator",
+            campaign="GlowUp Summer Campaign",
+            value=50000.0,
+            currency="INR",
+            status="APPROVED",
+            version=1,
+            start_date="2026-09-01",
+            end_date="2026-10-01",
+            payment_due="Net 30",
+            risk="low",
+            deliverables=["1 Dedicated Video"],
+            usage_rights="Digital rights",
+            exclusivity="Category exclusive",
+            overall_status="APPROVED",
+        )
+    )
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["current_step"] == "PERFORMANCE"
+    assert body["next_step"] == "TRACK_PERFORMANCE"
+    assert _step(body, "CONTRACT")["status"] == "COMPLETED"
+    assert _step(body, "PERFORMANCE")["status"] == "NEXT"
+
+
+@pytest.mark.asyncio
+async def test_tracked_content_advances_to_analyze_performance(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.perf2@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Contract(
+            id="cont-wf-approved-2",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c4",
+            creator="Creator Four",
+            username="creator_four",
+            campaign="GlowUp Summer Campaign",
+            value=50000.0,
+            currency="INR",
+            status="signed",
+            version=1,
+            start_date="2026-09-01",
+            end_date="2026-10-01",
+            payment_due="Net 30",
+            risk="low",
+            deliverables=["1 Dedicated Video"],
+            usage_rights="Digital rights",
+            exclusivity="Category exclusive",
+            overall_status="APPROVED",
+        )
+    )
+    db_session.add(
+        CampaignContent(
+            id="content-wf-1",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c4",
+            content_type=ContentType.YOUTUBE_VIDEO,
+            external_content_id="dQw4w9WgXcQ",
+            content_url="https://youtube.com/watch?v=dQw4w9WgXcQ",
+            tracking_status=TrackingStatus.TRACKING,
+            current_views=15000,
+            agreed_cost=50000.0,
+        )
+    )
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["current_step"] == "PERFORMANCE"
+    assert body["next_step"] == "ANALYZE_PERFORMANCE"
+    assert "Analyze Performance" in body["next_action"]["label"]
+
+
+@pytest.mark.asyncio
+async def test_completed_performance_advances_to_optimization(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.opt1@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    user_id = UUID(headers["user_id"])
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Contract(
+            id="cont-wf-approved-3",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c5",
+            creator="Creator Five",
+            username="creator_five",
+            campaign="GlowUp Summer Campaign",
+            value=50000.0,
+            currency="INR",
+            status="signed",
+            version=1,
+            start_date="2026-09-01",
+            end_date="2026-10-01",
+            payment_due="Net 30",
+            risk="low",
+            deliverables=["1 Dedicated Video"],
+            usage_rights="Digital rights",
+            exclusivity="Category exclusive",
+            overall_status="APPROVED",
+        )
+    )
+    db_session.add(
+        CampaignContent(
+            id="content-wf-2",
+            campaign_id=camp_id,
+            influencer_id="inf-wf-c5",
+            content_type=ContentType.YOUTUBE_VIDEO,
+            external_content_id="dQw4w9WgXcQ",
+            content_url="https://youtube.com/watch?v=dQw4w9WgXcQ",
+            tracking_status=TrackingStatus.TRACKING,
+            current_views=25000,
+            agreed_cost=50000.0,
+        )
+    )
+    db_session.add(
+        AgentRun(
+            user_id=user_id,
+            campaign_id=camp_id,
+            agent_name="performance",
+            status="COMPLETED",
+            output_json={"kpis": {"views": 25000, "roas": 2.5}},
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["current_step"] == "OPTIMIZATION"
+    assert body["next_step"] == "OPTIMIZE_CAMPAIGN"
+    assert _step(body, "PERFORMANCE")["status"] == "COMPLETED"
+    assert _step(body, "OPTIMIZATION")["status"] == "NEXT"
+
+
+@pytest.mark.asyncio
+async def test_approvals_endpoint_filters_by_campaign_id(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.apprfilter@glownaturals.com")
+    camp_a = await _create_campaign(client, headers)
+    camp_b = await _create_campaign(client, headers)
+    user_id = UUID(headers["user_id"])
+
+    db_session.add(
+        Approval(
+            id="appr-filter-a",
+            agent="Strategy Agent",
+            type="campaign",
+            action="Approve brief A",
+            reason="Brief ready",
+            campaign="Campaign A",
+            financial_impact="None",
+            confidence=0.9,
+            timestamp="now",
+            status="pending",
+            user_id=user_id,
+            campaign_id=camp_a,
+        )
+    )
+    db_session.add(
+        Approval(
+            id="appr-filter-b",
+            agent="Strategy Agent",
+            type="campaign",
+            action="Approve brief B",
+            reason="Brief ready",
+            campaign="Campaign B",
+            financial_impact="None",
+            confidence=0.9,
+            timestamp="now",
+            status="pending",
+            user_id=user_id,
+            campaign_id=camp_b,
+        )
+    )
+    await db_session.commit()
+
+    res_all = await client.get("/api/v1/approvals", headers=headers)
+    assert res_all.status_code == 200
+    assert len(res_all.json()) == 2
+
+    res_a = await client.get(f"/api/v1/approvals?campaign_id={camp_a}", headers=headers)
+    assert res_a.status_code == 200
+    assert len(res_a.json()) == 1
+    assert res_a.json()[0]["id"] == "appr-filter-a"

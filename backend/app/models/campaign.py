@@ -104,3 +104,10 @@ class Campaign(Base):
         cascade="all, delete-orphan",
         order_by="CampaignStrategy.version.desc()",
     )
+    contents: Mapped[List["CampaignContent"]] = relationship(
+        "CampaignContent",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        order_by="CampaignContent.created_at.desc()",
+    )
+

@@ -12,6 +12,13 @@ from app.models.agent_run import Agent, TimelineEvent
 from app.models.agent_execution import AgentRun
 from app.models.outreach import OutreachMessage
 from app.models.metric import MetricCard, Insight, Notification, OptimizationRec
+from app.models.campaign_content import (
+    CampaignContent,
+    ContentPerformanceSnapshot,
+    ContentType,
+    PerformanceStatus,
+    TrackingStatus,
+)
 
 __all__ = [
     "Base",
@@ -34,4 +41,9 @@ __all__ = [
     "Insight",
     "Notification",
     "OptimizationRec",
+    "CampaignContent",
+    "ContentPerformanceSnapshot",
+    "ContentType",
+    "PerformanceStatus",
+    "TrackingStatus",
 ]

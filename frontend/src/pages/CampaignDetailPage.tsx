@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Calendar,
+  CheckCircle2,
   Clock,
   Edit3,
   FileText,
@@ -37,10 +38,13 @@ import {
   useToast,
 } from '@/components/ui'
 import { PageAmbientBackground } from '@/components/brand/VisualSystem'
+import { CampaignApprovalsTab } from '@/components/campaigns/CampaignApprovalsTab'
 import { formatINR, recommendedCampaignCreators, statusLabel } from '@/utils'
+import { formatCompactCount, formatCPV, formatCPM } from '@/components/analytics'
 import type {
   Campaign,
   CampaignActivity,
+  CampaignContent,
   CampaignCreator,
   CampaignStatus,
   CampaignStrategy,
@@ -57,6 +61,7 @@ const tabIds = [
   'outreach',
   'contracts',
   'performance',
+  'approvals',
   'activities',
 ] as const
 
@@ -73,7 +78,7 @@ const statusOptions: { value: CampaignStatus; label: string }[] = [
 
 export function CampaignDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const { toast } = useToast()
 
@@ -86,6 +91,8 @@ export function CampaignDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [campaignContracts, setCampaignContracts] = useState<Contract[]>([])
+  const [trackedContent, setTrackedContent] = useState<CampaignContent[]>([])
+  const [campaignApprovals, setCampaignApprovals] = useState<any[]>([])
   const [strategy, setStrategy] = useState<CampaignStrategy | null>(null)
   const [strategyLoading, setStrategyLoading] = useState(false)
   const [strategyRunning, setStrategyRunning] = useState(false)
@@ -120,7 +127,7 @@ export function CampaignDetailPage() {
     setStrategyLoading(true)
 
     try {
-      const [camp, acts, creatorsRes, strat, outrMsgs, wf, cntrs] = await Promise.all([
+      const [camp, acts, creatorsRes, strat, outrMsgs, wf, cntrs, conts, apprs] = await Promise.all([
         api.campaigns.get(id),
         api.campaigns.getActivities(id).catch(() => []),
         api.discovery.listCreators(id).catch(() => ({ creators: [] as CampaignCreator[] })),
@@ -128,6 +135,8 @@ export function CampaignDetailPage() {
         api.outreach.list(id).catch(() => []),
         api.campaigns.getWorkflow(id).catch(() => null),
         api.contracts.list(undefined, id).catch(() => []),
+        api.campaigns.listContent(id).catch(() => []),
+        api.approvals.list(undefined, id).catch(() => []),
       ])
       const creators = creatorsRes.creators || []
       setCampaign(camp)
@@ -137,6 +146,8 @@ export function CampaignDetailPage() {
       setOutreachMessages(outrMsgs || [])
       setWorkflow(wf)
       setCampaignContracts(cntrs || [])
+      setTrackedContent(conts || [])
+      setCampaignApprovals(apprs || [])
       setEditName(camp.name)
       setEditBrand(camp.brand)
       setEditBudget(camp.budget)
@@ -298,9 +309,16 @@ export function CampaignDetailPage() {
     }
   }
 
+  const handleTabChange = (newTab: string) => {
+    if ((tabIds as readonly string[]).includes(newTab)) {
+      setActiveTab(newTab as TabId)
+      setSearchParams({ tab: newTab })
+    }
+  }
+
   const handleWorkflowStepClick = (step: CampaignWorkflowStep) => {
     if (step.tab && (tabIds as readonly string[]).includes(step.tab)) {
-      setActiveTab(step.tab as TabId)
+      handleTabChange(step.tab)
       return
     }
     if (step.route) {
@@ -314,7 +332,7 @@ export function CampaignDetailPage() {
     const key = action.key
 
     if (action.tab && (tabIds as readonly string[]).includes(action.tab)) {
-      setActiveTab(action.tab as TabId)
+      handleTabChange(action.tab)
     }
 
     if (key === 'GENERATE_STRATEGY') {
@@ -330,8 +348,24 @@ export function CampaignDetailPage() {
       await handleRunOutreachAgent()
       return
     }
-    if (key === 'APPROVE_SHORTLIST') {
-      navigate(action.route || '/app/approvals')
+    if (key === 'APPROVE_SHORTLIST' || key === 'APPROVE_OPTIMIZATION') {
+      handleTabChange('approvals')
+      return
+    }
+    if (key === 'CONTRACT') {
+      handleTabChange('contracts')
+      return
+    }
+    if (key === 'TRACK_PERFORMANCE' || key === 'ANALYZE_PERFORMANCE') {
+      handleTabChange('performance')
+      return
+    }
+    if (key === 'OPTIMIZE_CAMPAIGN' || key === 'REVIEW_OPTIMIZATION') {
+      handleTabChange('optimization')
+      return
+    }
+    if (action.route) {
+      navigate(action.route)
     }
   }
 
@@ -454,6 +488,7 @@ export function CampaignDetailPage() {
     { id: 'outreach', label: 'Outreach', count: outreachMessages.length },
     { id: 'contracts', label: 'Contracts', count: campaignContracts.length },
     { id: 'performance', label: 'Performance' },
+    { id: 'approvals', label: 'Approvals', count: campaignApprovals.length },
     { id: 'activities', label: 'Activity History', count: activities.length },
   ]
 
@@ -551,7 +586,7 @@ export function CampaignDetailPage() {
         </div>
       )}
 
-      <Tabs tabs={tabs} active={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
+      <Tabs tabs={tabs} active={activeTab} onChange={(id) => handleTabChange(id)} />
 
       {activeTab === 'overview' && (
         <div className="space-y-4 animate-fade-in">
@@ -1068,6 +1103,28 @@ export function CampaignDetailPage() {
               ))}
             </div>
           )}
+
+          {outreachMessages.some((m) => (m.status || m.response_status) === 'ACCEPTED' || m.contractId) && (
+            <div className="rounded-xl border border-primary/30 bg-primary-soft/30 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
+                <div>
+                  <h4 className="text-sm font-semibold text-text">Outreach Accepted ✓</h4>
+                  <p className="text-xs text-text-secondary">
+                    Collaboration terms accepted by creators. Proceed to contract synthesis and legal verification.
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="primary"
+                className="gap-1.5 shrink-0 text-xs"
+                onClick={() => handleTabChange('contracts')}
+              >
+                Continue to Contracts <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1082,65 +1139,89 @@ export function CampaignDetailPage() {
                   When creators accept collaboration terms in Outreach, Contract Agent verifies terms and prepares agreements for human review.
                 </p>
                 <div className="mt-4">
-                  <Button size="sm" variant="secondary" onClick={() => setActiveTab('outreach')}>
+                  <Button size="sm" variant="secondary" onClick={() => handleTabChange('outreach')}>
                     View Outreach Negotiations
                   </Button>
                 </div>
               </CardContent>
             </Card>
           ) : (
-            <div className="grid md:grid-cols-2 gap-4">
-              {campaignContracts.map((c) => (
-                <Card
-                  key={c.id}
-                  className="hover:border-primary/40 transition-all cursor-pointer shadow-sm"
-                  onClick={() => navigate(`/app/contracts/${c.id}`)}
-                >
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <h4 className="font-bold text-sm text-text">{c.creator}</h4>
-                        <p className="text-xs text-text-secondary">@{c.username}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <StatusChip status={c.status} />
-                        {c.version && c.version > 1 && (
-                          <Badge variant="outline" className="text-[10px] font-mono">
-                            v{c.version}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-border">
-                      <div>
-                        <span className="text-[10px] uppercase text-text-secondary font-semibold block">Agreed Fee</span>
-                        <span className="font-bold text-text">{formatINR(c.value)}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] uppercase text-text-secondary font-semibold block">Payment Due</span>
-                        <span className="font-medium text-text">{c.paymentDue || c.payment_due || 'Net 30'}</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <span className="text-[10px] uppercase text-text-secondary font-semibold block">Deliverables</span>
-                      <p className="text-xs text-text truncate">
-                        {c.deliverables?.join(', ') || '1 Dedicated video'}
+            <div className="space-y-4">
+              {campaignContracts.some((c) => c.status === 'APPROVED' || c.status === 'signed') && (
+                <div className="rounded-xl border border-success/30 bg-success-soft/30 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-text">Contract Approved & Signed ✓</h4>
+                      <p className="text-xs text-text-secondary">
+                        Creator collaboration agreement is active. Next step is tracking campaign content and live ROI.
                       </p>
                     </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    className="gap-1.5 shrink-0 text-xs"
+                    onClick={() => handleTabChange('performance')}
+                  >
+                    Continue to Performance <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
 
-                    <div className="flex items-center justify-between pt-1">
-                      <Badge variant={c.risk === 'low' ? 'success' : c.risk === 'medium' ? 'warning' : 'danger'} className="text-[10px]">
-                        Risk: {c.risk?.toUpperCase() || 'LOW'}
-                      </Badge>
-                      <Button size="sm" variant="primary" className="text-xs h-7 gap-1">
-                        Review & Approve
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              <div className="grid md:grid-cols-2 gap-4">
+                {campaignContracts.map((c) => (
+                  <Card
+                    key={c.id}
+                    className="hover:border-primary/40 transition-all cursor-pointer shadow-sm"
+                    onClick={() => navigate(`/app/contracts/${c.id}?campaignId=${campaign.id}`)}
+                  >
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h4 className="font-bold text-sm text-text">{c.creator}</h4>
+                          <p className="text-xs text-text-secondary">@{c.username}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <StatusChip status={c.status} />
+                          {c.version && c.version > 1 && (
+                            <Badge variant="outline" className="text-[10px] font-mono">
+                              v{c.version}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-border">
+                        <div>
+                          <span className="text-[10px] uppercase text-text-secondary font-semibold block">Agreed Fee</span>
+                          <span className="font-bold text-text">{formatINR(c.value)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase text-text-secondary font-semibold block">Payment Due</span>
+                          <span className="font-medium text-text">{c.paymentDue || c.payment_due || 'Net 30'}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[10px] uppercase text-text-secondary font-semibold block">Deliverables</span>
+                        <p className="text-xs text-text truncate">
+                          {c.deliverables?.join(', ') || '1 Dedicated video'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <Badge variant={c.risk === 'low' ? 'success' : c.risk === 'medium' ? 'warning' : 'danger'} className="text-[10px]">
+                          Risk: {c.risk?.toUpperCase() || 'LOW'}
+                        </Badge>
+                        <Button size="sm" variant="primary" className="text-xs h-7 gap-1">
+                          Review & Approve
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -1168,7 +1249,9 @@ export function CampaignDetailPage() {
                   <StatusChip status={campaign.status} />
                 </div>
                 <p className="mt-2 text-sm text-text-secondary">
-                  Health and totals below come from this campaign's stored records. Individual video tracking is not connected yet.
+                  {trackedContent.length > 0
+                    ? `Tracking ${trackedContent.length} creator video${trackedContent.length > 1 ? 's' : ''} with live metrics and baseline lift.`
+                    : 'Health and totals below come from this campaign\'s verified agreements.'}
                 </p>
               </div>
               <Link to={`/app/analytics?campaignId=${campaign.id}`}>
@@ -1184,7 +1267,7 @@ export function CampaignDetailPage() {
               { label: 'Spend', value: formatINR(campaign.spend || 0, true), context: `${Math.round(budgetUsedPct)}% of budget` },
               { label: 'Revenue', value: formatINR(campaign.revenue || 0, true), context: 'Campaign records' },
               { label: 'ROAS', value: `${(campaign.roas || 0).toFixed(2)}x`, context: campaign.target_roas ? `Target ${campaign.target_roas}x` : 'Stored ROAS' },
-              { label: 'Reach', value: String(campaign.reach || 0), context: `${campaign.conversions || 0} conversions` },
+              { label: 'Reach', value: formatCompactCount(campaign.reach || 0), context: `${campaign.conversions || 0} conversions` },
             ].map((item) => (
               <Card key={item.label} className="p-4">
                 <p className="text-xs text-text-secondary">{item.label}</p>
@@ -1194,17 +1277,92 @@ export function CampaignDetailPage() {
             ))}
           </div>
 
-          <Card>
-            <CardContent className="py-10 text-center">
-              <TrendingUp className="h-10 w-10 mx-auto text-primary/40 mb-3" />
-              <h3 className="text-base font-semibold text-text">No campaign content is being tracked yet</h3>
-              <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
-                Views, likes, comments, and creator baseline lift will appear here once sponsored content is registered.
-                Campaign-level spend, revenue, and ROAS are already visible above.
-              </p>
-            </CardContent>
-          </Card>
+          {trackedContent.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">
+                  Tracked Campaign Content ({trackedContent.length})
+                </h3>
+                <Link to={`/app/analytics?campaignId=${campaign.id}`} className="text-xs font-semibold text-primary hover:underline">
+                  View in Deep Analytics →
+                </Link>
+              </div>
+
+              <div className="grid gap-3">
+                {trackedContent.map((content) => (
+                  <Card key={content.id} className="p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="text-sm font-bold text-text truncate">{content.title || content.external_content_id}</h4>
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          {content.channel_title || 'Creator'} · {content.content_type === 'YOUTUBE_SHORT' ? 'YouTube Short' : 'YouTube Video'}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <div>
+                          <span className="text-text-secondary block">Views</span>
+                          <span className="font-bold text-text">{formatCompactCount(content.current_views)}</span>
+                        </div>
+                        <div>
+                          <span className="text-text-secondary block">Engagement</span>
+                          <span className="font-bold text-text">{content.engagement_rate.toFixed(2)}%</span>
+                        </div>
+                        <div>
+                          <span className="text-text-secondary block">CPV</span>
+                          <span className="font-bold text-text">{formatCPV(content.cost_per_view)}</span>
+                        </div>
+                        <div>
+                          <span className="text-text-secondary block">CPM</span>
+                          <span className="font-bold text-text">{formatCPM(content.cpm, content.agreed_cost, content.current_views)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="py-10 text-center">
+                <TrendingUp className="h-10 w-10 mx-auto text-primary/40 mb-3" />
+                <h3 className="text-base font-semibold text-text">No campaign content is being tracked yet</h3>
+                <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
+                  Views, likes, comments, and creator baseline lift will appear here once sponsored content is registered.
+                  Campaign-level spend, revenue, and ROAS are already visible above.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="rounded-xl border border-primary/30 bg-primary-soft/25 p-3.5 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="h-5 w-5 text-primary shrink-0" />
+              <div>
+                <h4 className="text-sm font-semibold text-text">Performance Tracking Active</h4>
+                <p className="text-xs text-text-secondary">
+                  Content KPIs, video metrics, and creator engagement are actively monitored.
+                </p>
+              </div>
+            </div>
+            <Link to={`/app/analytics?campaignId=${campaign.id}`}>
+              <Button
+                size="sm"
+                variant="primary"
+                className="gap-1.5 shrink-0 text-xs"
+              >
+                Deep Analytics <ArrowRight className="h-3.5 w-3.5" />
+              </Button>
+            </Link>
+          </div>
         </div>
+      )}
+
+      {activeTab === 'approvals' && campaign && id && (
+        <CampaignApprovalsTab
+          campaignId={id}
+          campaignName={campaign.name}
+          onApprovalResolved={loadData}
+        />
       )}
 
       {activeTab === 'activities' && (

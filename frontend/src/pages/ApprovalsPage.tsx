@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Bot,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/services/api'
 import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
+import { CampaignContextHeader } from '@/components/campaigns/CampaignContextHeader'
 import {
   Badge,
   Button,
@@ -23,7 +25,7 @@ import {
   useToast,
 } from '@/components/ui'
 import { cn } from '@/utils'
-import type { ApprovalItem, ApprovalStatus } from '@/types'
+import type { ApprovalItem, ApprovalStatus, Campaign, CampaignWorkflow } from '@/types'
 
 const TAB_TYPES = [
   { id: 'all', label: 'All' },
@@ -44,14 +46,41 @@ const typeVariant: Record<ApprovalItem['type'], 'primary' | 'ai' | 'warning' | '
 
 export function ApprovalsPage() {
   const { toast } = useToast()
+  const [searchParams] = useSearchParams()
+  const campaignId = searchParams.get('campaignId') || undefined
+
   const [activeTab, setActiveTab] = useState('all')
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [history, setHistory] = useState<ApprovalItem[]>([])
 
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [workflow, setWorkflow] = useState<CampaignWorkflow | null>(null)
+
+  useEffect(() => {
+    if (!campaignId) {
+      setCampaign(null)
+      setWorkflow(null)
+      return
+    }
+    let mounted = true
+    Promise.all([
+      api.campaigns.get(campaignId).catch(() => null),
+      api.campaigns.getWorkflow(campaignId).catch(() => null),
+    ]).then(([c, wf]) => {
+      if (mounted) {
+        if (c) setCampaign(c)
+        if (wf) setWorkflow(wf)
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [campaignId])
+
   useEffect(() => {
     let mounted = true
     api.approvals
-      .list()
+      .list(undefined, campaignId)
       .then((data) => {
         if (mounted && data) {
           setItems(data.filter((a) => a.status === 'pending'))
@@ -63,7 +92,7 @@ export function ApprovalsPage() {
     return () => {
       mounted = false
     }
-  }, [])
+  }, [campaignId])
 
   const tabs = useMemo(
     () =>
@@ -127,10 +156,24 @@ export function ApprovalsPage() {
   return (
     <div className="relative space-y-5 animate-fade-in">
       <PageAmbientBackground variant="default" className="h-[320px]" />
+
+      {campaign && (
+        <CampaignContextHeader
+          campaign={campaign}
+          workflow={workflow}
+          currentStageName="Approvals"
+          currentTab="approvals"
+        />
+      )}
+
       <PageHeader
-        eyebrow="Approvals"
+        eyebrow={campaign ? campaign.name : 'Approvals'}
         title="Approval Center"
-        description="Review and approve actions proposed by your AI agent team."
+        description={
+          campaign
+            ? `Review and approve pending AI agent proposals for ${campaign.name}.`
+            : 'Review and approve actions proposed by your AI agent team.'
+        }
       />
 
       <Card className="relative">

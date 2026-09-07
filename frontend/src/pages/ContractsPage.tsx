@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { ArrowUpRight, FileText, Loader2 } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ArrowRight, ArrowUpRight, CheckCircle2, FileText, Loader2 } from 'lucide-react'
 import { api } from '@/services/api'
 import { PageAmbientBackground, PageHeader } from '@/components/brand/VisualSystem'
-import { Badge, Card, CardContent, CardHeader, CardTitle, MetricCard, StatusChip } from '@/components/ui'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, MetricCard, StatusChip } from '@/components/ui'
+import { CampaignContextHeader } from '@/components/campaigns/CampaignContextHeader'
 import { formatINR } from '@/utils'
-import type { Contract, MetricCard as MetricCardType } from '@/types'
+import type { Campaign, CampaignWorkflow, Contract, MetricCard as MetricCardType } from '@/types'
 
 function deriveMetrics(items: Contract[]): MetricCardType[] {
   const approved = items.filter((c) => c.status === 'APPROVED' || c.status === 'signed').length
@@ -58,14 +59,41 @@ function formatDate(dateStr?: string): string {
 
 export function ContractsPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const campaignId = searchParams.get('campaignId') || undefined
+
   const [contractsList, setContractsList] = useState<Contract[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<string>('all')
 
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [workflow, setWorkflow] = useState<CampaignWorkflow | null>(null)
+
+  useEffect(() => {
+    if (!campaignId) {
+      setCampaign(null)
+      setWorkflow(null)
+      return
+    }
+    let mounted = true
+    Promise.all([
+      api.campaigns.get(campaignId).catch(() => null),
+      api.campaigns.getWorkflow(campaignId).catch(() => null),
+    ]).then(([camp, wf]) => {
+      if (mounted) {
+        if (camp) setCampaign(camp)
+        if (wf) setWorkflow(wf)
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [campaignId])
+
   useEffect(() => {
     let mounted = true
     api.contracts
-      .list(statusFilter)
+      .list(statusFilter, campaignId)
       .then((data) => {
         if (mounted && data) {
           setContractsList(data)
@@ -81,7 +109,7 @@ export function ContractsPage() {
     return () => {
       mounted = false
     }
-  }, [statusFilter])
+  }, [statusFilter, campaignId])
 
   const metrics = useMemo(() => deriveMetrics(contractsList), [contractsList])
 
@@ -93,14 +121,54 @@ export function ContractsPage() {
     { id: 'REJECTED', label: 'Rejected' },
   ]
 
+  const hasApprovedContract = useMemo(
+    () => contractsList.some((c) => c.status === 'APPROVED' || c.status === 'signed'),
+    [contractsList]
+  )
+
   return (
     <div className="relative space-y-5 animate-fade-in">
       <PageAmbientBackground variant="contract" className="h-[340px]" />
 
+      {campaign && (
+        <CampaignContextHeader
+          campaign={campaign}
+          workflow={workflow}
+          currentStageName="Contracts"
+          currentTab="contracts"
+        />
+      )}
+
+      {campaignId && hasApprovedContract && (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
+            <div>
+              <h4 className="text-sm font-semibold text-text">Contract Stage Completed</h4>
+              <p className="text-xs text-text-secondary">
+                Influencer agreement has been approved. Proceed to campaign tracking and performance analysis.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            className="text-xs gap-1.5 shrink-0"
+            onClick={() => navigate(`/app/campaigns/${campaignId}?tab=performance`)}
+          >
+            Continue to Performance <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       <PageHeader
-        eyebrow="Contracts"
+        eyebrow={campaign ? campaign.name : 'Contracts'}
         title="Contracts & Legal Verification"
-        description="Review AI agreement analyses, verify commercial term matches, and sign off creator contracts."
+        description={
+          campaign
+            ? `Reviewing creator agreements and verified terms for ${campaign.name}.`
+            : 'Review AI agreement analyses, verify commercial term matches, and sign off creator contracts.'
+        }
         actions={
           <div className="flex items-center gap-2 text-xs text-text-secondary bg-surface px-3 py-1.5 rounded-xl border border-border">
             <FileText className="h-4 w-4 text-primary" />
@@ -183,7 +251,11 @@ export function ContractsPage() {
                   {contractsList.map((contract) => (
                     <tr
                       key={contract.id}
-                      onClick={() => navigate(`/app/contracts/${contract.id}`)}
+                      onClick={() =>
+                        navigate(
+                          `/app/contracts/${contract.id}${campaignId ? `?campaignId=${campaignId}` : ''}`
+                        )
+                      }
                       className="border-b border-border last:border-0 hover:bg-page/80 cursor-pointer transition-colors"
                     >
                       <td className="py-3.5 pr-3">
@@ -221,7 +293,7 @@ export function ContractsPage() {
                       </td>
                       <td className="py-3.5 text-right">
                         <Link
-                          to={`/app/contracts/${contract.id}`}
+                          to={`/app/contracts/${contract.id}${campaignId ? `?campaignId=${campaignId}` : ''}`}
                           onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-primary-soft text-primary hover:bg-primary hover:text-white transition shadow-xs"
                           aria-label={`View ${contract.creator} contract`}

@@ -1,6 +1,9 @@
 export {
   aggregateHealthLabel,
   campaignHasTrackedTotals,
+  formatCPV,
+  formatCPM,
+  formatCPE,
   formatCompactCount,
   formatExactMoney,
   formatMoney,

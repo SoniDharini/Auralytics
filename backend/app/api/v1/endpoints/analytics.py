@@ -1,11 +1,14 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.endpoints.campaigns import reconcile_campaign_metrics
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
 from app.models.campaign import Campaign
+from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
+from app.models.contract import Contract
 from app.models.user import User
 from app.schemas.analytics import (
     DashboardAnalyticsResponse,
@@ -28,14 +31,97 @@ async def get_dashboard_analytics(
     if campaign_id:
         camp_stmt = camp_stmt.where(Campaign.id == campaign_id)
     camp_res = await db.execute(camp_stmt)
-    camps = camp_res.scalars().all()
+    raw_camps = camp_res.scalars().all()
+    camps = [await reconcile_campaign_metrics(c, db) for c in raw_camps]
 
     total_spend = sum(c.spend for c in camps)
     total_rev = sum(c.revenue for c in camps)
-    total_influencers = sum(c.influencers for c in camps)
     active_camps = len([c for c in camps if c.status == "active"])
     avg_roas = (total_rev / total_spend) if total_spend > 0 else 0.0
     pending_approvals = 0
+
+    camp_ids = [c.id for c in camps]
+    discovered_cnt = 0
+    shortlisted_cnt = 0
+    contracted_cnt = 0
+    active_cnt = 0
+
+    if camp_ids:
+        discovered_res = await db.execute(
+            select(func.count())
+            .select_from(CampaignInfluencer)
+            .where(
+                CampaignInfluencer.campaign_id.in_(camp_ids),
+                CampaignInfluencer.status == CampaignInfluencerStatus.DISCOVERED,
+            )
+        )
+        discovered_cnt = discovered_res.scalar() or 0
+
+        shortlisted_res = await db.execute(
+            select(func.count())
+            .select_from(CampaignInfluencer)
+            .where(
+                CampaignInfluencer.campaign_id.in_(camp_ids),
+                CampaignInfluencer.status.in_([
+                    CampaignInfluencerStatus.SHORTLISTED,
+                    CampaignInfluencerStatus.CONTACTED,
+                    CampaignInfluencerStatus.NEGOTIATING,
+                    CampaignInfluencerStatus.ACCEPTED,
+                ]),
+            )
+        )
+        shortlisted_cnt = shortlisted_res.scalar() or 0
+
+        contracted_res = await db.execute(
+            select(func.count())
+            .select_from(Contract)
+            .where(Contract.campaign_id.in_(camp_ids))
+        )
+        contracted_cnt = contracted_res.scalar() or 0
+
+        signed_res = await db.execute(
+            select(func.count())
+            .select_from(Contract)
+            .where(
+                Contract.campaign_id.in_(camp_ids),
+                Contract.status.in_(["signed", "APPROVED"]),
+            )
+        )
+        active_cnt = signed_res.scalar() or 0
+        if active_cnt == 0 and contracted_cnt > 0:
+            active_cnt = contracted_cnt
+        elif active_cnt == 0:
+            accepted_res = await db.execute(
+                select(func.count())
+                .select_from(CampaignInfluencer)
+                .where(
+                    CampaignInfluencer.campaign_id.in_(camp_ids),
+                    CampaignInfluencer.status == CampaignInfluencerStatus.ACCEPTED,
+                )
+            )
+            active_cnt = accepted_res.scalar() or 0
+
+    total_discovered_pool = discovered_cnt + shortlisted_cnt
+    if total_discovered_pool > 0:
+        total_influencers = shortlisted_cnt
+        funnel = [
+            {"label": "Discovered", "value": total_discovered_pool},
+            {"label": "Shortlisted", "value": shortlisted_cnt},
+            {"label": "Contracted", "value": contracted_cnt},
+            {"label": "Active", "value": active_cnt},
+        ]
+    else:
+        fallback_inf = sum(c.influencers for c in camps)
+        total_influencers = fallback_inf
+        if camps:
+            funnel = [
+                {"label": "Discovered", "value": fallback_inf},
+                {"label": "Shortlisted", "value": fallback_inf},
+                {"label": "Contracted", "value": fallback_inf},
+                {"label": "Active", "value": fallback_inf},
+            ]
+        else:
+            funnel = []
 
     metrics = [
         MetricCardSchema(
@@ -84,6 +170,7 @@ async def get_dashboard_analytics(
             value=str(pending_approvals),
             context="Action required",
             trend=TrendData(value="Up to date" if pending_approvals == 0 else "Needs review", positive=pending_approvals == 0),
+            sparkline=None,
         ),
     ]
 
@@ -96,15 +183,8 @@ async def get_dashboard_analytics(
                 roas=round(avg_roas, 2),
             )
         ]
-        funnel = [
-            {"label": "Discovered", "value": total_influencers * 2},
-            {"label": "Shortlisted", "value": total_influencers},
-            {"label": "Contracted", "value": total_influencers},
-            {"label": "Active", "value": total_influencers},
-        ]
     else:
         revenue_spend_data = []
-        funnel = []
 
     campaign_health = [
         {"id": c.id, "name": c.name, "health": c.health, "roas": c.roas, "spend": c.spend, "progress": c.progress}

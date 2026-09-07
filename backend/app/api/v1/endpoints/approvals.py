@@ -17,12 +17,15 @@ router = APIRouter(prefix="/approvals", tags=["Approvals"])
 @router.get("", response_model=List[ApprovalResponse], summary="List approvals")
 async def list_approvals(
     status: Optional[str] = Query(None),
+    campaign_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     stmt = select(Approval).where(Approval.user_id == current_user.id)
     if status:
         stmt = stmt.where(Approval.status == status)
+    if campaign_id:
+        stmt = stmt.where(Approval.campaign_id == campaign_id)
     stmt = stmt.order_by(Approval.created_at.desc())
 
     result = await db.execute(stmt)

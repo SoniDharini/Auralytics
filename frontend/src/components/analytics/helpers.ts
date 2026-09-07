@@ -35,6 +35,32 @@ export function formatRoas(value: number): string {
   return `${value.toFixed(2)}x`
 }
 
+export function formatCPV(cpv?: number | null): string {
+  if (typeof cpv !== 'number' || !Number.isFinite(cpv)) return 'UNKNOWN'
+  if (cpv <= 0) return '₹0.00'
+  if (cpv < 0.01) return `₹${cpv.toFixed(4)}`
+  if (cpv < 0.1) return `₹${cpv.toFixed(3)}`
+  return `₹${cpv.toFixed(2)}`
+}
+
+export function formatCPM(cpm?: number | null, agreedCost?: number | null, views?: number | null): string {
+  if (typeof cpm === 'number' && Number.isFinite(cpm) && cpm > 0) {
+    return `₹${cpm.toFixed(2)}`
+  }
+  if (agreedCost && views && views > 0) {
+    const val = (agreedCost / views) * 1000
+    return `₹${val.toFixed(2)}`
+  }
+  return 'UNKNOWN'
+}
+
+export function formatCPE(cpe?: number | null): string {
+  if (typeof cpe !== 'number' || !Number.isFinite(cpe)) return 'UNKNOWN'
+  if (cpe <= 0) return '₹0.00'
+  if (cpe < 0.1) return `₹${cpe.toFixed(3)}`
+  return `₹${cpe.toFixed(2)}`
+}
+
 export function formatRelativeTime(iso?: string | null): string {
   if (!iso) return 'Not available'
   const date = new Date(iso)

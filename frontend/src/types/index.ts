@@ -750,3 +750,95 @@ export interface FunnelStage {
   label: string
   value: number
 }
+
+export interface ContentPerformanceSnapshot {
+  id: string
+  campaign_content_id: string
+  views: number
+  likes: number
+  comments: number
+  engagement_rate: number
+  views_delta: number
+  likes_delta: number
+  comments_delta: number
+  hours_since_last_snapshot?: number | null
+  views_per_hour?: number | null
+  captured_at: string
+}
+
+export interface CampaignContent {
+  id: string
+  campaign_id: string
+  influencer_id: string
+  influencer_name?: string | null
+  influencer_username?: string | null
+  influencer_avatar?: string | null
+  platform: string
+  content_type: string
+  external_content_id: string
+  content_url: string
+  title?: string | null
+  thumbnail_url?: string | null
+  channel_id?: string | null
+  channel_title?: string | null
+  published_at?: string | null
+  duration_seconds?: number | null
+  tracking_status: 'ACTIVE' | 'PAUSED' | 'SYNC_FAILED' | 'ARCHIVED' | string
+  agreed_cost?: number | null
+  currency: string
+  last_sync_at?: string | null
+  sync_error?: string | null
+  baseline_median_views?: number | null
+  baseline_avg_views?: number | null
+  baseline_avg_likes?: number | null
+  baseline_avg_comments?: number | null
+  baseline_engagement_rate?: number | null
+  baseline_sample_size: number
+  current_views: number
+  current_likes: number
+  current_comments: number
+  engagement_rate: number
+  performance_lift_percent?: number | null
+  engagement_lift_percent?: number | null
+  cost_per_view?: number | null
+  cpm?: number | null
+  cost_per_engagement?: number | null
+  performance_status: 'OVERPERFORMING' | 'STRONG' | 'ON_TRACK' | 'AVERAGE' | 'NEEDS_ATTENTION' | 'UNDERPERFORMING' | 'EARLY_STAGE' | string
+
+  // Business Attribution & Financial Outcomes
+  attributed_orders?: number | null
+  average_order_value?: number | null
+  attributed_revenue?: number | null
+  gross_margin_percent?: number | null
+  attributed_profit?: number | null
+  attribution_source?: string | null
+  attribution_updated_at?: string | null
+  roas?: number | null
+  roi?: number | null
+
+  // Recency & Momentum
+  content_age_hours?: number | null
+  content_age_days?: number | null
+  content_stage?: 'EARLY_STAGE' | 'INITIAL_MOMENTUM' | 'SHORT_TERM' | 'MATURE' | 'LONG_TERM' | string
+  momentum?: 'RISING' | 'STABLE' | 'SLOWING' | 'INSUFFICIENT_DATA' | string
+
+  snapshots: ContentPerformanceSnapshot[]
+  created_at: string
+  updated_at: string
+}
+
+export interface TrackContentRequest {
+  influencer_id: string
+  content_url: string
+  content_type?: string
+}
+
+export interface AttributionUpdateRequest {
+  attributed_revenue?: number | null
+  attributed_orders?: number | null
+  average_order_value?: number | null
+  gross_margin_percent?: number | null
+  attributed_profit?: number | null
+  attribution_source?: string | null
+}
+

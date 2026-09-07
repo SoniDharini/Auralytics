@@ -133,12 +133,16 @@ async def analyze_contract(
     supervisor = SupervisorAgent(db)
     campaign = await supervisor.load_owned_campaign(campaign_id, current_user)
 
+    target_inf_id = payload.influencer_id or (payload.confirmed_terms.influencer_id if payload.confirmed_terms else None)
+    if not target_inf_id:
+        raise BadRequestException(detail="influencer_id is required to analyze or draft a contract.")
+
     confirmed_dict = payload.confirmed_terms.model_dump() if payload.confirmed_terms else payload.custom_terms
 
     result = await supervisor.run_contract(
         campaign=campaign,
         user=current_user,
-        influencer_id=payload.influencer_id,
+        influencer_id=target_inf_id,
         agreed_terms=payload.custom_terms,
         confirmed_terms=confirmed_dict,
         contract_text=payload.contract_text,

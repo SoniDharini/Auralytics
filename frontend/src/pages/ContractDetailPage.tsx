@@ -1,9 +1,10 @@
-﻿import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Bot,
   CheckCircle2,
   Download,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react'
 import { api } from '@/services/api'
 import { PageAmbientBackground } from '@/components/brand/VisualSystem'
+import { CampaignContextHeader } from '@/components/campaigns/CampaignContextHeader'
 import {
   Badge,
   Button,
@@ -36,7 +38,7 @@ import {
   useToast,
 } from '@/components/ui'
 import { formatINR } from '@/utils'
-import type { Contract } from '@/types'
+import type { Campaign, CampaignWorkflow, Contract } from '@/types'
 
 function formatDate(dateStr?: string): string {
   if (!dateStr) return 'Not set'
@@ -71,11 +73,42 @@ export function ContractDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { toast } = useToast()
+  const [searchParams] = useSearchParams()
   const [contract, setContract] = useState<Contract | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
   const [question, setQuestion] = useState('')
   const [agentResponse, setAgentResponse] = useState<string | null>(null)
+
+  // Campaign context
+  const [campaign, setCampaign] = useState<Campaign | null>(null)
+  const [workflow, setWorkflow] = useState<CampaignWorkflow | null>(null)
+
+  const campaignId =
+    searchParams.get('campaignId') ||
+    contract?.campaignId ||
+    contract?.campaign_id
+
+  useEffect(() => {
+    if (!campaignId) {
+      setCampaign(null)
+      setWorkflow(null)
+      return
+    }
+    let mounted = true
+    Promise.all([
+      api.campaigns.get(campaignId).catch(() => null),
+      api.campaigns.getWorkflow(campaignId).catch(() => null),
+    ]).then(([c, wf]) => {
+      if (mounted) {
+        if (c) setCampaign(c)
+        if (wf) setWorkflow(wf)
+      }
+    })
+    return () => {
+      mounted = false
+    }
+  }, [campaignId])
 
   // Modals & form state
   const [showApproveModal, setShowApproveModal] = useState(false)
@@ -487,11 +520,42 @@ export function ContractDetailPage() {
     <div className="relative space-y-5 animate-fade-in max-w-6xl pb-16">
       <PageAmbientBackground variant="contract" className="h-[320px]" />
 
+      {campaign && (
+        <CampaignContextHeader
+          campaign={campaign}
+          workflow={workflow}
+          currentStageName="Contract Review"
+          currentTab="contracts"
+        />
+      )}
+
+      {campaignId && isApproved && (
+        <div className="rounded-xl border border-success/30 bg-success/5 p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
+            <div>
+              <h4 className="text-sm font-semibold text-text">Contract Approved & Verified</h4>
+              <p className="text-xs text-text-secondary">
+                Agreement terms are finalized. Proceed to live content tracking, engagement analytics, and performance measurement.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            className="text-xs gap-1.5 shrink-0"
+            onClick={() => navigate(`/app/campaigns/${campaignId}?tab=performance`)}
+          >
+            Continue to Performance <ArrowRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[18px] ui-card-surface p-4 sm:p-5">
         <div className="flex items-center gap-3">
           <Link
-            to="/app/contracts"
+            to={campaignId ? `/app/campaigns/${campaignId}?tab=contracts` : '/app/contracts'}
             className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface text-text-secondary hover:bg-page hover:text-text transition"
             aria-label="Back to contracts"
           >

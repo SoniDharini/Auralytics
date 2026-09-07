@@ -15,8 +15,10 @@ from app.ai.workflow_states import AgentNames, AgentRunStatus, ApprovalStatus
 from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
 from app.models.campaign import Campaign
+from app.models.campaign_content import CampaignContent
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
+from app.models.contract import Contract
 from app.models.influencer import Influencer
 from app.models.outreach import OutreachMessage
 from app.schemas.campaign_workflow import (
@@ -45,6 +47,8 @@ class WorkflowStepKey:
     OUTREACH = "OUTREACH"
     CONTRACT = "CONTRACT"
     LAUNCH = "LAUNCH"
+    PERFORMANCE = "PERFORMANCE"
+    OPTIMIZATION = "OPTIMIZATION"
 
 
 class NextStepKey:
@@ -55,6 +59,11 @@ class NextStepKey:
     GENERATE_OUTREACH = "GENERATE_OUTREACH"
     REVIEW_OUTREACH = "REVIEW_OUTREACH"
     CONTRACT = "CONTRACT"
+    TRACK_PERFORMANCE = "TRACK_PERFORMANCE"
+    ANALYZE_PERFORMANCE = "ANALYZE_PERFORMANCE"
+    OPTIMIZE_CAMPAIGN = "OPTIMIZE_CAMPAIGN"
+    REVIEW_OPTIMIZATION = "REVIEW_OPTIMIZATION"
+    APPROVE_OPTIMIZATION = "APPROVE_OPTIMIZATION"
 
 
 _ACTIVE_RUN = {AgentRunStatus.QUEUED, AgentRunStatus.RUNNING}
@@ -72,7 +81,7 @@ _APPROVED_APPROVAL = {
 }
 _REJECTED_APPROVAL = {ApprovalStatus.REJECTED, ApprovalStatus.REJECTED_U, "rejected", "REJECTED"}
 
-# Progress is the six currently implemented stages.
+# Full campaign progress lifecycle.
 _PROGRESS_KEYS = (
     WorkflowStepKey.CAMPAIGN_CREATED,
     WorkflowStepKey.STRATEGY,
@@ -80,6 +89,9 @@ _PROGRESS_KEYS = (
     WorkflowStepKey.SHORTLIST,
     WorkflowStepKey.APPROVAL,
     WorkflowStepKey.OUTREACH,
+    WorkflowStepKey.CONTRACT,
+    WorkflowStepKey.PERFORMANCE,
+    WorkflowStepKey.OPTIMIZATION,
 )
 
 _STEPPER: Tuple[Tuple[str, str], ...] = (
@@ -90,12 +102,13 @@ _STEPPER: Tuple[Tuple[str, str], ...] = (
     (WorkflowStepKey.APPROVAL, "Approval"),
     (WorkflowStepKey.OUTREACH, "Outreach"),
     (WorkflowStepKey.CONTRACT, "Contract"),
-    (WorkflowStepKey.LAUNCH, "Campaign Live"),
+    (WorkflowStepKey.PERFORMANCE, "Performance"),
+    (WorkflowStepKey.OPTIMIZATION, "Optimization"),
 )
 
 
 class CampaignWorkflowService:
-    """Pure read layer over campaign / strategy / discovery / approval / outreach rows."""
+    """Pure read layer over campaign / strategy / discovery / approval / outreach / contract / performance rows."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -105,14 +118,25 @@ class CampaignWorkflowService:
         latest_strategy_run = await self._latest_run(campaign.id, AgentNames.STRATEGY)
         latest_discovery_run = await self._latest_run(campaign.id, AgentNames.DISCOVERY)
         latest_outreach_run = await self._latest_run(campaign.id, AgentNames.OUTREACH)
+        latest_contract_run = await self._latest_run(campaign.id, AgentNames.CONTRACT)
+        latest_performance_run = await self._latest_run(campaign.id, AgentNames.PERFORMANCE)
+        latest_optimization_run = await self._latest_run(campaign.id, AgentNames.OPTIMIZATION)
 
         discovered_count = await self._count_links(campaign.id)
         shortlisted_count = await self._count_shortlisted(campaign.id)
         outreach_count = await self._count_outreach(campaign.id)
         latest_approval = await self._latest_approval(campaign.id)
 
+        accepted_count = await self._count_accepted(campaign.id)
+        contract_stats = await self._get_contract_stats(campaign.id)
+        content_count = await self._count_content(campaign.id)
+        pending_opt_approvals = await self._count_pending_optimization_approvals(campaign.id)
+
         discovery_exists = (
             discovered_count > 0
+            or shortlisted_count > 0
+            or outreach_count > 0
+            or contract_stats["total"] > 0
             or campaign.last_discovery_at is not None
             or (latest_discovery_run is not None and latest_discovery_run.status in _SUCCESS_RUN)
         )
@@ -127,6 +151,7 @@ class CampaignWorkflowService:
         )
 
         focus = self._resolve_focus(
+            campaign=campaign,
             strategy_exists=strategy_exists,
             strategy_run=latest_strategy_run,
             discovery_exists=discovery_exists,
@@ -138,6 +163,13 @@ class CampaignWorkflowService:
             approval_rejected=approval_rejected,
             outreach_count=outreach_count,
             outreach_run=latest_outreach_run,
+            accepted_count=accepted_count,
+            contract_run=latest_contract_run,
+            contract_stats=contract_stats,
+            content_count=content_count,
+            performance_run=latest_performance_run,
+            optimization_run=latest_optimization_run,
+            pending_opt_approvals=pending_opt_approvals,
         )
 
         action: WorkflowAction = focus["next_action"]
@@ -161,12 +193,13 @@ class CampaignWorkflowService:
             discovered_count=discovered_count,
             shortlisted_count=shortlisted_count,
             outreach_count=outreach_count,
-            pending_approval=approval_pending,
+            pending_approval=approval_pending or pending_opt_approvals > 0,
         )
 
     # -- focus --------------------------------------------------------------
 
     def _resolve_focus(self, **ctx: Any) -> Dict[str, Any]:
+        campaign: Campaign = ctx["campaign"]
         strategy_exists: bool = ctx["strategy_exists"]
         strategy_run: Optional[AgentRun] = ctx["strategy_run"]
         discovery_exists: bool = ctx["discovery_exists"]
@@ -178,6 +211,15 @@ class CampaignWorkflowService:
         approval_rejected: bool = ctx["approval_rejected"]
         outreach_count: int = ctx["outreach_count"]
         outreach_run: Optional[AgentRun] = ctx["outreach_run"]
+        accepted_count: int = ctx.get("accepted_count", 0)
+        contract_run: Optional[AgentRun] = ctx.get("contract_run")
+        contract_stats: Dict[str, int] = ctx.get(
+            "contract_stats", {"total": 0, "approved": 0, "pending": 0}
+        )
+        content_count: int = ctx.get("content_count", 0)
+        performance_run: Optional[AgentRun] = ctx.get("performance_run")
+        optimization_run: Optional[AgentRun] = ctx.get("optimization_run")
+        pending_opt_approvals: int = ctx.get("pending_opt_approvals", 0)
 
         if self._is_active(strategy_run):
             return self._focus(
@@ -234,7 +276,7 @@ class CampaignWorkflowService:
             )
         # YouTube facts are the discovery source of truth. A failed Grok ranking
         # after real creators were saved must not lock the shortlist step.
-        if self._is_failed(discovery_run) and discovered_count <= 0:
+        if self._is_failed(discovery_run) and discovered_count <= 0 and contract_stats["total"] <= 0:
             return self._focus(
                 WorkflowStepKey.DISCOVERY,
                 NextStepKey.DISCOVER_INFLUENCERS,
@@ -245,7 +287,7 @@ class CampaignWorkflowService:
                 blocking_reason="Discovery failed. Shortlist stays locked until creators are found.",
             )
 
-        if shortlisted_count <= 0:
+        if shortlisted_count <= 0 and outreach_count <= 0 and contract_stats["total"] <= 0 and accepted_count <= 0:
             return self._focus(
                 WorkflowStepKey.SHORTLIST,
                 NextStepKey.SHORTLIST_INFLUENCERS,
@@ -255,7 +297,7 @@ class CampaignWorkflowService:
                 tab="influencers",
             )
 
-        if approval_pending or approval_rejected:
+        if (approval_pending or approval_rejected) and contract_stats["total"] <= 0 and outreach_count <= 0:
             status = StepStatus.WAITING_APPROVAL if approval_pending else StepStatus.NEXT
             description = (
                 "Waiting for your approval. Review the shortlisted creators before starting outreach."
@@ -268,8 +310,8 @@ class CampaignWorkflowService:
                 status,
                 "Review Shortlist",
                 description,
-                route="/app/approvals",
-                tab=None,
+                route=f"/app/campaigns/{campaign.id}?tab=approvals",
+                tab="approvals",
             )
 
         if self._is_active(outreach_run):
@@ -284,7 +326,7 @@ class CampaignWorkflowService:
                 running=True,
                 running_label="Generating Outreach...",
             )
-        if self._is_failed(outreach_run) and outreach_count <= 0:
+        if self._is_failed(outreach_run) and outreach_count <= 0 and contract_stats["total"] <= 0:
             return self._focus(
                 WorkflowStepKey.OUTREACH,
                 NextStepKey.GENERATE_OUTREACH,
@@ -294,7 +336,7 @@ class CampaignWorkflowService:
                 tab="outreach",
                 blocking_reason="Outreach generation failed.",
             )
-        if outreach_count <= 0:
+        if outreach_count <= 0 and contract_stats["total"] <= 0 and accepted_count <= 0:
             ready = shortlisted_count
             noun = "influencer" if ready == 1 else "influencers"
             prefix = f"{ready} approved {noun} are ready for personalized outreach."
@@ -309,13 +351,154 @@ class CampaignWorkflowService:
                 tab="outreach",
             )
 
+        # Outreach messages generated. If negotiations not completed and no contracts, review outreach.
+        if accepted_count <= 0 and contract_stats["total"] <= 0:
+            return self._focus(
+                WorkflowStepKey.OUTREACH,
+                NextStepKey.REVIEW_OUTREACH,
+                StepStatus.COMPLETED,
+                "Review Outreach",
+                "Personalized outreach is ready. Review the drafts and track creator replies.",
+                tab="outreach",
+            )
+
+        # Contract Stage
+        if self._is_active(contract_run):
+            return self._focus(
+                WorkflowStepKey.CONTRACT,
+                NextStepKey.CONTRACT,
+                StepStatus.CURRENT,
+                "Synthesizing Contract...",
+                "Contract Agent is drafting legal agreement and verifying terms.",
+                tab="contracts",
+                enabled=False,
+                running=True,
+                running_label="Synthesizing Contract...",
+            )
+
+        if self._is_failed(contract_run) and contract_stats["total"] <= 0:
+            return self._focus(
+                WorkflowStepKey.CONTRACT,
+                NextStepKey.CONTRACT,
+                StepStatus.FAILED,
+                "Retry Contract",
+                "Contract drafting failed. Retry Contract Agent to synthesize agreement.",
+                tab="contracts",
+                blocking_reason="Contract generation failed.",
+            )
+
+        if contract_stats["total"] <= 0:
+            noun = "creator" if accepted_count == 1 else "creators"
+            return self._focus(
+                WorkflowStepKey.CONTRACT,
+                NextStepKey.CONTRACT,
+                StepStatus.NEXT,
+                "Generate Contract",
+                f"{accepted_count} {noun} agreed to terms. Generate and verify collaboration agreement.",
+                tab="contracts",
+            )
+
+        if contract_stats["approved"] <= 0:
+            return self._focus(
+                WorkflowStepKey.CONTRACT,
+                NextStepKey.CONTRACT,
+                StepStatus.WAITING_APPROVAL,
+                "Review & Sign Contract",
+                f"{contract_stats['total']} contract draft(s) awaiting review and sign-off.",
+                tab="contracts",
+            )
+
+        # Contracts approved -> Performance stage
+        if self._is_active(performance_run):
+            return self._focus(
+                WorkflowStepKey.PERFORMANCE,
+                NextStepKey.ANALYZE_PERFORMANCE,
+                StepStatus.CURRENT,
+                "Analyzing Performance...",
+                "Performance Agent is evaluating video metrics and baseline lift.",
+                tab="performance",
+                enabled=False,
+                running=True,
+                running_label="Analyzing Performance...",
+            )
+
+        if self._is_failed(performance_run):
+            return self._focus(
+                WorkflowStepKey.PERFORMANCE,
+                NextStepKey.ANALYZE_PERFORMANCE,
+                StepStatus.FAILED,
+                "Retry Performance Analysis",
+                "Performance analysis encountered an issue. Retry to evaluate KPIs and baseline lift.",
+                tab="performance",
+                blocking_reason="Performance analysis failed.",
+            )
+
+        performance_completed = bool(
+            (performance_run and performance_run.status in _SUCCESS_RUN)
+            or (content_count > 0 and campaign.status in ("active", "completed"))
+        )
+
+        if not performance_completed:
+            if content_count <= 0:
+                return self._focus(
+                    WorkflowStepKey.PERFORMANCE,
+                    NextStepKey.TRACK_PERFORMANCE,
+                    StepStatus.NEXT,
+                    "Track Campaign Performance",
+                    "Contracts approved. Add live video URL or monitor published content performance.",
+                    tab="performance",
+                )
+            return self._focus(
+                WorkflowStepKey.PERFORMANCE,
+                NextStepKey.ANALYZE_PERFORMANCE,
+                StepStatus.NEXT,
+                "Analyze Performance",
+                f"Tracking {content_count} content video(s). Run Performance Agent to evaluate KPIs.",
+                tab="performance",
+            )
+
+        # Performance completed -> Optimization stage
+        if self._is_active(optimization_run):
+            return self._focus(
+                WorkflowStepKey.OPTIMIZATION,
+                NextStepKey.OPTIMIZE_CAMPAIGN,
+                StepStatus.CURRENT,
+                "Generating Optimizations...",
+                "Optimization Agent is analyzing budget shifts and creator reallocation.",
+                tab="optimization",
+                enabled=False,
+                running=True,
+                running_label="Generating Optimizations...",
+            )
+
+        if pending_opt_approvals > 0:
+            return self._focus(
+                WorkflowStepKey.OPTIMIZATION,
+                NextStepKey.APPROVE_OPTIMIZATION,
+                StepStatus.WAITING_APPROVAL,
+                "Review Optimization Approvals",
+                f"{pending_opt_approvals} optimization recommendation(s) pending approval.",
+                route=f"/app/campaigns/{campaign.id}?tab=approvals",
+                tab="approvals",
+            )
+
+        if optimization_run and optimization_run.status in _SUCCESS_RUN:
+            return self._focus(
+                WorkflowStepKey.OPTIMIZATION,
+                NextStepKey.REVIEW_OPTIMIZATION,
+                StepStatus.COMPLETED,
+                "Review Optimizations",
+                "Campaign optimizations active. Monitor ongoing performance and creator ROI.",
+                tab="optimization",
+            )
+
         return self._focus(
-            WorkflowStepKey.OUTREACH,
-            NextStepKey.REVIEW_OUTREACH,
-            StepStatus.COMPLETED,
-            "Review Outreach",
-            "Personalized outreach is ready. Review the drafts before sending.",
-            tab="outreach",
+            WorkflowStepKey.OPTIMIZATION,
+            NextStepKey.OPTIMIZE_CAMPAIGN,
+            StepStatus.NEXT,
+            "Run Optimization Agent",
+            "Performance analysis complete. Generate budget reallocation and scaling recommendations.",
+            tab="optimization",
         )
 
     def _focus(
@@ -393,12 +576,14 @@ class CampaignWorkflowService:
             WorkflowStepKey.STRATEGY: (f"{base}?tab=strategy", "strategy"),
             WorkflowStepKey.DISCOVERY: (f"{base}?tab=influencers", "influencers"),
             WorkflowStepKey.SHORTLIST: (f"{base}?tab=influencers", "influencers"),
-            WorkflowStepKey.APPROVAL: ("/app/approvals", None),
+            WorkflowStepKey.APPROVAL: (f"{base}?tab=approvals", "approvals"),
             WorkflowStepKey.OUTREACH: (f"{base}?tab=outreach", "outreach"),
             WorkflowStepKey.CONTRACT: (f"{base}?tab=contracts", "contracts"),
-            WorkflowStepKey.LAUNCH: (f"{base}?tab=overview", "overview"),
+            WorkflowStepKey.LAUNCH: (f"{base}?tab=performance", "performance"),
+            WorkflowStepKey.PERFORMANCE: (f"{base}?tab=performance", "performance"),
+            WorkflowStepKey.OPTIMIZATION: (f"{base}?tab=optimization", "optimization"),
         }
-        return mapping[key]
+        return mapping.get(key, (f"{base}?tab=overview", "overview"))
 
     @staticmethod
     def _lock_hint(current_key: str) -> str:
@@ -408,6 +593,9 @@ class CampaignWorkflowService:
             WorkflowStepKey.SHORTLIST: "Shortlist creators first.",
             WorkflowStepKey.APPROVAL: "Approve the shortlist first.",
             WorkflowStepKey.OUTREACH: "Generate outreach first.",
+            WorkflowStepKey.CONTRACT: "Complete outreach and negotiation first.",
+            WorkflowStepKey.PERFORMANCE: "Complete contract approval first.",
+            WorkflowStepKey.OPTIMIZATION: "Complete performance analysis first.",
         }
         return hints.get(current_key, "Complete the previous step first.")
 
@@ -479,3 +667,63 @@ class CampaignWorkflowService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def _count_accepted(self, campaign_id: str) -> int:
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(CampaignInfluencer)
+            .where(
+                CampaignInfluencer.campaign_id == campaign_id,
+                CampaignInfluencer.status == CampaignInfluencerStatus.ACCEPTED,
+            )
+        )
+        ci_count = int(result.scalar_one() or 0)
+        if ci_count > 0:
+            return ci_count
+
+        result_out = await self.db.execute(
+            select(func.count())
+            .select_from(OutreachMessage)
+            .where(
+                OutreachMessage.campaign_id == campaign_id,
+                or_(
+                    OutreachMessage.status.in_(("ACCEPTED", "CONTRACT_GENERATED")),
+                    OutreachMessage.response_status == "ACCEPTED",
+                ),
+            )
+        )
+        return int(result_out.scalar_one() or 0)
+
+    async def _get_contract_stats(self, campaign_id: str) -> Dict[str, int]:
+        result = await self.db.execute(
+            select(Contract.status).where(Contract.campaign_id == campaign_id)
+        )
+        statuses = [str(s).lower() for (s,) in result.all()]
+        total = len(statuses)
+        approved = sum(1 for s in statuses if s in ("approved", "signed"))
+        pending = sum(
+            1
+            for s in statuses
+            if s in ("pending_signature", "ready_for_review", "changes_requested")
+        )
+        return {"total": total, "approved": approved, "pending": pending}
+
+    async def _count_content(self, campaign_id: str) -> int:
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(CampaignContent)
+            .where(CampaignContent.campaign_id == campaign_id)
+        )
+        return int(result.scalar_one() or 0)
+
+    async def _count_pending_optimization_approvals(self, campaign_id: str) -> int:
+        result = await self.db.execute(
+            select(func.count())
+            .select_from(Approval)
+            .where(
+                Approval.campaign_id == campaign_id,
+                Approval.status.in_(_PENDING_APPROVAL),
+                Approval.type.in_(("budget", "optimization", "campaign")),
+            )
+        )
+        return int(result.scalar_one() or 0)

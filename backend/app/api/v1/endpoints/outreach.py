@@ -266,9 +266,18 @@ async def generate_contract_for_outreach(
         )
 
     if not message.final_amount or float(message.final_amount) <= 0:
-        raise InvalidRequestException(
-            detail="Please complete and save the collaboration details before generating the contract."
-        )
+        if (
+            payload
+            and payload.confirmed_terms
+            and payload.confirmed_terms.compensation
+            and payload.confirmed_terms.compensation.total > 0
+        ):
+            message.final_amount = float(payload.confirmed_terms.compensation.total)
+            message.currency = payload.confirmed_terms.compensation.currency or message.currency or "INR"
+        else:
+            raise InvalidRequestException(
+                detail="Please complete and save the collaboration details before generating the contract."
+            )
 
     supervisor = SupervisorAgent(db)
     campaign = await supervisor.load_owned_campaign(message.campaign_id or "", current_user)

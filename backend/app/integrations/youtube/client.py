@@ -20,6 +20,20 @@ class YouTubeAPIError(Exception):
         self.error_details = error_details
 
 
+def parse_iso8601_duration(duration_str: str) -> int:
+    """Parse ISO 8601 duration string (e.g. PT1H2M30S, PT45S) to total seconds."""
+    if not duration_str:
+        return 0
+    import re
+    match = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", duration_str)
+    if not match:
+        return 0
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    return hours * 3600 + minutes * 60 + seconds
+
+
 class YouTubeClient:
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or settings.YOUTUBE_API_KEY
@@ -158,7 +172,7 @@ class YouTubeClient:
         return video_ids
 
     async def get_videos_statistics(self, video_ids: List[str]) -> List[Dict[str, Any]]:
-        """Batch fetch statistics (views, likes, comments) for video IDs."""
+        """Batch fetch statistics and content details for video IDs."""
         if not video_ids:
             return []
 
@@ -166,7 +180,7 @@ class YouTubeClient:
         for i in range(0, len(video_ids), 50):
             batch = video_ids[i : i + 50]
             params = {
-                "part": "snippet,statistics",
+                "part": "snippet,statistics,contentDetails",
                 "id": ",".join(batch),
                 "maxResults": len(batch),
             }
@@ -175,15 +189,69 @@ class YouTubeClient:
             for it in items:
                 stats = it.get("statistics", {})
                 snippet = it.get("snippet", {})
+                content_details = it.get("contentDetails", {})
+                duration_sec = parse_iso8601_duration(content_details.get("duration", ""))
+                thumbnails = snippet.get("thumbnails", {})
+                thumb_url = (
+                    thumbnails.get("maxres", {}).get("url")
+                    or thumbnails.get("high", {}).get("url")
+                    or thumbnails.get("medium", {}).get("url")
+                    or thumbnails.get("default", {}).get("url")
+                )
                 all_video_stats.append({
                     "id": it.get("id"),
                     "title": snippet.get("title", ""),
+                    "channel_id": snippet.get("channelId"),
+                    "channel_title": snippet.get("channelTitle", ""),
                     "published_at": snippet.get("publishedAt"),
+                    "thumbnail_url": thumb_url,
                     "view_count": int(stats.get("viewCount", 0)),
                     "like_count": int(stats.get("likeCount", 0)),
                     "comment_count": int(stats.get("commentCount", 0)),
+                    "duration_seconds": duration_sec,
+                    "is_short": duration_sec <= 60,
                 })
         return all_video_stats
+
+    async def get_video_details(self, video_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch detailed information for a single video including statistics & contentDetails."""
+        if not video_id:
+            return None
+        params = {
+            "part": "snippet,statistics,contentDetails",
+            "id": video_id,
+        }
+        data = await self._request("videos", params)
+        items = data.get("items", [])
+        if not items:
+            return None
+        it = items[0]
+        stats = it.get("statistics", {})
+        snippet = it.get("snippet", {})
+        content_details = it.get("contentDetails", {})
+        duration_sec = parse_iso8601_duration(content_details.get("duration", ""))
+        thumbnails = snippet.get("thumbnails", {})
+        thumb_url = (
+            thumbnails.get("maxres", {}).get("url")
+            or thumbnails.get("high", {}).get("url")
+            or thumbnails.get("medium", {}).get("url")
+            or thumbnails.get("default", {}).get("url")
+        )
+        return {
+            "id": it.get("id"),
+            "title": snippet.get("title", ""),
+            "description": snippet.get("description", ""),
+            "channel_id": snippet.get("channelId"),
+            "channel_title": snippet.get("channelTitle", ""),
+            "published_at": snippet.get("publishedAt"),
+            "thumbnail_url": thumb_url,
+            "view_count": int(stats.get("viewCount", 0)),
+            "like_count": int(stats.get("likeCount", 0)),
+            "comment_count": int(stats.get("commentCount", 0)),
+            "duration_seconds": duration_sec,
+            "is_short": duration_sec <= 60,
+        }
+
 
     def _classify_error(self, exc: YouTubeAPIError) -> str:
         status = exc.status_code

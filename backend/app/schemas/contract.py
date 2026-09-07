@@ -187,7 +187,7 @@ class ContractReadinessResponse(BaseModel):
 
 
 class ContractAnalyzeRequest(BaseModel):
-    influencer_id: str = Field(..., description="Influencer ID to analyze/draft contract for")
+    influencer_id: Optional[str] = Field(default=None, description="Influencer ID to analyze/draft contract for")
     contract_text: Optional[str] = Field(None, description="Optional uploaded contract document text to verify against negotiated terms")
     custom_terms: Optional[Dict[str, Any]] = Field(default=None, description="Optional overrides or clarifications")
     confirmed_terms: Optional[ContractTermsPayload] = Field(default=None, description="Full user-confirmed commercial terms payload")
