@@ -107,6 +107,62 @@ class CampaignContentResponse(BaseModel):
     content_stage: Optional[str] = None
     momentum: Optional[str] = None
 
+    is_demo: bool = True
     snapshots: List[SnapshotResponse] = []
     created_at: datetime
     updated_at: datetime
+
+
+class PerformanceAnalysisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    campaign_id: str
+    influencer_id: str
+    campaign_content_id: str
+    latest_snapshot_id: Optional[str] = None
+    agent_run_id: Optional[str] = None
+    status: str
+    content_stage: str
+    summary: str
+    what_is_working: List[str] = []
+    needs_attention: List[str] = []
+    financial_interpretation: str
+    next_step: str
+    confidence: float
+    raw_kpis: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OptimizationRecommendationSchema(BaseModel):
+    id: Optional[str] = None
+    priority: str
+    category: str
+    action: str
+    reason: str
+    evidence: List[str] = []
+    requires_human_approval: bool = True
+    approval_id: Optional[str] = None
+    status: str = "pending"
+
+
+class OptimizationPlanResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    campaign_id: str
+    campaign_content_id: Optional[str] = None
+    performance_analysis_id: Optional[str] = None
+    agent_run_id: Optional[str] = None
+    status: str = "PENDING_APPROVAL"
+    recommendations: List[OptimizationRecommendationSchema] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+class DecideOptimizationRequest(BaseModel):
+    approval_id: str
+    decision: str  # "approved", "modified", "rejected"
+    reason: Optional[str] = None
+

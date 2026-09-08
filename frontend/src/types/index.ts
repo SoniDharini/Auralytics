@@ -821,6 +821,7 @@ export interface CampaignContent {
   content_age_days?: number | null
   content_stage?: 'EARLY_STAGE' | 'INITIAL_MOMENTUM' | 'SHORT_TERM' | 'MATURE' | 'LONG_TERM' | string
   momentum?: 'RISING' | 'STABLE' | 'SLOWING' | 'INSUFFICIENT_DATA' | string
+  is_demo?: boolean
 
   snapshots: ContentPerformanceSnapshot[]
   created_at: string
@@ -841,4 +842,55 @@ export interface AttributionUpdateRequest {
   attributed_profit?: number | null
   attribution_source?: string | null
 }
+
+export interface PerformanceAnalysis {
+  id: string
+  campaign_id: string
+  influencer_id: string
+  campaign_content_id: string
+  latest_snapshot_id?: string | null
+  agent_run_id?: string | null
+  status: 'STRONG' | 'ON_TRACK' | 'AVERAGE' | 'NEEDS_ATTENTION' | 'UNDERPERFORMING' | 'EARLY_STAGE' | string
+  content_stage: 'EARLY_STAGE' | 'INITIAL_MOMENTUM' | 'SHORT_TERM' | 'MATURE' | 'LONG_TERM' | string
+  summary: string
+  what_is_working: string[]
+  needs_attention: string[]
+  financial_interpretation: string
+  next_step: string
+  confidence: number
+  raw_kpis?: Record<string, any> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OptimizationRecommendation {
+  id?: string
+  priority: 'HIGH' | 'MEDIUM' | 'LOW' | string
+  category: 'MONITOR' | 'CREATOR' | 'CONTENT' | 'FORMAT' | 'CTA' | 'TIMING' | 'BUDGET' | string
+  action: string
+  reason: string
+  evidence: string[]
+  requires_human_approval: boolean
+  approval_id?: string | null
+  status: 'pending' | 'approved' | 'modified' | 'rejected' | string
+}
+
+export interface OptimizationPlan {
+  id: string
+  campaign_id: string
+  campaign_content_id?: string | null
+  performance_analysis_id?: string | null
+  agent_run_id?: string | null
+  status: string
+  recommendations: OptimizationRecommendation[]
+  created_at: string
+  updated_at: string
+}
+
+export interface DecideOptimizationPayload {
+  approval_id: string
+  decision: 'approved' | 'modified' | 'rejected' | string
+  reason?: string
+}
+
 

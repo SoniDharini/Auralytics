@@ -14,7 +14,6 @@ from app.ai.agents.contract import ContractAgent
 from app.ai.agents.discovery import DiscoveryAgent
 from app.ai.agents.outreach import OutreachAgent
 from app.ai.agents.strategy import StrategyAgent
-from app.ai.execution import AgentExecutionService
 from app.ai.workflow_states import ALLOWED_TRANSITIONS, AgentNames, AgentRunStatus, WorkflowState
 from app.core.exceptions import NotFoundException, WorkflowStateException
 from app.models.agent_execution import AgentRun
@@ -37,6 +36,8 @@ class SupervisorAgent:
     version = "1.0.0"
 
     def __init__(self, db: AsyncSession) -> None:
+        from app.ai.execution import AgentExecutionService
+
         self.db = db
         self.execution = AgentExecutionService(db)
 

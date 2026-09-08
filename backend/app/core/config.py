@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
+    PERFORMANCE_DEMO_MODE: bool = True
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./influenceos.db"

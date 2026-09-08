@@ -1,45 +1,106 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight,
+  Check,
   CheckCircle2,
+  Edit3,
   Plus,
+  RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
+  X,
   XCircle,
 } from 'lucide-react'
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, useToast } from '@/components/ui'
-import { cn, formatINR } from '@/utils'
-import type { OptimizationRec } from '@/types'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Modal, Select, useToast } from '@/components/ui'
+import { cn } from '@/utils'
+import { api } from '@/services/api'
+import type { Campaign, OptimizationPlan, OptimizationRecommendation } from '@/types'
 
 export function OptimizationPage() {
   const { toast } = useToast()
-  const [recommendations] = useState<OptimizationRec[]>([])
-  const [recStatuses, setRecStatuses] = useState<Record<string, OptimizationRec['status']>>({})
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('')
+  const [optimizationPlan, setOptimizationPlan] = useState<OptimizationPlan | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
 
+  // Modification dialog state
+  const [modifyModalOpen, setModifyModalOpen] = useState(false)
+  const [modifyingApprovalId, setModifyingApprovalId] = useState<string | null>(null)
+  const [modifyNote, setModifyNote] = useState<string>('')
 
-  const handleAction = (id: string, action: 'approved' | 'rejected' | 'modified') => {
-    setRecStatuses((prev) => ({ ...prev, [id]: action === 'modified' ? 'pending' : action }))
-    const messages = {
-      approved: {
-        title: 'Recommendation approved',
-        description: 'Sent to Approval Center for final review before budget changes apply.',
-        type: 'success' as const,
-      },
-      rejected: {
-        title: 'Recommendation rejected',
-        description: 'Optimization Agent will learn from this decision.',
-        type: 'info' as const,
-      },
-      modified: {
-        title: 'Modification saved',
-        description: 'Your changes have been noted. Re-submit when ready for approval.',
-        type: 'warning' as const,
-      },
+  const loadCampaignsAndPlan = useCallback(async () => {
+    setLoading(true)
+    try {
+      const camps = await api.campaigns.list()
+      setCampaigns(camps || [])
+      if (camps && camps.length > 0) {
+        const campId = selectedCampaignId || camps[0].id
+        setSelectedCampaignId(campId)
+        const plan = await api.content.getLatestOptimization(campId)
+        setOptimizationPlan(plan)
+      }
+    } catch (err) {
+      console.error('Failed to load optimization plan', err)
+    } finally {
+      setLoading(false)
     }
-    toast(messages[action])
+  }, [selectedCampaignId])
+
+  useEffect(() => {
+    loadCampaignsAndPlan()
+  }, [loadCampaignsAndPlan])
+
+  const handleCampaignChange = async (newCampId: string) => {
+    setSelectedCampaignId(newCampId)
+    setLoading(true)
+    try {
+      const plan = await api.content.getLatestOptimization(newCampId)
+      setOptimizationPlan(plan)
+    } finally {
+      setLoading(false)
+    }
   }
+
+  const handleAction = async (approvalId: string, action: 'approved' | 'rejected' | 'modified', reason?: string) => {
+    if (!selectedCampaignId) return
+    setActionLoading((prev) => ({ ...prev, [approvalId]: true }))
+    try {
+      const updatedPlan = await api.content.decideOptimization(selectedCampaignId, {
+        approval_id: approvalId,
+        decision: action,
+        reason,
+      })
+      setOptimizationPlan(updatedPlan)
+      const messages = {
+        approved: {
+          title: 'Recommendation approved',
+          description: 'Synced with Approval Center. Next actions approved.',
+          type: 'success' as const,
+        },
+        rejected: {
+          title: 'Recommendation rejected',
+          description: 'Marked as rejected in Approval Center.',
+          type: 'info' as const,
+        },
+        modified: {
+          title: 'Modification recorded',
+          description: 'Your changes have been saved to Approval Center.',
+          type: 'warning' as const,
+        },
+      }
+      toast(messages[action])
+    } catch (err: any) {
+      toast({ title: 'Action failed', description: err?.message || 'Could not record decision.', type: 'danger' })
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [approvalId]: false }))
+    }
+  }
+
+  const recommendations: OptimizationRecommendation[] = optimizationPlan?.recommendations || []
+
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -83,7 +144,28 @@ export function OptimizationPage() {
         </CardContent>
       </Card>
 
-      {recommendations.length === 0 ? (
+      {/* Campaign Selector */}
+      {campaigns.length > 1 && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-text-secondary uppercase">Campaign:</span>
+          <div className="w-64">
+            <Select
+              value={selectedCampaignId}
+              onChange={(e) => handleCampaignChange(e.target.value)}
+              options={campaigns.map((c) => ({ value: c.id, label: c.name }))}
+            />
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <Card>
+          <CardContent className="py-16 text-center space-y-3">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto text-primary" />
+            <p className="text-sm text-text-secondary">Loading campaign optimization plan...</p>
+          </CardContent>
+        </Card>
+      ) : recommendations.length === 0 ? (
         <Card>
           <CardContent className="py-16 text-center space-y-4">
             <div className="mx-auto h-14 w-14 rounded-2xl bg-violet-50 text-ai flex items-center justify-center">
@@ -92,26 +174,34 @@ export function OptimizationPage() {
             <div>
               <h3 className="text-lg font-bold text-text">No optimization recommendations yet</h3>
               <p className="text-sm text-text-secondary mt-1 max-w-md mx-auto">
-                Optimization Agent will analyze performance and recommend creator mix or budget adjustments once active campaigns begin collecting data. Approve, modify, or reject will appear here when recommendations exist — nothing is applied automatically.
+                Track campaign content on the Analytics page and run the Performance Agent first. The Optimization Agent will produce up to 3 prioritized, evidence-based recommendations for your review.
               </p>
             </div>
-            <Link to="/app/campaigns/new" className="inline-block mt-2">
+            <Link to={`/app/analytics?campaignId=${selectedCampaignId}`} className="inline-block mt-2">
               <Button size="lg" className="gap-2">
-                <Plus className="h-4 w-4" /> Create Campaign
+                <Sparkles className="h-4 w-4" /> Open Analytics & Content Tracking
               </Button>
             </Link>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4">
-          {recommendations.map((rec) => {
-            const status = recStatuses[rec.id] || rec.status
-            const isResolved = status !== 'pending'
+          {recommendations.map((rec, index) => {
+            const apprId = rec.approval_id || rec.id || `opt-${index}`
+            const status = rec.status || 'pending'
+            const isPending = status === 'pending'
+            const isApproved = status === 'approved'
+            const isRejected = status === 'rejected'
+            const isModified = status === 'modified'
 
             return (
               <Card
-                key={rec.id}
-                className={cn('overflow-hidden transition-opacity', isResolved && 'opacity-60')}
+                key={apprId}
+                className={cn(
+                  'overflow-hidden transition-all',
+                  isApproved && 'border-emerald-200/60 bg-emerald-50/10',
+                  isRejected && 'opacity-60 bg-page/30',
+                )}
               >
                 <CardHeader className="border-b border-border bg-page/50">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -120,82 +210,146 @@ export function OptimizationPage() {
                         <TrendingUp className="h-5 w-5" />
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <CardTitle>{rec.title}</CardTitle>
-                          <Badge variant="ai">AI Generated</Badge>
-                          {status === 'approved' && (
-                            <Badge variant="success">
-                              <CheckCircle2 className="h-3 w-3" /> Approved
-                            </Badge>
-                          )}
-                          {status === 'rejected' && (
-                            <Badge variant="danger">
-                              <XCircle className="h-3 w-3" /> Rejected
-                            </Badge>
-                          )}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge
+                            variant={
+                              rec.priority === 'HIGH'
+                                ? 'danger'
+                                : rec.priority === 'MEDIUM'
+                                ? 'warning'
+                                : 'default'
+                            }
+                          >
+                            {rec.priority} PRIORITY
+                          </Badge>
+                          <Badge variant="outline">{rec.category}</Badge>
+                          <Badge
+                            variant={
+                              isApproved ? 'success' : isRejected ? 'danger' : isModified ? 'ai' : 'warning'
+                            }
+                          >
+                            {status.toUpperCase()}
+                          </Badge>
                         </div>
-                        <p className="text-xs text-text-secondary mt-0.5">{rec.confidence}% confidence</p>
+                        <p className="text-xs text-text-secondary mt-1">Requires human approval before execution</p>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-text-secondary">Expected incremental revenue</p>
-                      <p className="text-lg font-bold text-success">{rec.expectedRevenue}</p>
                     </div>
                   </div>
                 </CardHeader>
 
-                <CardContent className="pt-5 space-y-5">
-                  <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-4 items-center">
-                    <div className="rounded-[12px] border border-border bg-red-50/50 p-4">
-                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Reduce from</p>
-                      <p className="text-base font-bold mt-1">@{rec.current.creator}</p>
-                      <div className="mt-2 flex flex-wrap gap-3 text-sm">
-                        <span>
-                          <span className="text-text-secondary">Remaining: </span>
-                          <span className="font-semibold">{formatINR(rec.current.remaining)}</span>
-                        </span>
-                        <span>
-                          <span className="text-text-secondary">ROAS: </span>
-                          <span className="font-semibold text-danger">{rec.current.roas}x</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <ArrowRight className="h-5 w-5 text-text-secondary hidden sm:block" />
-
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">Reallocate to</p>
-                      {rec.moves.map((move) => (
-                        <div
-                          key={move.to}
-                          className="rounded-[12px] border border-border bg-green-50/50 p-3 flex items-center justify-between"
-                        >
-                          <span className="font-semibold text-sm">@{move.to}</span>
-                          <span className="text-sm font-bold text-success">+{formatINR(move.amount)}</span>
-                        </div>
-                      ))}
-                    </div>
+                <CardContent className="pt-5 space-y-4">
+                  <div>
+                    <h3 className="text-base font-bold text-text">{rec.action}</h3>
+                    <p className="mt-1 text-sm text-text-secondary leading-relaxed">{rec.reason}</p>
                   </div>
 
-                  {!isResolved && (
-                    <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-                      <Button variant="danger" size="sm" onClick={() => handleAction(rec.id, 'rejected')}>
-                        <XCircle className="h-4 w-4" /> Reject
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => handleAction(rec.id, 'modified')}>
-                        Modify
-                      </Button>
-                      <Button size="sm" onClick={() => handleAction(rec.id, 'approved')}>
-                        <CheckCircle2 className="h-4 w-4" /> Approve Recommendation
-                      </Button>
+                  {rec.evidence?.length > 0 && (
+                    <div className="rounded-lg bg-surface/80 border border-border p-3">
+                      <p className="text-xs font-semibold text-text-secondary uppercase mb-1.5">
+                        Supporting Evidence
+                      </p>
+                      <ul className="space-y-1 text-xs text-text-secondary">
+                        {rec.evidence.map((ev, evIdx) => (
+                          <li key={evIdx} className="flex items-start gap-1.5">
+                            <span className="text-primary">•</span>
+                            <span>{ev}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border">
+                    {isPending ? (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          disabled={actionLoading[apprId]}
+                          onClick={() => handleAction(apprId, 'approved')}
+                          className="gap-1"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={actionLoading[apprId]}
+                          onClick={() => {
+                            setModifyingApprovalId(apprId)
+                            setModifyNote('')
+                            setModifyModalOpen(true)
+                          }}
+                          className="gap-1"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" /> Modify
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={actionLoading[apprId]}
+                          onClick={() => handleAction(apprId, 'rejected')}
+                          className="text-danger hover:bg-danger-soft/20 gap-1"
+                        >
+                          <X className="h-3.5 w-3.5" /> Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                        {isApproved && '✓ Approved in Approval Center'}
+                        {isRejected && '✕ Rejected'}
+                        {isModified && '✎ Modified'}
+                      </span>
+                    )}
+
+                    <Link to="/app/approvals" className="text-xs text-primary hover:underline">
+                      View in Approval Center →
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             )
           })}
         </div>
       )}
+
+      {/* Modify Modal */}
+      <Modal
+        open={modifyModalOpen}
+        onClose={() => setModifyModalOpen(false)}
+        title="Modify Recommendation"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModifyModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!modifyNote.trim()}
+              onClick={() => {
+                if (modifyingApprovalId) {
+                  handleAction(modifyingApprovalId, 'modified', modifyNote)
+                  setModifyModalOpen(false)
+                }
+              }}
+            >
+              Submit Modification
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-text-secondary">
+            Note your adjusted instructions or budget cap. This will be updated on the approval item in Approval Center.
+          </p>
+          <Input
+            placeholder="e.g. Approved with 10% budget adjustment."
+            value={modifyNote}
+            onChange={(e) => setModifyNote(e.target.value)}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }
+

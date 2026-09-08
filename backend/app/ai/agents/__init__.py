@@ -7,6 +7,12 @@ from app.ai.agents.outreach import (
     OutreachAgentOutput,
     OutreachNegotiationOutput,
 )
+from app.ai.agents.optimization import (
+    OptimizationAgent,
+    OptimizationAgentOutput,
+    OptimizationRecommendationItem,
+)
+from app.ai.agents.performance import PerformanceAgent, PerformanceAgentOutput
 from app.ai.agents.strategy import StrategyAgent, StrategyAgentOutput
 from app.ai.agents.supervisor import SupervisorAgent
 
@@ -23,6 +29,11 @@ __all__ = [
     "OutreachAgent",
     "OutreachAgentOutput",
     "OutreachNegotiationOutput",
+    "OptimizationAgent",
+    "OptimizationAgentOutput",
+    "OptimizationRecommendationItem",
+    "PerformanceAgent",
+    "PerformanceAgentOutput",
     "StrategyAgent",
     "StrategyAgentOutput",
     "SupervisorAgent",

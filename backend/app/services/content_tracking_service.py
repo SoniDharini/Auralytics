@@ -12,6 +12,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.integrations.youtube.client import YouTubeAPIError, YouTubeClient
 from app.models.campaign import Campaign
@@ -382,16 +383,17 @@ class ContentTrackingService:
 
     async def calculate_creator_baseline(
         self,
-        influencer: Influencer,
-        exclude_video_id: str,
-        is_short: bool,
+        influencer: Optional[Influencer] = None,
+        exclude_video_id: str = "",
+        is_short: bool = False,
+        channel_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetches 5–10 recent uploads before/around campaign content and calculates median & average baseline.
 
         Excludes the tracked video itself. Where practical, compares Short vs Shorts and Video vs Videos.
         """
-        channel_id = influencer.external_id
-        if not channel_id or not self.yt.is_configured:
+        target_channel_id = channel_id or (influencer.external_id if influencer else None)
+        if not target_channel_id or not self.yt.is_configured:
             return {
                 "median_views": None,
                 "avg_views": None,
@@ -403,7 +405,7 @@ class ContentTrackingService:
             }
 
         try:
-            channels_res = await self.yt.get_channels_by_id([channel_id])
+            channels_res = await self.yt.get_channels_by_id([target_channel_id])
             if not channels_res.items:
                 return {
                     "median_views": None,
@@ -513,7 +515,7 @@ class ContentTrackingService:
             }
 
         except Exception as exc:
-            logger.warning("Could not calculate creator baseline for channel %s: %s", channel_id, exc)
+            logger.warning("Could not calculate creator baseline for channel %s: %s", target_channel_id, exc)
             return {
                 "median_views": None,
                 "avg_views": None,
@@ -553,12 +555,14 @@ class ContentTrackingService:
                 )
             )
 
-        # 2. Creator channel mismatch verification
+        # 2. Creator channel mismatch verification & Demo Mode
         video_channel_id = video_data.get("channel_id")
         video_channel_title = video_data.get("channel_title") or "Unknown"
-        expected_channel_id = influencer.external_id
+        expected_channel_id = influencer.external_id if influencer else None
 
-        if video_channel_id and expected_channel_id:
+        is_demo = bool(settings.PERFORMANCE_DEMO_MODE)
+
+        if not is_demo and video_channel_id and expected_channel_id:
             if video_channel_id.strip().lower() != expected_channel_id.strip().lower():
                 raise BadRequestException(
                     detail=(
@@ -573,11 +577,13 @@ class ContentTrackingService:
         if is_short:
             content_type = ContentType.YOUTUBE_SHORT
 
-        # 3. Calculate creator baseline
+        # 3. Calculate creator baseline (use the real channel of the video)
+        baseline_channel_id = video_channel_id or expected_channel_id
         baseline = await self.calculate_creator_baseline(
             influencer=influencer,
             exclude_video_id=video_id,
             is_short=is_short,
+            channel_id=baseline_channel_id,
         )
 
         # 4. Resolve agreed creator cost
@@ -620,12 +626,14 @@ class ContentTrackingService:
 
         if not content:
             content = CampaignContent(
+                user_id=campaign.owner_id,
                 campaign_id=campaign.id,
                 influencer_id=influencer.id,
                 platform="youtube",
                 content_type=content_type,
                 external_content_id=video_id,
                 content_url=canonical_url,
+                is_demo=is_demo,
                 title=video_data.get("title"),
                 thumbnail_url=video_data.get("thumbnail_url"),
                 channel_id=video_channel_id,
@@ -656,6 +664,8 @@ class ContentTrackingService:
             self.db.add(content)
             await self.db.flush()
         else:
+            content.user_id = campaign.owner_id
+            content.is_demo = is_demo
             content.content_type = content_type
             content.title = video_data.get("title") or content.title
             content.thumbnail_url = video_data.get("thumbnail_url") or content.thumbnail_url

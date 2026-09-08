@@ -13,11 +13,33 @@ import {
   YAxis,
 } from 'recharts'
 import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
   ArrowRight,
   Bot,
+  Check,
+  CheckCircle2,
+  ChevronRight,
   Clapperboard,
+  Clock,
+  DollarSign,
+  Edit3,
+  ExternalLink,
+  Eye,
+  Heart,
+  HelpCircle,
+  MessageSquare,
+  Percent,
+  Play,
+  Plus,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
+  X,
+  XCircle,
 } from 'lucide-react'
 import { api } from '@/services/api'
 import type { DashboardAnalyticsData } from '@/services/api'
@@ -30,10 +52,13 @@ import {
   CardHeader,
   CardTitle,
   Drawer,
+  Input,
+  Modal,
   PlatformIcon,
   ProgressBar,
   Select,
   StatusChip,
+  useToast,
 } from '@/components/ui'
 import {
   AnalyticsKpiCard,
@@ -66,7 +91,24 @@ import type {
   CampaignCreator,
   CampaignWorkflow,
   Platform,
+  CampaignContent,
+  PerformanceAnalysis,
+  OptimizationPlan,
+  OptimizationRecommendation,
 } from '@/types'
+
+function Youtube({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+    </svg>
+  )
+}
 
 type ChartMetric = 'spend' | 'revenue' | 'roas'
 
@@ -120,6 +162,35 @@ export function AnalyticsPage() {
   const [chartMetric, setChartMetric] = useState<ChartMetric>('spend')
   const [selectedCreator, setSelectedCreator] = useState<CampaignCreator | null>(null)
 
+  const { toast } = useToast()
+  const [trackedContents, setTrackedContents] = useState<CampaignContent[]>([])
+  const [selectedContentId, setSelectedContentId] = useState<string | null>(null)
+  const [performanceAnalysis, setPerformanceAnalysis] = useState<PerformanceAnalysis | null>(null)
+  const [optimizationPlan, setOptimizationPlan] = useState<OptimizationPlan | null>(null)
+  const [loadingContent, setLoadingContent] = useState(false)
+  const [loadingPerformance, setLoadingPerformance] = useState(false)
+  const [loadingOptimization, setLoadingOptimization] = useState(false)
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+
+  // Content tracking form state
+  const [trackingInfluencerId, setTrackingInfluencerId] = useState<string>('')
+  const [trackingUrl, setTrackingUrl] = useState<string>('')
+  const [trackingContentType, setTrackingContentType] = useState<string>('auto')
+  const [isTrackingSubmitting, setIsTrackingSubmitting] = useState(false)
+
+  // Business attribution modal state
+  const [attributionModalOpen, setAttributionModalOpen] = useState(false)
+  const [attrMethod, setAttrMethod] = useState<'direct' | 'orders_aov'>('direct')
+  const [attrRevenue, setAttrRevenue] = useState<string>('')
+  const [attrOrders, setAttrOrders] = useState<string>('')
+  const [attrAov, setAttrAov] = useState<string>('')
+  const [attrMargin, setAttrMargin] = useState<string>('')
+
+  // Modification dialog state
+  const [modifyModalOpen, setModifyModalOpen] = useState(false)
+  const [modifyingApprovalId, setModifyingApprovalId] = useState<string | null>(null)
+  const [modifyNote, setModifyNote] = useState<string>('')
+
   const [loadingCore, setLoadingCore] = useState(true)
   const [loadingCreators, setLoadingCreators] = useState(false)
   const [campaignsError, setCampaignsError] = useState<string | null>(null)
@@ -140,7 +211,11 @@ export function AnalyticsPage() {
     ])
 
     if (campsResult.status === 'fulfilled') {
-      setCampaigns(campsResult.value || [])
+      const camps = campsResult.value || []
+      setCampaigns(camps)
+      if (!campaignId && camps.length > 0) {
+        setSearchParams({ campaignId: camps[0].id })
+      }
     } else {
       setCampaigns([])
       setCampaignsError(campsResult.reason?.message || 'Campaigns unavailable')
@@ -173,6 +248,43 @@ export function AnalyticsPage() {
     }
 
     setLoadingCore(false)
+  }, [campaignId, setSearchParams])
+
+  const loadTrackedContent = useCallback(async (activeId?: string) => {
+    if (!campaignId) {
+      setTrackedContents([])
+      setSelectedContentId(null)
+      setPerformanceAnalysis(null)
+      setOptimizationPlan(null)
+      return
+    }
+    setLoadingContent(true)
+    try {
+      const items = await api.content.list(campaignId)
+      setTrackedContents(items || [])
+      if (items && items.length > 0) {
+        const targetId = activeId || (selectedContentId && items.some((c) => c.id === selectedContentId) ? selectedContentId : items[0].id)
+        setSelectedContentId(targetId)
+        const [perf, opt] = await Promise.all([
+          api.content.getLatestPerformance(campaignId, targetId),
+          api.content.getLatestOptimization(campaignId, targetId),
+        ])
+        setPerformanceAnalysis(perf)
+        setOptimizationPlan(opt)
+      } else {
+        setSelectedContentId(null)
+        setPerformanceAnalysis(null)
+        setOptimizationPlan(null)
+      }
+    } catch (err) {
+      console.error('Failed to load tracked content', err)
+    } finally {
+      setLoadingContent(false)
+    }
+  }, [campaignId, selectedContentId])
+
+  useEffect(() => {
+    loadTrackedContent()
   }, [campaignId])
 
   const loadCreators = useCallback(async () => {
@@ -208,6 +320,175 @@ export function AnalyticsPage() {
   useEffect(() => {
     loadCreators()
   }, [loadCreators])
+
+  useEffect(() => {
+    if (creators.length > 0 && !trackingInfluencerId) {
+      setTrackingInfluencerId(creators[0].creator.id)
+    }
+  }, [creators, trackingInfluencerId])
+
+  const selectedContent = useMemo(
+    () => trackedContents.find((c) => c.id === selectedContentId) || trackedContents[0] || null,
+    [trackedContents, selectedContentId],
+  )
+
+  const handleSelectContent = async (contentId: string) => {
+    setSelectedContentId(contentId)
+    setLoadingPerformance(true)
+    setLoadingOptimization(true)
+    try {
+      const [perf, opt] = await Promise.all([
+        api.content.getLatestPerformance(campaignId, contentId),
+        api.content.getLatestOptimization(campaignId, contentId),
+      ])
+      setPerformanceAnalysis(perf)
+      setOptimizationPlan(opt)
+    } finally {
+      setLoadingPerformance(false)
+      setLoadingOptimization(false)
+    }
+  }
+
+  const handleRefreshContent = async (contentId: string) => {
+    setActionLoading((prev) => ({ ...prev, [`refresh-${contentId}`]: true }))
+    try {
+      const updated = await api.content.refresh(campaignId, contentId)
+      setTrackedContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      toast({ title: 'Metrics refreshed', description: 'Updated live statistics from YouTube Data API.', type: 'success' })
+    } catch (err: any) {
+      toast({ title: 'Refresh failed', description: err?.message || 'Could not fetch metrics.', type: 'danger' })
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [`refresh-${contentId}`]: false }))
+    }
+  }
+
+  const handleStartTracking = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!trackingInfluencerId || !trackingUrl.trim()) {
+      toast({ title: 'Missing information', description: 'Please select a creator and enter a YouTube URL.', type: 'warning' })
+      return
+    }
+    setIsTrackingSubmitting(true)
+    try {
+      const newContent = await api.content.track(campaignId, {
+        influencer_id: trackingInfluencerId,
+        content_url: trackingUrl.trim(),
+        content_type: trackingContentType !== 'auto' ? trackingContentType : undefined,
+      })
+      setTrackedContents((prev) => [newContent, ...prev])
+      setSelectedContentId(newContent.id)
+      setTrackingUrl('')
+      toast({
+        title: 'Content tracking registered',
+        description: `Tracking '${newContent.title || 'YouTube Content'}' with live metrics & baseline.`,
+        type: 'success',
+      })
+      const [perf, opt] = await Promise.all([
+        api.content.getLatestPerformance(campaignId, newContent.id),
+        api.content.getLatestOptimization(campaignId, newContent.id),
+      ])
+      setPerformanceAnalysis(perf)
+      setOptimizationPlan(opt)
+    } catch (err: any) {
+      toast({ title: 'Tracking failed', description: err?.message || 'Unable to register YouTube URL.', type: 'danger' })
+    } finally {
+      setIsTrackingSubmitting(false)
+    }
+  }
+
+  const handleRunPerformance = async (contentId: string) => {
+    setLoadingPerformance(true)
+    try {
+      const analysis = await api.content.analyzePerformance(campaignId, contentId)
+      setPerformanceAnalysis(analysis)
+      toast({
+        title: 'Performance Analysis Generated',
+        description: `Performance Agent evaluated content. Status: ${analysis.status}`,
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast({ title: 'Analysis failed', description: err?.message || 'Performance Agent failed.', type: 'danger' })
+    } finally {
+      setLoadingPerformance(false)
+    }
+  }
+
+  const handleRunOptimization = async (contentId: string) => {
+    setLoadingOptimization(true)
+    try {
+      const plan = await api.content.generateOptimization(campaignId, contentId)
+      setOptimizationPlan(plan)
+      toast({
+        title: 'Optimization Recommendations Generated',
+        description: `${plan.recommendations.length} recommendations created & sent to Approval Center.`,
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast({ title: 'Optimization failed', description: err?.message || 'Optimization Agent failed.', type: 'danger' })
+    } finally {
+      setLoadingOptimization(false)
+    }
+  }
+
+  const handleDecideRecommendation = async (approvalId: string, decision: 'approved' | 'modified' | 'rejected', reason?: string) => {
+    setActionLoading((prev) => ({ ...prev, [`decide-${approvalId}`]: true }))
+    try {
+      const updatedPlan = await api.content.decideOptimization(campaignId, {
+        approval_id: approvalId,
+        decision,
+        reason,
+      })
+      setOptimizationPlan(updatedPlan)
+      toast({
+        title: `Recommendation ${decision.charAt(0).toUpperCase() + decision.slice(1)}`,
+        description: `Updated in Approval Center.`,
+        type: decision === 'approved' ? 'success' : decision === 'rejected' ? 'info' : 'warning',
+      })
+    } catch (err: any) {
+      toast({ title: 'Decision failed', description: err?.message || 'Could not record decision.', type: 'danger' })
+    } finally {
+      setActionLoading((prev) => ({ ...prev, [`decide-${approvalId}`]: false }))
+    }
+  }
+
+  const openAttributionModal = (content: CampaignContent) => {
+    setAttrRevenue(content.attributed_revenue != null ? String(content.attributed_revenue) : '')
+    setAttrOrders(content.attributed_orders != null ? String(content.attributed_orders) : '')
+    setAttrAov(content.average_order_value != null ? String(content.average_order_value) : '')
+    setAttrMargin(content.gross_margin_percent != null ? String(content.gross_margin_percent) : '')
+    setAttrMethod(content.attributed_orders && content.average_order_value ? 'orders_aov' : 'direct')
+    setAttributionModalOpen(true)
+  }
+
+  const handleSaveAttribution = async () => {
+    if (!selectedContent) return
+    setActionLoading((prev) => ({ ...prev, saveAttribution: true }))
+    try {
+      let rev = attrRevenue !== '' ? parseFloat(attrRevenue) : undefined
+      const orders = attrOrders !== '' ? parseInt(attrOrders, 10) : undefined
+      const aov = attrAov !== '' ? parseFloat(attrAov) : undefined
+      const margin = attrMargin !== '' ? parseFloat(attrMargin) : undefined
+
+      if (attrMethod === 'orders_aov' && orders && aov) {
+        rev = orders * aov
+      }
+
+      const updated = await api.content.updateAttribution(campaignId, selectedContent.id, {
+        attributed_revenue: rev,
+        attributed_orders: orders,
+        average_order_value: aov,
+        gross_margin_percent: margin,
+        attribution_source: 'DEMO BUSINESS DATA',
+      })
+      setTrackedContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      setAttributionModalOpen(false)
+      toast({ title: 'Attribution saved', description: 'Business KPIs & ROAS recalculated deterministically.', type: 'success' })
+    } catch (err: any) {
+      toast({ title: 'Failed to save', description: err?.message || 'Error updating attribution.', type: 'danger' })
+    } finally {
+      setActionLoading((prev) => ({ ...prev, saveAttribution: false }))
+    }
+  }
 
   const selectedCampaign = useMemo(
     () => campaigns.find((campaign) => campaign.id === campaignId) || null,
@@ -741,39 +1022,523 @@ export function AnalyticsPage() {
             </section>
           )}
 
+          {/* SECTION 1: TRACK CAMPAIGN CONTENT */}
           <section className="space-y-4">
-            <SectionHeading
-              eyebrow="Campaign content"
-              title="Campaign content performance"
-              description="Sponsored videos, Shorts, and Reels will appear here once content tracking is registered."
-            />
-            <SectionCard>
-              <CardContent className="py-4">
-                <div className="flex items-start gap-3 rounded-[14px] bg-page px-4 py-5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
-                    <Clapperboard className="h-5 w-5" />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <SectionHeading
+                eyebrow="Content Tracking"
+                title="Track Campaign Content"
+                description="Register live YouTube videos or Shorts to track real-time audience response, engagement lift, and unit economics."
+              />
+              {selectedContent && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleRefreshContent(selectedContent.id)}
+                    disabled={actionLoading[`refresh-${selectedContent.id}`]}
+                    className="gap-1.5"
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', actionLoading[`refresh-${selectedContent.id}`] && 'animate-spin')} />
+                    Refresh Metrics
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => openAttributionModal(selectedContent)}
+                    className="gap-1.5"
+                  >
+                    <DollarSign className="h-3.5 w-3.5" />
+                    Business Attribution
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Demo Mode Banner */}
+            <div className="flex items-start sm:items-center gap-3 rounded-[14px] border border-primary/25 bg-primary-soft/40 px-4 py-3 text-xs sm:text-sm text-text">
+              <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <span className="font-semibold text-primary">Demo Mode Active:</span> Any public YouTube video or Short URL can be used for testing without creator-channel matching.
+              </div>
+            </div>
+
+            {/* Registration Form */}
+            {selectedCampaign && (
+              <SectionCard>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Plus className="h-4 w-4 text-primary" /> Register New YouTube Content
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-2">
+                  <form onSubmit={handleStartTracking} className="grid gap-3 sm:grid-cols-12 items-end">
+                    <div className="sm:col-span-4">
+                      <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider block mb-1.5">
+                        Creator
+                      </label>
+                      <Select
+                        value={trackingInfluencerId}
+                        onChange={(e) => setTrackingInfluencerId(e.target.value)}
+                        options={
+                          creators.length > 0
+                            ? creators.map((c) => ({
+                                value: c.creator.id,
+                                label: `${c.creator.name} (@${c.creator.username})`,
+                              }))
+                            : [{ value: '', label: 'No creators attached' }]
+                        }
+                      />
+                    </div>
+                    <div className="sm:col-span-5">
+                      <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider block mb-1.5">
+                        YouTube Video or Short URL
+                      </label>
+                      <Input
+                        placeholder="https://www.youtube.com/watch?v=... or shorts/..."
+                        value={trackingUrl}
+                        onChange={(e) => setTrackingUrl(e.target.value)}
+                      />
+                    </div>
+                    <div className="sm:col-span-3 flex gap-2">
+                      <Button
+                        type="submit"
+                        disabled={isTrackingSubmitting || !trackingUrl.trim() || !trackingInfluencerId}
+                        className="w-full gap-1.5"
+                      >
+                        {isTrackingSubmitting ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" /> Tracking...
+                          </>
+                        ) : (
+                          <>
+                            <Youtube className="h-4 w-4" /> Start Tracking
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </form>
+                </CardContent>
+              </SectionCard>
+            )}
+
+            {/* Tracked Content Grid / List */}
+            {trackedContents.length > 0 ? (
+              <div className="space-y-3">
+                {trackedContents.map((content) => {
+                  const isSelected = selectedContent?.id === content.id
+                  return (
+                    <div
+                      key={content.id}
+                      onClick={() => handleSelectContent(content.id)}
+                      className={cn(
+                        'cursor-pointer rounded-[16px] border p-4 transition-all duration-200',
+                        isSelected
+                          ? 'border-primary ring-2 ring-primary/20 bg-surface shadow-md'
+                          : 'border-border bg-page/60 hover:bg-surface/80 hover:border-border/80',
+                      )}
+                    >
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3.5 min-w-0">
+                          {content.thumbnail_url ? (
+                            <div className="relative shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-muted border border-border">
+                              <img
+                                src={content.thumbnail_url}
+                                alt={content.title || 'YouTube thumbnail'}
+                                className="w-full h-full object-cover"
+                              />
+                              {content.duration_seconds ? (
+                                <span className="absolute bottom-1 right-1 bg-black/80 text-[10px] text-white px-1 py-0.5 rounded font-mono">
+                                  {Math.floor(content.duration_seconds / 60)}:
+                                  {String(content.duration_seconds % 60).padStart(2, '0')}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                              <Youtube className="h-6 w-6" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant={content.content_type === 'SHORT' ? 'ai' : 'outline'}>
+                                {content.content_type || 'VIDEO'}
+                              </Badge>
+                              {content.performance_status && (
+                                <Badge
+                                  variant={
+                                    content.performance_status === 'STRONG' || content.performance_status === 'OVERPERFORMING'
+                                      ? 'success'
+                                      : content.performance_status === 'NEEDS_ATTENTION' || content.performance_status === 'UNDERPERFORMING'
+                                      ? 'danger'
+                                      : 'primary'
+                                  }
+                                >
+                                  {content.performance_status}
+                                </Badge>
+                              )}
+                              {content.momentum && (
+                                <Badge variant="outline" className="text-[11px]">
+                                  {content.momentum === 'RISING' && '🔥 '}
+                                  {content.momentum} MOMENTUM
+                                </Badge>
+                              )}
+                            </div>
+                            <h4 className="mt-1 font-semibold text-text truncate max-w-lg text-sm sm:text-base">
+                              {content.title || content.content_url}
+                            </h4>
+                            <p className="text-xs text-text-secondary mt-0.5 flex items-center gap-1.5">
+                              <span>Channel: {content.channel_title || 'YouTube'}</span>
+                              <span>·</span>
+                              <span>Creator: {content.influencer_name || 'Assigned'}</span>
+                              {content.content_age_hours != null && (
+                                <>
+                                  <span>·</span>
+                                  <span>{content.content_age_hours < 24 ? `${content.content_age_hours.toFixed(1)}h old` : `${content.content_age_days?.toFixed(0)}d old`}</span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Snapshot KPIs & Actions */}
+                        <div className="flex items-center gap-4 shrink-0 flex-wrap sm:flex-nowrap justify-between md:justify-end">
+                          <div className="text-right">
+                            <p className="text-xs text-text-secondary uppercase">Views</p>
+                            <p className="font-bold text-sm sm:text-base text-text">
+                              {formatCompactCount(content.current_views)}
+                            </p>
+                            {content.performance_lift_percent != null && (
+                              <p
+                                className={cn(
+                                  'text-[11px] font-semibold',
+                                  content.performance_lift_percent >= 0 ? 'text-success' : 'text-danger',
+                                )}
+                              >
+                                {content.performance_lift_percent > 0 ? '+' : ''}
+                                {content.performance_lift_percent.toFixed(1)}% lift
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-text-secondary uppercase">Engagement</p>
+                            <p className="font-bold text-sm sm:text-base text-text">
+                              {content.engagement_rate != null ? `${content.engagement_rate.toFixed(2)}%` : '—'}
+                            </p>
+                            <p className="text-[11px] text-text-secondary">
+                              {formatCompactCount(content.current_likes)} likes
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <Button
+                              size="sm"
+                              variant={isSelected ? 'primary' : 'outline'}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSelectContent(content.id)
+                              }}
+                            >
+                              {isSelected ? 'Selected' : 'Select'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleRefreshContent(content.id)
+                              }}
+                              disabled={actionLoading[`refresh-${content.id}`]}
+                              title="Refresh metrics from YouTube"
+                            >
+                              <RefreshCw
+                                className={cn('h-3.5 w-3.5', actionLoading[`refresh-${content.id}`] && 'animate-spin')}
+                              />
+                            </Button>
+                            <a
+                              href={content.content_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center justify-center h-8 w-8 text-text-secondary hover:text-text rounded-md hover:bg-muted"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <SectionCard>
+                <CardContent className="py-8 text-center space-y-3">
+                  <div className="mx-auto h-12 w-12 rounded-2xl bg-primary-soft text-primary flex items-center justify-center">
+                    <Clapperboard className="h-6 w-6" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-text">
-                      {liveCampaign ? 'No campaign content is being tracked yet.' : 'No tracked campaign content'}
+                    <p className="font-semibold text-text">No YouTube content tracked yet</p>
+                    <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
+                      Paste a public YouTube video or Short URL above to instantly pull real-time views, likes, comments, and calculate creator baseline lifts.
                     </p>
-                    <p className="mt-1 text-sm text-text-secondary">
-                      {liveCampaign
-                        ? 'The campaign is live, but this workspace does not yet store individual video or Short performance. Register content from the campaign when tracking becomes available.'
-                        : 'Content-level views, likes, comments, and baseline lift are not stored yet.'}
-                    </p>
-                    {selectedCampaign && (
-                      <Link to={`/app/campaigns/${selectedCampaign.id}`} className="mt-3 inline-flex">
-                        <Button size="sm" variant="secondary" className="gap-1.5">
-                          Return to campaign <ArrowRight className="h-3.5 w-3.5" />
-                        </Button>
-                      </Link>
-                    )}
                   </div>
-                </div>
-              </CardContent>
-            </SectionCard>
+                </CardContent>
+              </SectionCard>
+            )}
           </section>
+
+          {/* SECTION 2: VIDEO PERFORMANCE (REAL YOUTUBE DATA) */}
+          {selectedContent && (
+            <section className="space-y-4 animate-fade-in">
+              <SectionHeading
+                eyebrow="Factual Video Metrics"
+                title={`Video Performance: ${selectedContent.title || selectedContent.content_url}`}
+                description="Live metrics fetched directly from YouTube Data API and deterministically calculated by Auralytics."
+                action={
+                  <div className="flex items-center gap-2">
+                    <Badge variant="primary">REAL YOUTUBE DATA</Badge>
+                    <Badge variant="success">CALCULATED BY AURALYTICS</Badge>
+                  </div>
+                }
+              />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {/* 1. Views */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Current Views</p>
+                      <Badge variant="primary" className="text-[10px] py-0 px-1.5">REAL YOUTUBE DATA</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.current_views.toLocaleString()}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary flex items-center gap-1">
+                      <Eye className="h-3 w-3 text-primary" /> Verified live from YouTube API
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 2. Likes & Comments */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Audience Reactions</p>
+                      <Badge variant="primary" className="text-[10px] py-0 px-1.5">REAL YOUTUBE DATA</Badge>
+                    </div>
+                    <p className="mt-2 text-[24px] font-bold tracking-tight text-text">
+                      {formatCompactCount(selectedContent.current_likes)} · {formatCompactCount(selectedContent.current_comments)}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary flex items-center gap-2">
+                      <span className="flex items-center gap-1"><Heart className="h-3 w-3 text-rose-500" /> {selectedContent.current_likes.toLocaleString()} likes</span>
+                      <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3 text-blue-500" /> {selectedContent.current_comments.toLocaleString()} comments</span>
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 3. Engagement Rate */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Engagement Rate</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.engagement_rate != null ? `${selectedContent.engagement_rate.toFixed(2)}%` : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Formula: (Likes + Comments) / Views × 100
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 4. Creator Baseline */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Creator Baseline</p>
+                      <Badge variant="primary" className="text-[10px] py-0 px-1.5">REAL YOUTUBE DATA</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {formatCompactCount(selectedContent.baseline_median_views || 0)}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Median of last {selectedContent.baseline_sample_size || 0} public channel videos
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 5. Performance Lift */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Performance Lift</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className={cn('mt-2 text-[28px] font-bold tracking-tight', (selectedContent.performance_lift_percent || 0) >= 0 ? 'text-success' : 'text-danger')}>
+                      {selectedContent.performance_lift_percent != null
+                        ? `${selectedContent.performance_lift_percent > 0 ? '+' : ''}${selectedContent.performance_lift_percent.toFixed(1)}%`
+                        : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Lift vs creator's historical median views
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 6. Momentum & Stage */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Momentum & Stage</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Badge variant={selectedContent.momentum === 'RISING' ? 'success' : selectedContent.momentum === 'SLOWING' ? 'warning' : 'outline'}>
+                        {selectedContent.momentum || 'STABLE'}
+                      </Badge>
+                      <span className="text-xs font-medium text-text-secondary">
+                        Stage: {selectedContent.content_stage || 'EARLY_STAGE'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-text-secondary">
+                      {selectedContent.snapshots && selectedContent.snapshots.length > 1
+                        ? `${selectedContent.snapshots[0].views_per_hour?.toFixed(0) || 0} views/hour recently`
+                        : 'Tracking snapshot baseline established'}
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 7. Cost Per View (CPV) */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Cost Per View (CPV)</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.cost_per_view != null ? formatINR(selectedContent.cost_per_view) : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Agreed cost ({formatINR(selectedContent.agreed_cost || 0)}) / Views
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* 8. Cost Per Engagement (CPE) */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Cost Per Engagement</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.cost_per_engagement != null ? formatINR(selectedContent.cost_per_engagement) : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Agreed cost / (Likes + Comments)
+                    </p>
+                  </CardContent>
+                </SectionCard>
+              </div>
+            </section>
+          )}
+
+          {/* SECTION 3: BUSINESS PERFORMANCE (ATTRIBUTION) */}
+          {selectedContent && (
+            <section className="space-y-4 animate-fade-in">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <SectionHeading
+                  eyebrow="Business Attribution"
+                  title="Business Performance & Financial Returns"
+                  description="Financial return metrics deterministically calculated from campaign spend and attributed conversions."
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => openAttributionModal(selectedContent)}
+                  className="gap-1.5"
+                >
+                  <DollarSign className="h-3.5 w-3.5" />
+                  {selectedContent.attributed_revenue != null ? 'Update Business Attribution' : 'Enter Business Attribution'}
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {/* Spend */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Deliverable Spend</p>
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5">CONTRACT RECORD</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {formatINR(selectedContent.agreed_cost || selectedCampaign?.spend || 0)}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Fixed contracted deliverable cost
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* Attributed Revenue */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Attributed Revenue</p>
+                      <Badge variant="warning" className="text-[10px] py-0 px-1.5">DEMO BUSINESS DATA</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.attributed_revenue != null ? formatINR(selectedContent.attributed_revenue) : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      {selectedContent.attributed_orders != null
+                        ? `${selectedContent.attributed_orders} orders @ ${formatINR(selectedContent.average_order_value || 0)} AOV`
+                        : selectedContent.attributed_revenue != null
+                        ? 'Direct revenue entered'
+                        : 'Click Enter Attribution to add revenue'}
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* ROAS */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Return on Ad Spend (ROAS)</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.roas != null ? `${selectedContent.roas.toFixed(2)}x` : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      Formula: Attributed Revenue / Deliverable Spend
+                    </p>
+                  </CardContent>
+                </SectionCard>
+
+                {/* ROI */}
+                <SectionCard>
+                  <CardContent className="pt-5">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-xs font-semibold uppercase text-text-secondary">Return on Investment (ROI)</p>
+                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                    </div>
+                    <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
+                      {selectedContent.roi != null
+                        ? `${selectedContent.roi > 0 ? '+' : ''}${selectedContent.roi.toFixed(1)}%`
+                        : '—'}
+                    </p>
+                    <p className="mt-1 text-xs text-text-secondary">
+                      {selectedContent.attributed_profit != null
+                        ? `Profit: ${formatINR(selectedContent.attributed_profit)} (${selectedContent.gross_margin_percent || 0}% margin)`
+                        : 'Requires gross profit margin to calculate'}
+                    </p>
+                  </CardContent>
+                </SectionCard>
+              </div>
+            </section>
+          )}
 
           <section className="space-y-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -849,22 +1614,59 @@ export function AnalyticsPage() {
             </section>
           )}
 
+          {/* SECTION 4: PERFORMANCE AGENT (AI INTERPRETATION) */}
           <section className="space-y-4">
-            <SectionHeading
-              eyebrow="Performance Agent"
-              title="Why did this happen?"
-              description="Readable analysis from a Performance Agent run, when one exists."
-            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <SectionHeading
+                eyebrow="Performance Agent"
+                title="Why did this happen?"
+                description="AI interpretation explaining what factual YouTube metrics and financial attribution mean for the marketer."
+              />
+              {selectedContent && (
+                <Button
+                  onClick={() => handleRunPerformance(selectedContent.id)}
+                  disabled={loadingPerformance}
+                  className="gap-2 shrink-0"
+                >
+                  <Bot className={cn('h-4 w-4', loadingPerformance && 'animate-spin')} />
+                  {loadingPerformance ? 'Analyzing Performance...' : 'Analyze Performance'}
+                </Button>
+              )}
+            </div>
+
             <SectionCard>
               <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-ai">
-                    <Bot className="h-5 w-5" />
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-50 text-ai">
+                      <Bot className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <CardTitle>Performance Agent Interpretation</CardTitle>
+                      <p className="text-xs text-text-secondary">
+                        Explains factual data — never performs mathematical guessing or fabrication.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <CardTitle>AI performance analysis</CardTitle>
-                    <p className="text-xs text-text-secondary">What is happening — not what to change.</p>
-                  </div>
+                  {performanceAnalysis && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        variant={
+                          performanceAnalysis.status === 'STRONG' || performanceAnalysis.status === 'ON_TRACK'
+                            ? 'success'
+                            : performanceAnalysis.status === 'NEEDS_ATTENTION' || performanceAnalysis.status === 'UNDERPERFORMING'
+                            ? 'danger'
+                            : 'ai'
+                        }
+                      >
+                        {performanceAnalysis.status}
+                      </Badge>
+                      <Badge variant="outline">{performanceAnalysis.content_stage}</Badge>
+                      <span className="text-xs text-text-secondary">
+                        {(performanceAnalysis.confidence * 100).toFixed(0)}% confidence
+                      </span>
+                    </div>
+                  )}
                 </div>
               </CardHeader>
               <CardContent>
@@ -873,36 +1675,147 @@ export function AnalyticsPage() {
                     title="Select a campaign to view agent analysis"
                     description="Performance Agent output is stored per campaign run."
                   />
-                ) : !performanceRun ? (
+                ) : !selectedContent ? (
                   <SectionEmpty
-                    title="Performance Agent has not analyzed this campaign yet"
-                    description="There is no Performance Agent run to display. Campaign health and KPIs above still come from stored campaign records."
-                    actionLabel="View campaigns"
-                    to="/app/campaigns"
+                    title="No content selected for performance analysis"
+                    description="Register or select tracked YouTube content above to run the Performance Agent."
                   />
+                ) : !performanceAnalysis ? (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="mx-auto h-12 w-12 rounded-2xl bg-violet-50 text-ai flex items-center justify-center">
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-text">Performance Agent has not analyzed this content yet</p>
+                      <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
+                        Click "Analyze Performance" to generate an executive interpretation of views, baseline lift, audience engagement, and financial attribution.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => handleRunPerformance(selectedContent.id)}
+                      disabled={loadingPerformance}
+                      className="gap-2 mt-2"
+                    >
+                      <Bot className="h-4 w-4" /> Analyze Performance Now
+                    </Button>
+                  </div>
                 ) : (
-                  <AgentNarrative
-                    health={performanceNarrative.health || health.label}
-                    strengths={performanceNarrative.strengths}
-                    weaknesses={performanceNarrative.weaknesses}
-                    observations={performanceNarrative.observations}
-                    risks={performanceNarrative.risks}
-                    insight={performanceNarrative.insight}
-                    updatedAt={performanceRun.completedAt || performanceRun.createdAt}
-                    status={performanceRun.status}
-                    errorMessage={performanceRun.errorMessage}
-                  />
+                  <div className="space-y-6">
+                    {/* Summary */}
+                    <div className="rounded-[14px] border border-border bg-page/60 p-4 sm:p-5">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-text-secondary mb-1.5">
+                        Marketer Summary
+                      </p>
+                      <p className="text-sm sm:text-base leading-relaxed text-text font-medium">
+                        {performanceAnalysis.summary}
+                      </p>
+                    </div>
+
+                    {/* What's Working & Needs Attention */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-[14px] border border-emerald-200/60 bg-emerald-50/20 p-4 dark:border-emerald-500/20 dark:bg-emerald-500/5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <CheckCircle2 className="h-4 w-4 text-success" />
+                          <h4 className="text-sm font-semibold text-text">What's Working</h4>
+                        </div>
+                        {performanceAnalysis.what_is_working?.length > 0 ? (
+                          <ul className="space-y-2 text-xs sm:text-sm text-text-secondary">
+                            {performanceAnalysis.what_is_working.map((item, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-success shrink-0 mt-0.5">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-text-secondary">No strong positive signals identified yet.</p>
+                        )}
+                      </div>
+
+                      <div className="rounded-[14px] border border-amber-200/60 bg-amber-50/20 p-4 dark:border-amber-500/20 dark:bg-amber-500/5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                          <h4 className="text-sm font-semibold text-text">Needs Attention</h4>
+                        </div>
+                        {performanceAnalysis.needs_attention?.length > 0 ? (
+                          <ul className="space-y-2 text-xs sm:text-sm text-text-secondary">
+                            {performanceAnalysis.needs_attention.map((item, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-amber-500 shrink-0 mt-0.5">•</span>
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-text-secondary">No major risks or issues identified.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Financial Interpretation */}
+                    {performanceAnalysis.financial_interpretation && (
+                      <div className="rounded-[14px] border border-border bg-page/40 p-4 flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                          <DollarSign className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                            Financial Interpretation
+                          </h4>
+                          <p className="text-sm text-text mt-1 leading-relaxed">
+                            {performanceAnalysis.financial_interpretation}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recommended Next Step */}
+                    {performanceAnalysis.next_step && (
+                      <div className="rounded-[14px] border border-primary/20 bg-primary-soft/30 p-4 flex items-start gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white">
+                          <ArrowRight className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-wider text-primary">
+                            Recommended Next Step
+                          </h4>
+                          <p className="text-sm font-medium text-text mt-1 leading-relaxed">
+                            {performanceAnalysis.next_step}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-right text-[11px] text-text-secondary">
+                      Last analyzed {formatRelativeTime(performanceAnalysis.updated_at || performanceAnalysis.created_at)}
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </SectionCard>
           </section>
 
+          {/* SECTION 5: OPTIMIZATION AGENT (ACTIONABLE RECOMMENDATIONS) */}
           <section className="space-y-4">
-            <SectionHeading
-              eyebrow="Optimization Agent"
-              title="What should we change?"
-              description="Recommended actions stay pending until a person approves them."
-            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <SectionHeading
+                eyebrow="Optimization Agent"
+                title="What should we change?"
+                description="Maximum 3 evidence-based recommendations connected directly to Approval Center."
+              />
+              {selectedContent && (
+                <Button
+                  onClick={() => handleRunOptimization(selectedContent.id)}
+                  disabled={loadingOptimization || !performanceAnalysis}
+                  className="gap-2 shrink-0"
+                  variant="primary"
+                >
+                  <Sparkles className={cn('h-4 w-4', loadingOptimization && 'animate-spin')} />
+                  {loadingOptimization ? 'Generating...' : 'Run Optimization Agent'}
+                </Button>
+              )}
+            </div>
+
             <SectionCard>
               <CardHeader>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -911,41 +1824,154 @@ export function AnalyticsPage() {
                       <Sparkles className="h-5 w-5" />
                     </div>
                     <div>
-                      <CardTitle>Optimization opportunities</CardTitle>
+                      <CardTitle>Optimization Recommendations</CardTitle>
                       <HumanInTheLoopNote />
                     </div>
                   </div>
-                  <Link to="/app/optimization">
+                  <Link to="/app/approvals">
                     <Button variant="secondary" size="sm" className="gap-1.5">
-                      Optimization Center <ArrowRight className="h-3.5 w-3.5" />
+                      Approval Center <ArrowRight className="h-3.5 w-3.5" />
                     </Button>
                   </Link>
                 </div>
               </CardHeader>
               <CardContent>
-                {optimizationActions.length > 0 ? (
-                  <div className="space-y-3">
-                    {optimizationActions.map((action) => (
-                      <div key={action.id} className="rounded-[14px] border border-border bg-page/60 p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="ai">{action.impact}</Badge>
-                          <Badge variant="outline">{action.category}</Badge>
-                        </div>
-                        <p className="mt-2 text-sm font-semibold text-text">{action.title}</p>
-                        <p className="mt-1 text-sm text-text-secondary">{action.reason}</p>
-                        <p className="mt-3 text-xs text-text-secondary">
-                          Approve, modify, or reject from Optimization Center. Changes are not applied automatically.
-                        </p>
-                      </div>
-                    ))}
+                {!performanceAnalysis ? (
+                  <div className="py-6 text-center text-xs sm:text-sm text-text-secondary">
+                    Run Performance Agent analysis first. The Optimization Agent produces actions based only on verified performance findings.
+                  </div>
+                ) : !optimizationPlan || optimizationPlan.recommendations.length === 0 ? (
+                  <div className="py-8 text-center space-y-3">
+                    <div className="mx-auto h-12 w-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                      <Sparkles className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-text">No optimization recommendations yet</p>
+                      <p className="text-xs text-text-secondary mt-1 max-w-md mx-auto">
+                        Run the Optimization Agent to synthesize at most 3 actionable next steps for budget, format, creator selection, or timing.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={() => handleRunOptimization(selectedContent!.id)}
+                      disabled={loadingOptimization}
+                      className="gap-2 mt-2"
+                    >
+                      <Sparkles className="h-4 w-4" /> Run Optimization Agent
+                    </Button>
                   </div>
                 ) : (
-                  <SectionEmpty
-                    title="No optimization recommendations yet"
-                    description="The Optimization Agent has not produced actionable recommendations for this view. Budget changes still require human approval when they appear."
-                    actionLabel="Open Optimization Center"
-                    to="/app/optimization"
-                  />
+                  <div className="space-y-4">
+                    {optimizationPlan.recommendations.slice(0, 3).map((rec, index) => {
+                      const apprId = rec.approval_id || rec.id || `opt-${index}`
+                      const isPending = rec.status === 'pending'
+                      const isApproved = rec.status === 'approved'
+                      const isRejected = rec.status === 'rejected'
+                      const isModified = rec.status === 'modified'
+
+                      return (
+                        <div
+                          key={apprId}
+                          className={cn(
+                            'rounded-[16px] border p-4 sm:p-5 transition-all duration-200',
+                            isApproved
+                              ? 'border-emerald-200/60 bg-emerald-50/15'
+                              : isRejected
+                              ? 'border-border/60 bg-page/30 opacity-60'
+                              : 'border-border bg-page/60',
+                          )}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge
+                                variant={
+                                  rec.priority === 'HIGH'
+                                    ? 'danger'
+                                    : rec.priority === 'MEDIUM'
+                                    ? 'warning'
+                                    : 'default'
+                                }
+                              >
+                                {rec.priority} PRIORITY
+                              </Badge>
+                              <Badge variant="outline">{rec.category}</Badge>
+                              <Badge
+                                variant={
+                                  isApproved ? 'success' : isRejected ? 'danger' : isModified ? 'ai' : 'warning'
+                                }
+                              >
+                                {rec.status.toUpperCase()}
+                              </Badge>
+                            </div>
+
+                            {/* Human Decision Controls */}
+                            {isPending ? (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  disabled={actionLoading[`decide-${apprId}`]}
+                                  onClick={() => handleDecideRecommendation(apprId, 'approved')}
+                                  className="gap-1"
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={actionLoading[`decide-${apprId}`]}
+                                  onClick={() => {
+                                    setModifyingApprovalId(apprId)
+                                    setModifyNote('')
+                                    setModifyModalOpen(true)
+                                  }}
+                                  className="gap-1"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5" /> Modify
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={actionLoading[`decide-${apprId}`]}
+                                  onClick={() => handleDecideRecommendation(apprId, 'rejected')}
+                                  className="text-danger hover:bg-danger-soft/20 gap-1"
+                                >
+                                  <X className="h-3.5 w-3.5" /> Reject
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
+                                {isApproved && '✓ Approved in Approval Center'}
+                                {isRejected && '✕ Rejected'}
+                                {isModified && '✎ Modified'}
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="mt-3 text-base font-bold text-text">{rec.action}</h4>
+                          <p className="mt-1 text-sm text-text-secondary leading-relaxed">{rec.reason}</p>
+
+                          {rec.evidence?.length > 0 && (
+                            <div className="mt-3 rounded-lg bg-surface/80 border border-border p-3">
+                              <p className="text-xs font-semibold text-text-secondary uppercase mb-1.5">
+                                Supporting Evidence
+                              </p>
+                              <ul className="space-y-1 text-xs text-text-secondary">
+                                {rec.evidence.map((ev, evIdx) => (
+                                  <li key={evIdx} className="flex items-start gap-1.5">
+                                    <span className="text-primary">•</span>
+                                    <span>{ev}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    <p className="text-center text-xs text-text-secondary mt-2">
+                      Decisions are synced immediately to the Approval Center. Changes are never applied automatically.
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </SectionCard>
@@ -1041,6 +2067,147 @@ export function AnalyticsPage() {
           </div>
         )}
       </Drawer>
+
+      {/* Business Attribution Modal */}
+      <Modal
+        open={attributionModalOpen}
+        onClose={() => setAttributionModalOpen(false)}
+        title="Edit Campaign Business Attribution"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setAttributionModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={actionLoading.saveAttribution}
+              onClick={handleSaveAttribution}
+            >
+              {actionLoading.saveAttribution ? 'Saving...' : 'Save & Calculate KPIs'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-text-secondary">
+            Provide business outcomes for this sponsored deliverable. All ROAS and ROI figures are calculated using deterministic Python formulas.
+          </p>
+
+          <div className="flex rounded-lg border border-border p-1 bg-muted">
+            <button
+              type="button"
+              onClick={() => setAttrMethod('direct')}
+              className={cn(
+                'flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                attrMethod === 'direct' ? 'bg-surface shadow text-text' : 'text-text-secondary hover:text-text',
+              )}
+            >
+              Method A: Direct Revenue
+            </button>
+            <button
+              type="button"
+              onClick={() => setAttrMethod('orders_aov')}
+              className={cn(
+                'flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors',
+                attrMethod === 'orders_aov' ? 'bg-surface shadow text-text' : 'text-text-secondary hover:text-text',
+              )}
+            >
+              Method B: Orders × AOV
+            </button>
+          </div>
+
+          {attrMethod === 'direct' ? (
+            <div>
+              <label className="text-xs font-semibold text-text-secondary block mb-1">
+                Attributed Revenue (₹)
+              </label>
+              <Input
+                type="number"
+                placeholder="e.g. 250000"
+                value={attrRevenue}
+                onChange={(e) => setAttrRevenue(e.target.value)}
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-text-secondary block mb-1">
+                  Attributed Orders
+                </label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 150"
+                  value={attrOrders}
+                  onChange={(e) => setAttrOrders(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-text-secondary block mb-1">
+                  Average Order Value (₹)
+                </label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 1200"
+                  value={attrAov}
+                  onChange={(e) => setAttrAov(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-semibold text-text-secondary block mb-1">
+              Gross Margin % (Optional, required for ROI)
+            </label>
+            <Input
+              type="number"
+              placeholder="e.g. 40"
+              value={attrMargin}
+              onChange={(e) => setAttrMargin(e.target.value)}
+            />
+            <p className="text-[11px] text-text-secondary mt-1">
+              Used to deterministically calculate Gross Profit and true Return on Investment (ROI).
+            </p>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modify Recommendation Modal */}
+      <Modal
+        open={modifyModalOpen}
+        onClose={() => setModifyModalOpen(false)}
+        title="Modify Recommendation"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setModifyModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!modifyNote.trim()}
+              onClick={() => {
+                if (modifyingApprovalId) {
+                  handleDecideRecommendation(modifyingApprovalId, 'modified', modifyNote)
+                  setModifyModalOpen(false)
+                }
+              }}
+            >
+              Submit Modification
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-text-secondary">
+            Note your adjusted instructions, budget cap, or creator specifications. This will be updated on the approval item.
+          </p>
+          <Input
+            placeholder="e.g. Approved with 15% budget cap instead of 25%."
+            value={modifyNote}
+            onChange={(e) => setModifyNote(e.target.value)}
+          />
+        </div>
+      </Modal>
     </div>
   )
 }

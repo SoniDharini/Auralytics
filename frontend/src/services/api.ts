@@ -33,6 +33,9 @@ import type {
   ContentPerformanceSnapshot,
   TrackContentRequest,
   AttributionUpdateRequest,
+  PerformanceAnalysis,
+  OptimizationPlan,
+  DecideOptimizationPayload,
 } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
@@ -507,4 +510,50 @@ export const api = {
     get: (campaignId?: string) =>
       request<DashboardAnalyticsData>(`/analytics${campaignId ? `?campaignId=${campaignId}` : ''}`),
   },
+
+  // Campaign Content Tracking, Performance & Optimization API
+  content: {
+    track: (campaignId: string, data: TrackContentRequest) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/track`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    list: (campaignId: string, influencerId?: string) =>
+      request<CampaignContent[]>(
+        `/campaigns/${campaignId}/content${influencerId ? `?influencer_id=${influencerId}` : ''}`
+      ),
+    refresh: (campaignId: string, contentId: string) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/${contentId}/refresh`, {
+        method: 'POST',
+      }),
+    snapshots: (campaignId: string, contentId: string) =>
+      request<ContentPerformanceSnapshot[]>(`/campaigns/${campaignId}/content/${contentId}/snapshots`),
+    updateAttribution: (campaignId: string, contentId: string, data: AttributionUpdateRequest) =>
+      request<CampaignContent>(`/campaigns/${campaignId}/content/${contentId}/attribution`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    analyzePerformance: (campaignId: string, contentId: string) =>
+      request<PerformanceAnalysis>(`/campaigns/${campaignId}/content/${contentId}/performance`, {
+        method: 'POST',
+      }),
+    getLatestPerformance: (campaignId: string, contentId?: string) =>
+      request<PerformanceAnalysis | null>(
+        `/campaigns/${campaignId}/content/performance/latest${contentId ? `?content_id=${contentId}` : ''}`
+      ),
+    generateOptimization: (campaignId: string, contentId: string) =>
+      request<OptimizationPlan>(`/campaigns/${campaignId}/content/${contentId}/optimization`, {
+        method: 'POST',
+      }),
+    getLatestOptimization: (campaignId: string, contentId?: string) =>
+      request<OptimizationPlan | null>(
+        `/campaigns/${campaignId}/content/optimization/latest${contentId ? `?content_id=${contentId}` : ''}`
+      ),
+    decideOptimization: (campaignId: string, data: DecideOptimizationPayload) =>
+      request<OptimizationPlan>(`/campaigns/${campaignId}/content/optimization/decide`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+  },
 }
+

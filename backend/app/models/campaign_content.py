@@ -2,11 +2,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.db.custom_types import JSON_COMPAT
+from app.db.custom_types import GUID, JSON_COMPAT
 
 
 class TrackingStatus:
@@ -65,6 +65,12 @@ class CampaignContent(Base):
         default=lambda: f"ccont-{uuid.uuid4().hex[:12]}",
         index=True,
     )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     campaign_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("campaigns.id", ondelete="CASCADE"),
@@ -82,6 +88,7 @@ class CampaignContent(Base):
     content_type: Mapped[str] = mapped_column(String(50), default=ContentType.YOUTUBE_VIDEO, nullable=False)
     external_content_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     content_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
@@ -314,3 +321,135 @@ class ContentPerformanceSnapshot(Base):
     )
 
     content: Mapped["CampaignContent"] = relationship("CampaignContent", back_populates="snapshots")
+
+
+class PerformanceAnalysis(Base):
+    __tablename__ = "campaign_performance_analyses"
+
+    id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        default=lambda: f"panal-{uuid.uuid4().hex[:12]}",
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    campaign_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    influencer_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("influencers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    campaign_content_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("campaign_contents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    latest_snapshot_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("content_performance_snapshots.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    agent_run_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("agent_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    content_stage: Mapped[str] = mapped_column(String(50), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    what_is_working: Mapped[List[str]] = mapped_column(JSON_COMPAT(), default=list, nullable=False)
+    needs_attention: Mapped[List[str]] = mapped_column(JSON_COMPAT(), default=list, nullable=False)
+    financial_interpretation: Mapped[str] = mapped_column(Text, nullable=False)
+    next_step: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, default=0.9, nullable=False)
+    raw_kpis: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON_COMPAT(), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    campaign: Mapped["Campaign"] = relationship("Campaign")
+    influencer: Mapped["Influencer"] = relationship("Influencer")
+    content: Mapped["CampaignContent"] = relationship("CampaignContent")
+    latest_snapshot: Mapped[Optional["ContentPerformanceSnapshot"]] = relationship("ContentPerformanceSnapshot")
+
+
+class OptimizationPlan(Base):
+    __tablename__ = "campaign_optimization_plans"
+
+    id: Mapped[str] = mapped_column(
+        String(64),
+        primary_key=True,
+        default=lambda: f"oplan-{uuid.uuid4().hex[:12]}",
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    campaign_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    campaign_content_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("campaign_contents.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    performance_analysis_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("campaign_performance_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    agent_run_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        ForeignKey("agent_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    recommendations_json: Mapped[List[Dict[str, Any]]] = mapped_column(JSON_COMPAT(), default=list, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    campaign: Mapped["Campaign"] = relationship("Campaign")
+    content: Mapped[Optional["CampaignContent"]] = relationship("CampaignContent")
+    performance_analysis: Mapped[Optional["PerformanceAnalysis"]] = relationship("PerformanceAnalysis")

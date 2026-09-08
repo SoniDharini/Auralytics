@@ -16,6 +16,8 @@ from app.models.campaign_content import (
     CampaignContent,
     ContentPerformanceSnapshot,
     ContentType,
+    OptimizationPlan,
+    PerformanceAnalysis,
     PerformanceStatus,
     TrackingStatus,
 )
@@ -46,4 +48,6 @@ __all__ = [
     "ContentType",
     "PerformanceStatus",
     "TrackingStatus",
+    "PerformanceAnalysis",
+    "OptimizationPlan",
 ]
