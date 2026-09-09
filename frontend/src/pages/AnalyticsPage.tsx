@@ -13,33 +13,23 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  Activity,
   AlertCircle,
   AlertTriangle,
   ArrowRight,
   Bot,
   Check,
   CheckCircle2,
-  ChevronRight,
   Clapperboard,
-  Clock,
   DollarSign,
   Edit3,
   ExternalLink,
   Eye,
   Heart,
-  HelpCircle,
   MessageSquare,
-  Percent,
-  Play,
   Plus,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
-  TrendingDown,
-  TrendingUp,
   X,
-  XCircle,
 } from 'lucide-react'
 import { api } from '@/services/api'
 import type { DashboardAnalyticsData } from '@/services/api'
@@ -94,7 +84,6 @@ import type {
   CampaignContent,
   PerformanceAnalysis,
   OptimizationPlan,
-  OptimizationRecommendation,
 } from '@/types'
 
 function Youtube({ className = 'h-4 w-4' }: { className?: string }) {
@@ -124,20 +113,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 }
 
-function stringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((item) => {
-      if (typeof item === 'string') return item
-      const record = asRecord(item)
-      if (!record) return null
-      if (typeof record.text === 'string') return record.text
-      if (typeof record.title === 'string') return record.title
-      if (typeof record.detail === 'string') return record.detail
-      return null
-    })
-    .filter((item): item is string => Boolean(item))
-}
 
 function pickString(record: Record<string, unknown> | null, keys: string[]): string | undefined {
   if (!record) return undefined
@@ -175,8 +150,9 @@ export function AnalyticsPage() {
   // Content tracking form state
   const [trackingInfluencerId, setTrackingInfluencerId] = useState<string>('')
   const [trackingUrl, setTrackingUrl] = useState<string>('')
-  const [trackingContentType, setTrackingContentType] = useState<string>('auto')
+  const trackingContentType = 'auto'
   const [isTrackingSubmitting, setIsTrackingSubmitting] = useState(false)
+  const [trackingError, setTrackingError] = useState<string | null>(null)
 
   // Business attribution modal state
   const [attributionModalOpen, setAttributionModalOpen] = useState(false)
@@ -356,7 +332,7 @@ export function AnalyticsPage() {
       setTrackedContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       toast({ title: 'Metrics refreshed', description: 'Updated live statistics from YouTube Data API.', type: 'success' })
     } catch (err: any) {
-      toast({ title: 'Refresh failed', description: err?.message || 'Could not fetch metrics.', type: 'danger' })
+      toast({ title: 'Refresh failed', description: err?.message || 'Could not fetch metrics.', type: 'error' })
     } finally {
       setActionLoading((prev) => ({ ...prev, [`refresh-${contentId}`]: false }))
     }
@@ -369,6 +345,7 @@ export function AnalyticsPage() {
       return
     }
     setIsTrackingSubmitting(true)
+    setTrackingError(null)
     try {
       const newContent = await api.content.track(campaignId, {
         influencer_id: trackingInfluencerId,
@@ -378,6 +355,7 @@ export function AnalyticsPage() {
       setTrackedContents((prev) => [newContent, ...prev])
       setSelectedContentId(newContent.id)
       setTrackingUrl('')
+      setTrackingError(null)
       toast({
         title: 'Content tracking registered',
         description: `Tracking '${newContent.title || 'YouTube Content'}' with live metrics & baseline.`,
@@ -390,7 +368,9 @@ export function AnalyticsPage() {
       setPerformanceAnalysis(perf)
       setOptimizationPlan(opt)
     } catch (err: any) {
-      toast({ title: 'Tracking failed', description: err?.message || 'Unable to register YouTube URL.', type: 'danger' })
+      const msg = err?.message || 'Unable to register YouTube URL.'
+      setTrackingError(msg)
+      toast({ title: 'Tracking failed', description: msg, type: 'error' })
     } finally {
       setIsTrackingSubmitting(false)
     }
@@ -407,7 +387,7 @@ export function AnalyticsPage() {
         type: 'success',
       })
     } catch (err: any) {
-      toast({ title: 'Analysis failed', description: err?.message || 'Performance Agent failed.', type: 'danger' })
+      toast({ title: 'Analysis failed', description: err?.message || 'Performance Agent failed.', type: 'error' })
     } finally {
       setLoadingPerformance(false)
     }
@@ -424,7 +404,7 @@ export function AnalyticsPage() {
         type: 'success',
       })
     } catch (err: any) {
-      toast({ title: 'Optimization failed', description: err?.message || 'Optimization Agent failed.', type: 'danger' })
+      toast({ title: 'Optimization failed', description: err?.message || 'Optimization Agent failed.', type: 'error' })
     } finally {
       setLoadingOptimization(false)
     }
@@ -445,7 +425,7 @@ export function AnalyticsPage() {
         type: decision === 'approved' ? 'success' : decision === 'rejected' ? 'info' : 'warning',
       })
     } catch (err: any) {
-      toast({ title: 'Decision failed', description: err?.message || 'Could not record decision.', type: 'danger' })
+      toast({ title: 'Decision failed', description: err?.message || 'Could not record decision.', type: 'error' })
     } finally {
       setActionLoading((prev) => ({ ...prev, [`decide-${approvalId}`]: false }))
     }
@@ -478,13 +458,13 @@ export function AnalyticsPage() {
         attributed_orders: orders,
         average_order_value: aov,
         gross_margin_percent: margin,
-        attribution_source: 'DEMO BUSINESS DATA',
+        attribution_source: 'BUSINESS ATTRIBUTION',
       })
       setTrackedContents((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
       setAttributionModalOpen(false)
       toast({ title: 'Attribution saved', description: 'Business KPIs & ROAS recalculated deterministically.', type: 'success' })
     } catch (err: any) {
-      toast({ title: 'Failed to save', description: err?.message || 'Error updating attribution.', type: 'danger' })
+      toast({ title: 'Failed to save', description: err?.message || 'Error updating attribution.', type: 'error' })
     } finally {
       setActionLoading((prev) => ({ ...prev, saveAttribution: false }))
     }
@@ -552,26 +532,10 @@ export function AnalyticsPage() {
     return [{ value: 'all', label: 'All Platforms' }, ...values.map((value) => ({ value, label: statusLabel(value) }))]
   }, [creators])
 
-  const performanceRun = useMemo(
-    () => agentRuns.find((run) => run.agentName === 'performance') || null,
-    [agentRuns],
-  )
   const optimizationRun = useMemo(
     () => agentRuns.find((run) => run.agentName === 'optimization') || null,
     [agentRuns],
   )
-
-  const performanceNarrative = useMemo(() => {
-    const output = asRecord(performanceRun?.outputJson)
-    return {
-      health: pickString(output, ['health', 'campaign_health', 'status']),
-      strengths: stringList(output?.strengths ?? output?.whats_working ?? output?.top_strengths),
-      weaknesses: stringList(output?.weaknesses ?? output?.needs_attention),
-      observations: stringList(output?.observations ?? output?.insights ?? output?.key_observations),
-      risks: stringList(output?.risks),
-      insight: pickString(output, ['key_insight', 'summary', 'message']),
-    }
-  }, [performanceRun])
 
   const optimizationActions = useMemo(() => {
     const output = asRecord(optimizationRun?.outputJson)
@@ -932,7 +896,8 @@ export function AnalyticsPage() {
                     to={selectedCampaign ? `/app/campaigns/${selectedCampaign.id}` : undefined}
                   />
                 ) : (
-                  <div className="h-[280px]">
+                  <>
+                    <div className="h-[280px]">
                     <ResponsiveContainer width="100%" height="100%">
                       {chartData.length === 1 ? (
                         <BarChart data={chartData} barSize={48}>
@@ -979,6 +944,12 @@ export function AnalyticsPage() {
                       )}
                     </ResponsiveContainer>
                   </div>
+                  {chartData.length === 1 && (
+                    <p className="mt-3 text-center text-xs text-text-secondary">
+                      Tracking recently started. Trend will develop over time as more snapshots are captured.
+                    </p>
+                  )}
+                </>
                 )}
               </CardContent>
             </SectionCard>
@@ -1055,11 +1026,11 @@ export function AnalyticsPage() {
               )}
             </div>
 
-            {/* Demo Mode Banner */}
-            <div className="flex items-start sm:items-center gap-3 rounded-[14px] border border-primary/25 bg-primary-soft/40 px-4 py-3 text-xs sm:text-sm text-text">
-              <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
+            {/* Live Creator Verification Banner */}
+            <div className="flex items-start sm:items-center gap-3 rounded-[14px] border border-border bg-page/60 px-4 py-3 text-xs sm:text-sm text-text">
+              <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5 sm:mt-0" />
               <div>
-                <span className="font-semibold text-primary">Demo Mode Active:</span> Any public YouTube video or Short URL can be used for testing without creator-channel matching.
+                <span className="font-semibold text-text">Live Creator Verification:</span> Performance metrics are fetched directly from the YouTube Data API v3 and strictly matched against the selected shortlisted creator's verified YouTube channel.
               </div>
             </div>
 
@@ -1071,7 +1042,13 @@ export function AnalyticsPage() {
                     <Plus className="h-4 w-4 text-primary" /> Register New YouTube Content
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-2">
+                <CardContent className="pt-2 space-y-3">
+                  {trackingError && (
+                    <div className="flex items-start gap-2.5 rounded-[12px] border border-danger/30 bg-danger-soft/40 p-3 text-xs text-danger">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-danger" />
+                      <span className="font-medium leading-relaxed">{trackingError}</span>
+                    </div>
+                  )}
                   <form onSubmit={handleStartTracking} className="grid gap-3 sm:grid-cols-12 items-end">
                     <div className="sm:col-span-4">
                       <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider block mb-1.5">
@@ -1079,7 +1056,10 @@ export function AnalyticsPage() {
                       </label>
                       <Select
                         value={trackingInfluencerId}
-                        onChange={(e) => setTrackingInfluencerId(e.target.value)}
+                        onChange={(e) => {
+                          setTrackingInfluencerId(e.target.value)
+                          if (trackingError) setTrackingError(null)
+                        }}
                         options={
                           creators.length > 0
                             ? creators.map((c) => ({
@@ -1097,7 +1077,10 @@ export function AnalyticsPage() {
                       <Input
                         placeholder="https://www.youtube.com/watch?v=... or shorts/..."
                         value={trackingUrl}
-                        onChange={(e) => setTrackingUrl(e.target.value)}
+                        onChange={(e) => {
+                          setTrackingUrl(e.target.value)
+                          if (trackingError) setTrackingError(null)
+                        }}
                       />
                     </div>
                     <div className="sm:col-span-3 flex gap-2">
@@ -1123,7 +1106,9 @@ export function AnalyticsPage() {
             )}
 
             {/* Tracked Content Grid / List */}
-            {trackedContents.length > 0 ? (
+            {loadingContent ? (
+              <RowSkeleton />
+            ) : trackedContents.length > 0 ? (
               <div className="space-y-3">
                 {trackedContents.map((content) => {
                   const isSelected = selectedContent?.id === content.id
@@ -1233,7 +1218,7 @@ export function AnalyticsPage() {
                           <div className="flex items-center gap-1.5">
                             <Button
                               size="sm"
-                              variant={isSelected ? 'primary' : 'outline'}
+                              variant={isSelected ? 'primary' : 'secondary'}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleSelectContent(content.id)
@@ -1360,7 +1345,9 @@ export function AnalyticsPage() {
                       <Badge variant="primary" className="text-[10px] py-0 px-1.5">REAL YOUTUBE DATA</Badge>
                     </div>
                     <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
-                      {formatCompactCount(selectedContent.baseline_median_views || 0)}
+                      {selectedContent.baseline_median_views != null
+                        ? formatCompactCount(selectedContent.baseline_median_views)
+                        : 'N/A'}
                     </p>
                     <p className="mt-1 text-xs text-text-secondary">
                       Median of last {selectedContent.baseline_sample_size || 0} public channel videos
@@ -1378,7 +1365,7 @@ export function AnalyticsPage() {
                     <p className={cn('mt-2 text-[28px] font-bold tracking-tight', (selectedContent.performance_lift_percent || 0) >= 0 ? 'text-success' : 'text-danger')}>
                       {selectedContent.performance_lift_percent != null
                         ? `${selectedContent.performance_lift_percent > 0 ? '+' : ''}${selectedContent.performance_lift_percent.toFixed(1)}%`
-                        : '—'}
+                        : 'N/A'}
                     </p>
                     <p className="mt-1 text-xs text-text-secondary">
                       Lift vs creator's historical median views
@@ -1486,17 +1473,24 @@ export function AnalyticsPage() {
                   <CardContent className="pt-5">
                     <div className="flex items-center justify-between gap-1">
                       <p className="text-xs font-semibold uppercase text-text-secondary">Attributed Revenue</p>
-                      <Badge variant="warning" className="text-[10px] py-0 px-1.5">DEMO BUSINESS DATA</Badge>
+                      <Badge
+                        variant={selectedContent.attributed_revenue != null ? 'success' : 'outline'}
+                        className="text-[10px] py-0 px-1.5"
+                      >
+                        {selectedContent.attributed_revenue != null
+                          ? (selectedContent.attribution_source || 'ATTRIBUTED BUSINESS DATA')
+                          : 'NOT TRACKED'}
+                      </Badge>
                     </div>
                     <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
-                      {selectedContent.attributed_revenue != null ? formatINR(selectedContent.attributed_revenue) : '—'}
+                      {selectedContent.attributed_revenue != null ? formatINR(selectedContent.attributed_revenue) : 'N/A'}
                     </p>
                     <p className="mt-1 text-xs text-text-secondary">
                       {selectedContent.attributed_orders != null
                         ? `${selectedContent.attributed_orders} orders @ ${formatINR(selectedContent.average_order_value || 0)} AOV`
                         : selectedContent.attributed_revenue != null
                         ? 'Direct revenue entered'
-                        : 'Click Enter Attribution to add revenue'}
+                        : 'No direct revenue attribution recorded'}
                     </p>
                   </CardContent>
                 </SectionCard>
@@ -1506,10 +1500,15 @@ export function AnalyticsPage() {
                   <CardContent className="pt-5">
                     <div className="flex items-center justify-between gap-1">
                       <p className="text-xs font-semibold uppercase text-text-secondary">Return on Ad Spend (ROAS)</p>
-                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                      <Badge
+                        variant={selectedContent.roas != null ? 'success' : 'outline'}
+                        className="text-[10px] py-0 px-1.5"
+                      >
+                        {selectedContent.roas != null ? 'CALCULATED BY AURALYTICS' : 'NOT TRACKED'}
+                      </Badge>
                     </div>
                     <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
-                      {selectedContent.roas != null ? `${selectedContent.roas.toFixed(2)}x` : '—'}
+                      {selectedContent.roas != null ? `${selectedContent.roas.toFixed(2)}x` : 'N/A'}
                     </p>
                     <p className="mt-1 text-xs text-text-secondary">
                       Formula: Attributed Revenue / Deliverable Spend
@@ -1522,12 +1521,17 @@ export function AnalyticsPage() {
                   <CardContent className="pt-5">
                     <div className="flex items-center justify-between gap-1">
                       <p className="text-xs font-semibold uppercase text-text-secondary">Return on Investment (ROI)</p>
-                      <Badge variant="success" className="text-[10px] py-0 px-1.5">CALCULATED BY AURALYTICS</Badge>
+                      <Badge
+                        variant={selectedContent.roi != null ? 'success' : 'outline'}
+                        className="text-[10px] py-0 px-1.5"
+                      >
+                        {selectedContent.roi != null ? 'CALCULATED BY AURALYTICS' : 'NOT AVAILABLE'}
+                      </Badge>
                     </div>
                     <p className="mt-2 text-[28px] font-bold tracking-tight text-text">
                       {selectedContent.roi != null
                         ? `${selectedContent.roi > 0 ? '+' : ''}${selectedContent.roi.toFixed(1)}%`
-                        : '—'}
+                        : 'N/A'}
                     </p>
                     <p className="mt-1 text-xs text-text-secondary">
                       {selectedContent.attributed_profit != null
@@ -2388,7 +2392,7 @@ function CreatorRosterTable({
   )
 }
 
-function AgentNarrative({
+export function AgentNarrative({
   health,
   strengths,
   weaknesses,

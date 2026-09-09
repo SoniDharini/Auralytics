@@ -107,7 +107,7 @@ class CampaignContentResponse(BaseModel):
     content_stage: Optional[str] = None
     momentum: Optional[str] = None
 
-    is_demo: bool = True
+    is_demo: bool = False
     snapshots: List[SnapshotResponse] = []
     created_at: datetime
     updated_at: datetime

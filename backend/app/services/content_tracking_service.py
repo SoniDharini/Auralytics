@@ -58,7 +58,7 @@ def extract_youtube_video_id(url: str) -> Tuple[str, str, str]:
     """
     cleaned = (url or "").strip()
     if not cleaned:
-        raise BadRequestException(detail="YouTube video URL is required.")
+        raise BadRequestException(detail="Please enter a valid YouTube video or Short URL.")
 
     is_short = "/shorts/" in cleaned
 
@@ -81,10 +81,7 @@ def extract_youtube_video_id(url: str) -> Tuple[str, str, str]:
         return video_id, canonical_url, ContentType.YOUTUBE_VIDEO
 
     raise BadRequestException(
-        detail=(
-            "Invalid YouTube URL. Please enter a valid YouTube video or Short URL "
-            "(e.g., https://www.youtube.com/watch?v=... or https://www.youtube.com/shorts/...)"
-        )
+        detail="Please enter a valid YouTube video or Short URL."
     )
 
 
@@ -548,28 +545,36 @@ class ContentTrackingService:
             raise BadRequestException(detail=f"YouTube Data API error: {exc}")
 
         if not video_data:
-            raise NotFoundException(
-                detail=(
-                    f"Video '{video_id}' could not be found on YouTube. "
-                    "Please verify the URL and ensure the video is public."
-                )
-            )
+            raise NotFoundException(detail="This YouTube video is private or unavailable.")
 
         # 2. Creator channel mismatch verification & Demo Mode
         video_channel_id = video_data.get("channel_id")
         video_channel_title = video_data.get("channel_title") or "Unknown"
         expected_channel_id = influencer.external_id if influencer else None
 
+        # Resolve expected channel ID if stored as a handle or username instead of UC...
+        if expected_channel_id and not expected_channel_id.startswith("UC"):
+            try:
+                ch_resp = await self.yt.get_channels_by_handle(expected_channel_id)
+                if ch_resp.items:
+                    expected_channel_id = ch_resp.items[0].id
+            except Exception as exc:
+                logger.warning("Could not resolve channel handle %s: %s", expected_channel_id, exc)
+
+        if (not expected_channel_id or not expected_channel_id.startswith("UC")) and influencer and influencer.username:
+            try:
+                ch_resp = await self.yt.get_channels_by_handle(influencer.username)
+                if ch_resp.items:
+                    expected_channel_id = ch_resp.items[0].id
+            except Exception as exc:
+                logger.warning("Could not resolve channel username %s: %s", influencer.username, exc)
+
         is_demo = bool(settings.PERFORMANCE_DEMO_MODE)
 
-        if not is_demo and video_channel_id and expected_channel_id:
-            if video_channel_id.strip().lower() != expected_channel_id.strip().lower():
+        if not is_demo:
+            if not video_channel_id or not expected_channel_id or video_channel_id.strip().lower() != expected_channel_id.strip().lower():
                 raise BadRequestException(
-                    detail=(
-                        f"CREATOR_VIDEO_MISMATCH: This video does not appear to belong to the selected campaign "
-                        f"influencer '{influencer.name}'. Video channel is '{video_channel_title}' ({video_channel_id}), "
-                        f"expected influencer channel is '{influencer.username}' ({expected_channel_id})."
-                    )
+                    detail="This video does not belong to the selected shortlisted creator. Please provide a video or Short published by this creator."
                 )
 
         # Determine if short from duration or URL
@@ -738,10 +743,22 @@ class ContentTrackingService:
             video_data = await self.yt.get_video_details(content.external_content_id)
             if not video_data:
                 content.tracking_status = TrackingStatus.SYNC_FAILED
-                content.sync_error = "Video removed or made private on YouTube"
+                content.sync_error = "This YouTube video is private or unavailable."
                 await self.db.commit()
                 await self.db.refresh(content)
                 return content
+        except YouTubeAPIError as exc:
+            if exc.status_code == 429 or "quota" in str(exc).lower():
+                logger.warning("YouTube API quota exceeded during refresh: %s", exc)
+                content.sync_error = "YouTube API quota exceeded for today. Displaying last stored PostgreSQL snapshot."
+                await self.db.commit()
+                await self.db.refresh(content)
+                return content
+            content.tracking_status = TrackingStatus.SYNC_FAILED
+            content.sync_error = str(exc)[:500]
+            await self.db.commit()
+            await self.db.refresh(content)
+            return content
         except Exception as exc:
             content.tracking_status = TrackingStatus.SYNC_FAILED
             content.sync_error = str(exc)[:500]

@@ -114,7 +114,7 @@ def _build_content_response(content: CampaignContent, influencer: Optional[Influ
         content_age_days=content.content_age_days,
         content_stage=content.content_stage,
         momentum=content.momentum,
-        is_demo=content.is_demo if content.is_demo is not None else True,
+        is_demo=content.is_demo if content.is_demo is not None else False,
         snapshots=snapshots,
         created_at=content.created_at,
         updated_at=content.updated_at,

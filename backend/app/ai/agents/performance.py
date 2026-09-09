@@ -178,7 +178,8 @@ class PerformanceAgent(BaseAgent):
             "Label it EARLY_STAGE and state that more time/data is required before final conclusions.\n"
             "2. When data is insufficient, explicitly state that more tracking time/data is required.\n"
             "3. If campaign objective is AWARENESS, prioritize reach, views, engagement, and CPV over sales attribution.\n"
-            "4. If attributed revenue is demo-entered, acknowledge that it is demo data.\n"
+            "4. If attributed revenue has not been recorded or is unprovided/null, you MUST explicitly state in the financial_interpretation: "
+            "'Direct revenue attribution has not been recorded for this deliverable.' NEVER invent conversions, conversion rates, or sales.\n"
             "5. Use clear, simple language suitable for marketers.\n\n"
             "Return structured JSON matching the exact schema:\n"
             "{\n"
@@ -242,4 +243,17 @@ class PerformanceAgent(BaseAgent):
         if data.get("status") not in PerformanceStatus.ALL:
             data["status"] = context_payload["kpis"].get("performance_status") or PerformanceStatus.ON_TRACK
         result.status = data["status"]
+
+        # Ensure explicit unrecorded attribution statement if revenue is missing
+        attr_rev = context_payload.get("kpis", {}).get("attributed_revenue_inr")
+        if attr_rev is None or attr_rev < 0:
+            fin_text = data.get("financial_interpretation", "")
+            required_phrase = "Direct revenue attribution has not been recorded for this deliverable."
+            if required_phrase.lower() not in fin_text.lower():
+                if fin_text:
+                    data["financial_interpretation"] = f"{required_phrase} {fin_text}"
+                else:
+                    data["financial_interpretation"] = required_phrase
+                result.data = data
+
         return result

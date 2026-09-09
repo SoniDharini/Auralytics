@@ -3,17 +3,14 @@ import { Link } from 'react-router-dom'
 import {
   ArrowRight,
   Check,
-  CheckCircle2,
   Edit3,
-  Plus,
   RefreshCw,
   ShieldAlert,
   Sparkles,
   TrendingUp,
   X,
-  XCircle,
 } from 'lucide-react'
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Modal, Select, useToast } from '@/components/ui'
+import { Badge, Button, Card, CardContent, CardHeader, Input, Modal, Select, useToast } from '@/components/ui'
 import { cn } from '@/utils'
 import { api } from '@/services/api'
 import type { Campaign, OptimizationPlan, OptimizationRecommendation } from '@/types'
@@ -93,7 +90,7 @@ export function OptimizationPage() {
       }
       toast(messages[action])
     } catch (err: any) {
-      toast({ title: 'Action failed', description: err?.message || 'Could not record decision.', type: 'danger' })
+      toast({ title: 'Action failed', description: err?.message || 'Could not record decision.', type: 'error' })
     } finally {
       setActionLoading((prev) => ({ ...prev, [approvalId]: false }))
     }
