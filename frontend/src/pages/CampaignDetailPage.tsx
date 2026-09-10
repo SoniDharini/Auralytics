@@ -1539,7 +1539,7 @@ export function CampaignDetailPage() {
                     'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                     editTypes.includes(t)
                       ? 'bg-primary-soft border-primary/30 text-primary'
-                      : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                      : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                   )}
                 >
                   {t}

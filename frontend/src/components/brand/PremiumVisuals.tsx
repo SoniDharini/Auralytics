@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { BarChart3, FileText, Moon, Search, Send, Sparkles, Sun } from 'lucide-react'
+import { BarChart3, FileText, Layers, Moon, Search, Send, Sparkles, Sun } from 'lucide-react'
 import { useTheme } from '@/context/ThemeContext'
 import { cn } from '@/utils'
 
@@ -261,46 +261,79 @@ export function AuthBrandPanel({
   )
 }
 
-/** Compact abstract decor for Overview welcome card. */
-export function OverviewHeroDecor({ className }: { className?: string }) {
+const momentumTiles = [
+  { title: 'Campaign Ready', subtitle: 'Campaign workspace', icon: Layers, active: true },
+  { title: 'Creator Discovery', subtitle: 'Find the right fit', icon: Search, active: false },
+  { title: 'Measure Impact', subtitle: 'Track performance', icon: BarChart3, active: false },
+] as const
+
+/** Compact campaign-momentum visual for the Overview welcome card. */
+export function OverviewHeroMomentum({ className }: { className?: string }) {
   return (
-    <div className={cn('relative w-full max-w-[280px]', className)} aria-hidden>
-      <div className="absolute inset-0 rounded-full bg-primary/20 blur-3xl animate-glow-breathe" />
-      <svg viewBox="0 0 280 200" className="relative w-full h-auto">
-        <defs>
-          <linearGradient id="oh-g" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="var(--auralytics-primary)" stopOpacity="0.55" />
-            <stop offset="100%" stopColor="var(--auralytics-accent)" stopOpacity="0.25" />
-          </linearGradient>
-        </defs>
+    <div
+      className={cn('relative w-full max-w-[268px] pointer-events-none select-none', className)}
+      aria-hidden
+    >
+      <div className="absolute left-[12%] top-5 h-32 w-32 rounded-full bg-primary/18 dark:bg-primary/22 blur-3xl hero-glow-shift" />
+
+      <div className="relative flex flex-col">
+        {momentumTiles.map((tile, i) => {
+          const Icon = tile.icon
+          return (
+            <div key={tile.title}>
+              {i > 0 && (
+                <div className="relative h-3 ml-[26px] flex items-center">
+                  <span className="h-full w-px bg-gradient-to-b from-primary/45 via-accent/35 to-primary/25" />
+                  <span className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/70" />
+                </div>
+              )}
+              <div
+                className={cn(
+                  'relative rounded-[14px] border border-primary/18 dark:border-white/12',
+                  'bg-white/75 dark:bg-elevated/80 backdrop-blur-md',
+                  'shadow-[0_8px_20px_rgba(91,95,239,0.08),inset_0_1px_0_rgba(255,255,255,0.65)]',
+                  'dark:shadow-[0_8px_20px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.06)]',
+                  i === 0 && 'mr-6 hero-momentum-float',
+                  i === 1 && 'ml-6 hero-momentum-float-delayed',
+                  i === 2 && 'ml-2 mr-4 hero-momentum-float-slow',
+                )}
+              >
+                <div className="flex items-center gap-2.5 px-3 py-2.5">
+                  <span className="h-7 w-7 rounded-lg bg-primary-soft text-primary flex items-center justify-center shrink-0">
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-text leading-tight">{tile.title}</p>
+                    <p className="text-[10px] text-text-secondary leading-tight mt-0.5">{tile.subtitle}</p>
+                  </div>
+                  <span
+                    className={cn(
+                      'ml-auto h-1.5 w-1.5 rounded-full shrink-0',
+                      tile.active ? 'bg-primary hero-status-dot' : 'bg-primary/35',
+                    )}
+                  />
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <svg
+        viewBox="0 0 120 16"
+        className="absolute -right-2 top-[42%] w-16 opacity-45"
+        fill="none"
+      >
         <path
-          d="M20 140 C 70 60, 120 180, 170 90 S 240 40, 270 110"
-          fill="none"
-          stroke="url(#oh-g)"
-          strokeWidth="28"
-          strokeLinecap="round"
-          opacity="0.5"
-          className="animate-hero-wave"
-        />
-        <path
-          d="M30 150 C 90 80, 130 160, 190 100 S 250 70, 265 120"
-          fill="none"
+          d="M2 8 H118"
           stroke="var(--auralytics-primary)"
-          strokeWidth="1.5"
-          opacity="0.35"
+          strokeWidth="1"
+          strokeDasharray="2 4"
+          className="hero-path-flow"
         />
-        <rect x="168" y="36" width="88" height="28" rx="10" fill="var(--auralytics-primary)" opacity="0.18" />
-        <rect x="178" y="72" width="78" height="22" rx="8" fill="var(--auralytics-accent)" opacity="0.14" />
-        <rect x="188" y="104" width="68" height="18" rx="7" fill="var(--auralytics-primary)" opacity="0.12" />
-        <circle cx="60" cy="50" r="3" fill="var(--auralytics-primary)" opacity="0.45" className="animate-float-dot" />
-        <circle
-          cx="240"
-          cy="160"
-          r="2.5"
-          fill="var(--auralytics-accent)"
-          opacity="0.4"
-          className="animate-float-dot-delayed"
-        />
+        <circle cx="8" cy="8" r="2" fill="var(--auralytics-primary)" opacity="0.75" />
+        <circle cx="60" cy="8" r="1.5" fill="var(--auralytics-accent)" opacity="0.55" />
+        <circle cx="112" cy="8" r="2" fill="var(--auralytics-primary)" opacity="0.4" />
       </svg>
     </div>
   )

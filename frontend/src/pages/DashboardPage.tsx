@@ -33,7 +33,7 @@ import {
   StatusChip,
 } from '@/components/ui'
 import { PageAmbientBackground } from '@/components/brand/VisualSystem'
-import { OverviewHeroDecor } from '@/components/brand/PremiumVisuals'
+import { OverviewHeroMomentum } from '@/components/brand/PremiumVisuals'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { api } from '@/services/api'
@@ -176,45 +176,60 @@ export function DashboardPage() {
     <div className="relative space-y-5 animate-fade-in">
       <PageAmbientBackground variant="overview" className="h-[520px]" />
 
-      <section className="relative overflow-hidden rounded-[22px] border border-primary/15 dark:border-white/10 shadow-[0_12px_40px_rgba(91,95,239,0.08)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.35)]">
-        <div className="absolute inset-0 bg-gradient-to-br from-white via-[#f4f0ff] to-[#eef2ff] dark:from-[#12162a] dark:via-[#1a1630] dark:to-[#15182a]" />
-        <div className="absolute -right-10 top-0 h-48 w-48 rounded-full bg-primary/15 dark:bg-primary/25 blur-3xl pointer-events-none animate-glow-breathe" />
+      <section className="relative overflow-hidden rounded-[22px] border border-primary/18 dark:border-white/10 shadow-[0_14px_40px_rgba(91,95,239,0.1)] dark:shadow-[0_14px_40px_rgba(0,0,0,0.4)]">
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,#fcfbff_0%,#f6f3ff_46%,#eef2ff_100%)] dark:bg-[linear-gradient(135deg,#12162a_0%,#18162e_48%,#14182a_100%)]" />
+        <div className="absolute right-[-8%] top-[-30%] h-56 w-56 rounded-full bg-primary/16 dark:bg-primary/22 blur-3xl pointer-events-none hero-glow-shift" />
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/80 to-transparent dark:via-white/15 pointer-events-none" />
         <div
-          className="absolute inset-0 opacity-[0.28] dark:opacity-[0.16] pointer-events-none"
+          className="absolute inset-0 opacity-[0.07] dark:opacity-[0.08] pointer-events-none"
           style={{
             backgroundImage:
-              'radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--auralytics-primary) 35%, transparent) 1px, transparent 0)',
-            backgroundSize: '20px 20px',
+              'radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--auralytics-primary) 55%, transparent) 1px, transparent 0)',
+            backgroundSize: '22px 22px',
           }}
         />
+        <svg
+          viewBox="0 0 960 220"
+          className="absolute inset-0 h-full w-full pointer-events-none text-primary opacity-[0.07] dark:opacity-[0.12]"
+          preserveAspectRatio="none"
+          aria-hidden
+        >
+          <path d="M40 190 C 220 40, 380 210, 560 80 S 820 40, 940 150" fill="none" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M80 40 C 260 160, 420 20, 640 130 S 860 180, 960 70" fill="none" stroke="currentColor" strokeWidth="0.8" />
+        </svg>
+        <div className="absolute -right-10 -bottom-12 h-32 w-40 rotate-[18deg] rounded-[28px] border border-primary/12 bg-primary/[0.04] dark:bg-primary/[0.07] pointer-events-none" />
 
-        <div className="relative px-5 py-6 sm:px-7 sm:py-8 flex flex-col lg:flex-row gap-6 lg:items-center">
-          <div className="min-w-0 flex-1 max-w-xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary inline-flex items-center gap-1.5">
-              Welcome back <Sparkles className="h-3.5 w-3.5" />
+        <div className="relative px-5 py-5 sm:px-7 sm:py-6 lg:px-8 flex flex-col lg:flex-row lg:items-center gap-5 lg:gap-8">
+          <div className="min-w-0 flex-[1.7] max-w-xl">
+            <p className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-white/70 dark:bg-white/10 px-2.5 py-[5px] text-[10px] font-semibold uppercase tracking-[0.18em] text-primary backdrop-blur-sm shadow-[0_0_18px_rgba(91,95,239,0.12)]">
+              Welcome back <Sparkles className="h-3 w-3" />
             </p>
-            <h1 className="mt-1.5 text-[26px] sm:text-[32px] font-bold tracking-tight text-text">
-              {getGreeting()}, {displayName}
+            <h1 className="mt-3 text-[26px] sm:text-[32px] font-bold tracking-tight text-text leading-[1.18]">
+              {getGreeting()}, <span className="text-primary">{displayName}</span>
             </h1>
-            <p className="text-sm text-text-secondary mt-1.5 leading-relaxed">
+            <p className="text-sm text-text-secondary mt-2 leading-relaxed max-w-md">
               Manage campaigns, creators and performance from one place.
             </p>
             <div className="mt-5 flex flex-wrap gap-2.5">
               <Link to="/app/campaigns/new">
-                <Button className="gap-2 shadow-[0_8px_20px_rgba(91,95,239,0.28)]">
+                <Button className="gap-2 shadow-[0_10px_24px_rgba(91,95,239,0.32)] hover:-translate-y-px hover:shadow-[0_14px_28px_rgba(91,95,239,0.38)] motion-reduce:hover:translate-y-0">
                   <Plus className="h-4 w-4" /> Create Campaign
                 </Button>
               </Link>
-              <Link to="/app/discovery">
-                <Button variant="secondary" className="gap-2 bg-surface/90 dark:bg-elevated border-border">
-                  Discover creators <ArrowUpRight className="h-4 w-4" />
+              <Link to="/app/discovery" className="group">
+                <Button
+                  variant="secondary"
+                  className="gap-2 bg-white/85 dark:bg-elevated/90 border-primary/20 hover:bg-white dark:hover:bg-elevated hover:border-primary/35 hover:-translate-y-px motion-reduce:hover:translate-y-0"
+                >
+                  Discover creators{' '}
+                  <ArrowUpRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:group-hover:translate-x-0" />
                 </Button>
               </Link>
             </div>
           </div>
 
-          <div className="hidden md:flex flex-1 items-center justify-end">
-            <OverviewHeroDecor />
+          <div className="w-full lg:flex-1 lg:max-w-[38%] flex justify-start sm:justify-center lg:justify-end">
+            <OverviewHeroMomentum className="w-[220px] sm:w-[248px] lg:w-[268px] scale-[0.92] sm:scale-100 origin-left lg:origin-right" />
           </div>
         </div>
       </section>

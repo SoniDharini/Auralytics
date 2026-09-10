@@ -525,7 +525,7 @@ export function CreateCampaignPage() {
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         selectedTypes.includes(t)
                           ? 'bg-primary-soft border-primary/30 text-primary'
-                          : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                          : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {t}
@@ -606,7 +606,7 @@ export function CreateCampaignPage() {
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         selectedInterests.includes(i)
                           ? 'bg-primary-soft border-primary/30 text-primary'
-                          : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                          : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {i}
@@ -626,7 +626,7 @@ export function CreateCampaignPage() {
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         selectedLanguages.includes(l)
                           ? 'bg-primary-soft border-primary/30 text-primary'
-                          : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                          : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {l}
@@ -663,7 +663,7 @@ export function CreateCampaignPage() {
                         'rounded-[12px] border p-3 text-sm font-semibold transition text-left',
                         selectedPlatforms.includes(p.id)
                           ? 'border-primary bg-primary-soft text-primary'
-                          : 'border-border text-text-secondary hover:border-primary/30',
+                          : 'border-border bg-elevated text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {p.label}
@@ -683,7 +683,7 @@ export function CreateCampaignPage() {
                         'text-left rounded-[12px] border p-4 transition',
                         selectedTiers.includes(t.id)
                           ? 'border-primary bg-primary-soft'
-                          : 'border-border hover:border-primary/30',
+                          : 'border-border bg-elevated hover:border-primary/30',
                       )}
                     >
                       <p className="text-sm font-semibold">{t.label}</p>
@@ -704,7 +704,7 @@ export function CreateCampaignPage() {
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         selectedNiches.includes(n)
                           ? 'bg-primary-soft border-primary/30 text-primary'
-                          : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                          : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {n}
@@ -780,7 +780,7 @@ export function CreateCampaignPage() {
                 hint="This is your campaign ceiling. Allocation below must add up to this amount."
               />
 
-              <div className="rounded-[12px] border border-border bg-white p-4 space-y-3">
+              <div className="rounded-[12px] border border-border bg-elevated p-4 space-y-3">
                 <div className="flex items-start gap-2">
                   <Target className="h-4 w-4 text-primary mt-0.5 shrink-0" />
                   <div>
@@ -813,7 +813,7 @@ export function CreateCampaignPage() {
                   <div className="flex items-center gap-2">
                     <Sparkles className="h-4 w-4 text-ai" />
                     <p className="text-sm font-semibold text-ai">AI suggestion</p>
-                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white border border-border text-text-secondary">
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-elevated border border-border text-text-secondary">
                       Advisory only
                     </span>
                   </div>
@@ -837,8 +837,8 @@ export function CreateCampaignPage() {
                     className={cn(
                       'text-[11px] font-semibold px-2 py-0.5 rounded-full border',
                       allocationCustomized
-                        ? 'bg-white border-primary/30 text-primary'
-                        : 'bg-violet-50 border-violet-200 text-ai',
+                        ? 'bg-elevated border-primary/30 text-primary'
+                        : 'bg-violet-50 border-violet-200 text-ai dark:bg-violet-500/15 dark:border-violet-500/30',
                     )}
                   >
                     {allocationCustomized ? 'Customized by you' : 'Matching AI suggestion'}
@@ -863,7 +863,7 @@ export function CreateCampaignPage() {
                               value={item.amount}
                               onChange={(e) => updateAllocation(item.id, Number(e.target.value) || 0)}
                               aria-label={`${item.label} amount`}
-                              className="w-28 h-8 px-2 text-xs font-semibold text-right rounded-lg border border-border bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              className="w-28 h-8 px-2 text-xs font-semibold text-right rounded-lg border border-border bg-elevated text-text focus:outline-none focus:ring-2 focus:ring-primary/30"
                             />
                             <span className="text-xs text-text-secondary w-10 text-right">{Math.round(pct)}%</span>
                           </div>
@@ -932,7 +932,7 @@ export function CreateCampaignPage() {
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         secondaryKpiList.includes(k)
                           ? 'bg-primary-soft border-primary/30 text-primary'
-                          : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                          : 'bg-elevated border-border text-text-secondary hover:border-primary/30',
                       )}
                     >
                       {k}

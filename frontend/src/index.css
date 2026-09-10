@@ -99,6 +99,11 @@
 
 html {
   scroll-behavior: smooth;
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 html,
@@ -352,6 +357,71 @@ body {
   animation: float-dot 10s ease-in-out 1.2s infinite;
 }
 
+@keyframes hero-momentum-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes hero-path-flow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -28;
+  }
+}
+
+@keyframes hero-status-dot {
+  0%,
+  100% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--auralytics-primary) 0%, transparent);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--auralytics-primary) 45%, transparent);
+  }
+}
+
+@keyframes hero-glow-shift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  50% {
+    transform: translate(-16px, 10px);
+  }
+}
+
+.hero-momentum-float {
+  animation: hero-momentum-float 12s ease-in-out infinite;
+}
+
+.hero-momentum-float-delayed {
+  animation: hero-momentum-float 10s ease-in-out 1.4s infinite;
+}
+
+.hero-momentum-float-slow {
+  animation: hero-momentum-float 14s ease-in-out 0.7s infinite;
+}
+
+.hero-path-flow {
+  animation: hero-path-flow 12s linear infinite;
+}
+
+.hero-status-dot {
+  animation: hero-status-dot 3.8s ease-in-out infinite;
+}
+
+.hero-glow-shift {
+  animation: hero-glow-shift 16s ease-in-out infinite;
+}
+
 .nav-link-active {
   background: linear-gradient(
     135deg,
@@ -508,6 +578,12 @@ body {
   .animate-hero-wave,
   .animate-float-dot,
   .animate-float-dot-delayed,
+  .hero-momentum-float,
+  .hero-momentum-float-delayed,
+  .hero-momentum-float-slow,
+  .hero-path-flow,
+  .hero-status-dot,
+  .hero-glow-shift,
   .stagger-in > *,
   .skeleton {
     animation: none !important;
