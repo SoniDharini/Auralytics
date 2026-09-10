@@ -71,6 +71,9 @@ pgdata/
 *.sql.gz
 *.dump
 
+# Uploaded campaign-history files
+uploads/
+
 # Logs
 *.log
 *.log.*

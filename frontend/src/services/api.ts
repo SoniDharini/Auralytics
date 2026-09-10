@@ -36,6 +36,8 @@ import type {
   PerformanceAnalysis,
   OptimizationPlan,
   DecideOptimizationPayload,
+  AssistantImportPreview,
+  AssistantChatResponse,
 } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
@@ -132,27 +134,12 @@ async function refreshAccessToken(): Promise<string | null> {
   return data?.access_token ?? null
 }
 
-export async function request<T>(path: string, init?: RequestInit, isRetry = false): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(init?.headers as Record<string, string> | undefined),
-  }
-
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: 'include', // Always send HttpOnly refresh cookie
-  })
-
+async function handleApiResponse<T>(res: Response, path: string, retry: () => Promise<T>, isRetry: boolean): Promise<T> {
   const skipRefresh = AUTH_PATHS_SKIP_REFRESH.some((p) => path.includes(p))
   if (res.status === 401 && !isRetry && !skipRefresh) {
     const newToken = await refreshAccessToken()
     if (newToken) {
-      return request<T>(path, init, true)
+      return retry()
     }
   }
 
@@ -176,6 +163,39 @@ export async function request<T>(path: string, init?: RequestInit, isRetry = fal
   }
 
   return res.json() as Promise<T>
+}
+
+export async function request<T>(path: string, init?: RequestInit, isRetry = false): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  })
+
+  return handleApiResponse(res, path, () => request<T>(path, init, true), isRetry)
+}
+
+async function requestForm<T>(path: string, form: FormData, isRetry = false): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`
+  }
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers,
+    body: form,
+    credentials: 'include',
+  })
+  return handleApiResponse(res, path, () => requestForm<T>(path, form, true), isRetry)
 }
 
 export const api = {
@@ -554,6 +574,36 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+  },
+
+  assistant: {
+    chat: (body: { message: string; campaign_id?: string; import_id?: string }) =>
+      request<AssistantChatResponse>('/assistant/chat', { method: 'POST', body: JSON.stringify(body) }),
+    transcript: () => request<{ messages: { role: string; content: string }[] }>('/assistant/chat'),
+    getImport: (importId: string) => request<AssistantImportPreview>(`/assistant/imports/${importId}`),
+    confirmImport: (importId: string, body?: { campaigns?: Record<string, unknown>[] }) =>
+      request<{ import_id: string; status: string; campaign_ids: string[]; preview: AssistantImportPreview }>(
+        `/assistant/imports/${importId}/confirm`,
+        { method: 'POST', body: JSON.stringify(body || {}) },
+      ),
+    classify: (importId: string, body: { campaign_key: string; classification: string; import_action?: string }) =>
+      request<AssistantImportPreview>(`/assistant/imports/${importId}/classify`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    resolveConflict: (
+      importId: string,
+      body: { campaign_key: string; entity: string; field: string; chosen_value: unknown },
+    ) =>
+      request<AssistantImportPreview>(`/assistant/imports/${importId}/conflicts`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    upload: async (files: File[]) => {
+      const form = new FormData()
+      files.forEach((file) => form.append('files', file))
+      return requestForm<AssistantImportPreview>('/assistant/imports', form)
+    },
   },
 }
 

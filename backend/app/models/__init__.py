@@ -21,6 +21,12 @@ from app.models.campaign_content import (
     PerformanceStatus,
     TrackingStatus,
 )
+from app.models.campaign_history_import import (
+    AssistantConversation,
+    CampaignHistoryImport,
+    ImportedFieldProvenance,
+    ImportedSource,
+)
 
 __all__ = [
     "Base",
@@ -50,4 +56,8 @@ __all__ = [
     "TrackingStatus",
     "PerformanceAnalysis",
     "OptimizationPlan",
+    "CampaignHistoryImport",
+    "ImportedSource",
+    "ImportedFieldProvenance",
+    "AssistantConversation",
 ]

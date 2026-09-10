@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     ai,
     analytics,
     approvals,
+    assistant,
     auth,
     campaign_agents,
     campaign_content,
@@ -37,4 +38,5 @@ api_router.include_router(approvals.router)
 api_router.include_router(agents.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)
+api_router.include_router(assistant.router)
 

@@ -893,4 +893,56 @@ export interface DecideOptimizationPayload {
   reason?: string
 }
 
+export interface AssistantConflict {
+  entity: string
+  field: string
+  values: { value: unknown; source_filename?: string; source_type?: string }[]
+}
+
+export interface AssistantCampaignCandidate {
+  key: string
+  campaign_name?: string | null
+  brand?: string | null
+  classification: string
+  current_stage?: string | null
+  next_step_key?: string | null
+  continue_route?: string | null
+  continue_tab?: string | null
+  workflow_state?: string | null
+  creators: { name?: string | null }[]
+  conflicts: AssistantConflict[]
+  warnings: string[]
+  duplicate?: { campaign_id: string; campaign_name: string; confidence: string; reason: string } | null
+  import_action: string
+}
+
+export interface AssistantImportPreview {
+  import_id: string
+  status: string
+  detected_campaigns: number
+  completed_campaigns: number
+  in_progress_campaigns: number
+  needs_review: number
+  creator_count: number
+  warnings: string[]
+  campaigns: AssistantCampaignCandidate[]
+  files: { filename?: string; file_type?: string }[]
+}
+
+export interface AssistantChatAction {
+  label: string
+  href?: string | null
+  action?: string | null
+  campaign_id?: string | null
+  import_id?: string | null
+}
+
+export interface AssistantChatResponse {
+  reply: string
+  actions: AssistantChatAction[]
+  preview?: AssistantImportPreview | null
+  messages: { role: string; content: string }[]
+}
+
+
 

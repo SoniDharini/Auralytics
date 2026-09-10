@@ -95,7 +95,7 @@ class ProviderUnavailableException(InfluenceOSException):
 class InvalidRequestException(InfluenceOSException):
     def __init__(self, detail: str = "Invalid request"):
         super().__init__(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=getattr(status, "HTTP_422_UNPROCESSABLE_CONTENT", status.HTTP_422_UNPROCESSABLE_ENTITY),
             detail=detail,
         )
 

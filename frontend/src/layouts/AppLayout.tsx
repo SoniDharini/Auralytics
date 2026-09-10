@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
+import { AuralyticsAssistant } from '@/components/assistant/AuralyticsAssistant'
 import { cn } from '@/utils'
 
 export function AppLayout() {
@@ -46,6 +47,7 @@ export function AppLayout() {
           </NavLink>
         ))}
       </nav>
+      <AuralyticsAssistant />
     </div>
   )
 }
