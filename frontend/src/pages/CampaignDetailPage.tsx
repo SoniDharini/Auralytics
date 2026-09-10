@@ -410,19 +410,18 @@ export function CampaignDetailPage() {
       await api.campaigns.delete(id)
       toast({
         type: 'success',
-        title: 'Campaign deleted',
-        description: 'Campaign was permanently removed.',
+        title: 'Campaign deleted.',
+        description: `"${campaign?.name || 'Campaign'}" was removed.`,
       })
       navigate('/app/campaigns')
     } catch (err: any) {
       toast({
         type: 'error',
-        title: 'Delete failed',
+        title: 'Unable to delete campaign.',
         description: err.message || 'Could not delete campaign.',
       })
       setDeleting(false)
     }
-
   }
 
   if (loading) {
@@ -1494,8 +1493,7 @@ export function CampaignDetailPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-text-secondary">
-            Are you sure you want to delete <span className="font-semibold text-text">{campaign.name}</span>?
-            This action cannot be undone. All recorded campaign activity will also be removed.
+            "{campaign.name}" and its campaign-specific records will be removed from your Auralytics workspace. This action cannot be undone.
           </p>
           <div className="flex items-center justify-end gap-3 pt-2">
             <Button

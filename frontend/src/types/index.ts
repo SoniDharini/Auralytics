@@ -901,10 +901,13 @@ export interface AssistantConflict {
 
 export interface AssistantCampaignCandidate {
   key: string
+  external_id?: string | null
   campaign_name?: string | null
   brand?: string | null
   classification: string
   current_stage?: string | null
+  reported_stage?: string | null
+  selected_count?: number | null
   next_step_key?: string | null
   continue_route?: string | null
   continue_tab?: string | null
@@ -914,6 +917,19 @@ export interface AssistantCampaignCandidate {
   warnings: string[]
   duplicate?: { campaign_id: string; campaign_name: string; confidence: string; reason: string } | null
   import_action: string
+  evidence?: {
+    campaign?: boolean
+    strategy?: boolean
+    discovery?: boolean
+    shortlist?: boolean
+    outreach?: boolean
+    negotiation?: boolean
+    contract?: boolean
+    content?: boolean
+    performance?: boolean
+    optimization?: boolean
+    approval?: boolean
+  }
 }
 
 export interface AssistantImportPreview {

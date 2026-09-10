@@ -118,14 +118,14 @@ export function CampaignsPage() {
       setCampaignsList((prev) => prev.filter((c) => c.id !== deleteTarget.id))
       toast({
         type: 'success',
-        title: 'Campaign deleted',
-        description: `Campaign '${deleteTarget.name}' was successfully deleted.`,
+        title: 'Campaign deleted.',
+        description: `"${deleteTarget.name}" was removed.`,
       })
       setDeleteTarget(null)
     } catch (err: any) {
       toast({
         type: 'error',
-        title: 'Deletion failed',
+        title: 'Unable to delete campaign.',
         description: err.message || 'Could not delete campaign.',
       })
     } finally {
@@ -241,10 +241,12 @@ export function CampaignsPage() {
       {!loading && filtered.length > 0 && (
         <div className="relative grid md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {filtered.map((c) => {
+            const isCompleted = c.status === 'completed' || workflows[c.id]?.progress_percentage === 100
             const dates = formatDateRange(c.startDate, c.endDate)
-            const stage =
-              workflows[c.id]?.steps?.find((s) => s.status === 'CURRENT' || s.status === 'NEXT')?.label ||
-              workflows[c.id]?.next_action?.label
+            const stage = isCompleted
+              ? 'Completed'
+              : workflows[c.id]?.steps?.find((s) => s.status === 'CURRENT' || s.status === 'NEXT')?.label ||
+                workflows[c.id]?.next_action?.label
             return (
               <Card
                 key={c.id}
@@ -263,7 +265,7 @@ export function CampaignsPage() {
                       </Link>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <StatusChip status={c.status} />
+                      <StatusChip status={isCompleted ? 'completed' : c.status} />
                       <button
                         onClick={() => setDeleteTarget(c)}
                         className="text-text-secondary hover:text-danger p-1 rounded-lg transition"
@@ -314,12 +316,21 @@ export function CampaignsPage() {
 
                   <div className="pt-2 border-t border-border flex items-center justify-between text-xs">
                     <span className="text-text-secondary font-medium">Next</span>
-                    <Link
-                      to={workflows[c.id]?.next_action.route || `/app/campaigns/${c.id}`}
-                      className="font-semibold text-primary hover:underline truncate max-w-[70%] text-right"
-                    >
-                      {workflows[c.id]?.next_action.label || 'View details'} →
-                    </Link>
+                    {isCompleted ? (
+                      <Link
+                        to={`/app/campaigns/${c.id}`}
+                        className="font-semibold text-primary hover:underline truncate max-w-[70%] text-right"
+                      >
+                        View completed campaign →
+                      </Link>
+                    ) : (
+                      <Link
+                        to={workflows[c.id]?.next_action.route || `/app/campaigns/${c.id}`}
+                        className="font-semibold text-primary hover:underline truncate max-w-[70%] text-right"
+                      >
+                        {workflows[c.id]?.next_action.label || 'View details'} →
+                      </Link>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -336,9 +347,7 @@ export function CampaignsPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-text-secondary">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-text">{deleteTarget?.name}</span>? This action cannot
-            be undone and all campaign activities will be permanently removed.
+            "{deleteTarget?.name}" and its campaign-specific records will be removed from your Auralytics workspace. This action cannot be undone.
           </p>
           <div className="flex items-center justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
-import { Button } from '@/components/ui'
+import { Badge, Button } from '@/components/ui'
 import { api } from '@/services/api'
 import { cn } from '@/utils'
 import type { AssistantCampaignCandidate, AssistantChatAction, AssistantImportPreview } from '@/types'
@@ -216,6 +216,18 @@ export function AuralyticsAssistant() {
   )
 }
 
+const STAGES = [
+  { key: 'strategy', label: 'Strategy' },
+  { key: 'discovery', label: 'Discovery' },
+  { key: 'shortlist', label: 'Shortlist' },
+  { key: 'outreach', label: 'Outreach' },
+  { key: 'negotiation', label: 'Negotiation' },
+  { key: 'contract', label: 'Contract' },
+  { key: 'content', label: 'Content' },
+  { key: 'performance', label: 'Performance' },
+  { key: 'optimization', label: 'Optimization' },
+] as const
+
 function ImportPreviewCard({
   preview,
   busy,
@@ -234,6 +246,14 @@ function ImportPreviewCard({
     () => preview.campaigns.filter((c) => c.classification === 'IN_PROGRESS' && c.continue_route),
     [preview.campaigns],
   )
+  const allCompleted =
+    preview.campaigns.length > 0 && preview.campaigns.every((c) => c.classification === 'COMPLETED')
+  const anyInProgress = preview.campaigns.some((c) => c.classification === 'IN_PROGRESS')
+  const importButtonText = allCompleted
+    ? 'Import as Completed'
+    : anyInProgress
+    ? 'Import & Continue'
+    : 'Import'
 
   return (
     <div className="rounded-2xl border border-border bg-page/50 p-3 space-y-2">
@@ -242,7 +262,7 @@ function ImportPreviewCard({
         {preview.detected_campaigns} campaigns · {preview.completed_campaigns} completed · {preview.in_progress_campaigns} in progress ·{' '}
         {preview.needs_review} need review
       </p>
-      <div className="max-h-48 overflow-y-auto space-y-2">
+      <div className="max-h-56 overflow-y-auto space-y-2">
         {preview.campaigns.map((campaign) => (
           <CandidateRow
             key={campaign.key}
@@ -256,12 +276,17 @@ function ImportPreviewCard({
       </div>
       {!confirmed && (
         <Button size="sm" className="w-full" onClick={onConfirm} disabled={busy}>
-          Import
+          {importButtonText}
         </Button>
       )}
       {confirmed && inProgress[0]?.continue_route && (
         <Button size="sm" variant="secondary" className="w-full" onClick={() => navigate(inProgress[0].continue_route!)}>
           Review in-progress campaigns
+        </Button>
+      )}
+      {confirmed && allCompleted && (
+        <Button size="sm" variant="secondary" className="w-full" onClick={() => navigate('/app/campaigns')}>
+          View Campaigns
         </Button>
       )}
     </div>
@@ -282,19 +307,86 @@ function CandidateRow({
   navigate: (to: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const isCompleted = campaign.classification === 'COMPLETED'
+
+  const completedStages = useMemo(() => {
+    if (isCompleted) {
+      return STAGES.map((s) => s.label)
+    }
+    if (!campaign.evidence) return []
+    return STAGES.filter((s) => Boolean(campaign.evidence?.[s.key as keyof typeof campaign.evidence])).map((s) => s.label)
+  }, [isCompleted, campaign.evidence])
+
+  const pendingStages = useMemo(() => {
+    if (isCompleted) return []
+    return STAGES.map((s) => s.label).filter((s) => !completedStages.includes(s))
+  }, [isCompleted, completedStages])
+
   return (
     <div className="rounded-xl border border-border/80 bg-surface px-2.5 py-2">
       <button type="button" className="w-full text-left" onClick={() => setOpen((v) => !v)}>
-        <p className="text-xs font-semibold text-text truncate">{campaign.campaign_name || 'Untitled campaign'}</p>
-        <p className="text-[10px] text-text-secondary">
-          {campaign.classification} · {campaign.current_stage || '—'} · {campaign.creators.length} creator(s)
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-text truncate">{campaign.campaign_name || 'Untitled campaign'}</p>
+          <Badge
+            variant={
+              isCompleted
+                ? 'success'
+                : campaign.classification === 'IN_PROGRESS'
+                ? 'ai'
+                : 'warning'
+            }
+            className="text-[10px] shrink-0"
+          >
+            {campaign.classification === 'IN_PROGRESS' ? 'IN PROGRESS' : campaign.classification}
+          </Badge>
+        </div>
+        <p className="text-[10px] text-text-secondary mt-0.5">
+          Stage: {campaign.current_stage || '—'} · {campaign.creators.length} creator(s)
+          {campaign.brand ? ` · ${campaign.brand}` : ''}
         </p>
       </button>
       {open && (
-        <div className="mt-2 space-y-1.5">
-          {campaign.warnings.map((warning) => (
-            <p key={warning} className="text-[10px] text-warning">
-              {warning}
+        <div className="mt-2 space-y-2 pt-1.5 border-t border-border/50">
+          <div className="text-[11px] text-text">
+            <span className="text-text-secondary">Current Stage: </span>
+            <span className="font-semibold text-primary">{campaign.current_stage || '—'}</span>
+          </div>
+
+          {completedStages.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Completed Stages</p>
+              <div className="flex flex-wrap gap-1">
+                {completedStages.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-success-soft text-success font-medium"
+                  >
+                    ✓ {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {pendingStages.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Pending Stages</p>
+              <div className="flex flex-wrap gap-1">
+                {pendingStages.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded bg-muted text-text-secondary font-medium"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {campaign.warnings?.map((warning) => (
+            <p key={warning} className="text-[10px] text-warning flex items-start gap-1">
+              <span>⚠</span> {warning}
             </p>
           ))}
           {campaign.duplicate && (
@@ -328,12 +420,12 @@ function CandidateRow({
             </div>
           ))}
           {campaign.classification === 'NEEDS_REVIEW' && !confirmed && (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-1 pt-0.5">
               {['COMPLETED', 'IN_PROGRESS'].map((label) => (
                 <button
                   key={label}
                   type="button"
-                  className="text-[10px] px-2 py-1 rounded-lg border border-border"
+                  className="text-[10px] px-2 py-1 rounded-lg border border-border hover:border-primary/40"
                   onClick={async () => {
                     const next = await api.assistant.classify(importId, {
                       campaign_key: campaign.key,
@@ -342,19 +434,23 @@ function CandidateRow({
                     onUpdate(next)
                   }}
                 >
-                  {label === 'COMPLETED' ? 'Completed' : 'Still Active'}
+                  {label === 'COMPLETED' ? 'Mark as Completed' : 'Mark as In Progress'}
                 </button>
               ))}
             </div>
           )}
-          {confirmed && campaign.classification === 'COMPLETED' && campaign.continue_route && (
-            <button type="button" className="text-[11px] font-semibold text-primary" onClick={() => navigate(campaign.continue_route!)}>
-              View Campaign
-            </button>
+          {confirmed && isCompleted && (
+            <span className="inline-block text-[11px] font-semibold text-success pt-0.5">
+              ✓ Campaign Completed
+            </span>
           )}
-          {confirmed && campaign.classification !== 'COMPLETED' && campaign.continue_route && (
-            <button type="button" className="text-[11px] font-semibold text-primary" onClick={() => navigate(campaign.continue_route!)}>
-              Continue Campaign
+          {confirmed && !isCompleted && campaign.continue_route && (
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-primary hover:underline block pt-1"
+              onClick={() => navigate(campaign.continue_route!)}
+            >
+              Continue Campaign →
             </button>
           )}
         </div>

@@ -132,6 +132,10 @@ class CampaignWorkflowService:
         content_count = await self._count_content(campaign.id)
         pending_opt_approvals = await self._count_pending_optimization_approvals(campaign.id)
 
+        has_optimization_plan = await self._has_optimization_plan(campaign.id)
+        has_performance_analysis = await self._has_performance_analysis(campaign.id)
+        completed_content_count = await self._count_completed_content(campaign.id)
+
         discovery_exists = (
             discovered_count > 0
             or shortlisted_count > 0
@@ -167,8 +171,11 @@ class CampaignWorkflowService:
             contract_run=latest_contract_run,
             contract_stats=contract_stats,
             content_count=content_count,
+            completed_content_count=completed_content_count,
+            has_performance_analysis=has_performance_analysis,
             performance_run=latest_performance_run,
             optimization_run=latest_optimization_run,
+            has_optimization_plan=has_optimization_plan,
             pending_opt_approvals=pending_opt_approvals,
         )
 
@@ -180,7 +187,7 @@ class CampaignWorkflowService:
 
         steps = self._build_steps(campaign.id, focus)
         completed = sum(1 for s in steps if s.key in _PROGRESS_KEYS and s.status == StepStatus.COMPLETED)
-        progress = int(round((completed / len(_PROGRESS_KEYS)) * 100))
+        progress = 100 if focus.get("is_completed") else int(round((completed / len(_PROGRESS_KEYS)) * 100))
 
         return CampaignWorkflowResponse(
             campaign_id=campaign.id,
@@ -217,9 +224,34 @@ class CampaignWorkflowService:
             "contract_stats", {"total": 0, "approved": 0, "pending": 0}
         )
         content_count: int = ctx.get("content_count", 0)
+        completed_content_count: int = ctx.get("completed_content_count", 0)
+        has_performance_analysis: bool = ctx.get("has_performance_analysis", False)
         performance_run: Optional[AgentRun] = ctx.get("performance_run")
         optimization_run: Optional[AgentRun] = ctx.get("optimization_run")
+        has_optimization_plan: bool = ctx.get("has_optimization_plan", False)
         pending_opt_approvals: int = ctx.get("pending_opt_approvals", 0)
+
+        # 1. Authoritative check: if campaign is completed, all stages are complete.
+        if (
+            campaign.status == "completed"
+            or campaign.workflow_state == "COMPLETED"
+        ):
+            return {
+                "current_step": WorkflowStepKey.OPTIMIZATION,
+                "next_step": "",
+                "step_status": StepStatus.COMPLETED,
+                "is_completed": True,
+                "blocking_reason": None,
+                "next_action": WorkflowAction(
+                    key="",
+                    label="Campaign Completed",
+                    description="All campaign stages have been completed.",
+                    route=f"/app/campaigns/{campaign.id}?tab=overview",
+                    tab="overview",
+                    enabled=False,
+                    running=False,
+                ),
+            }
 
         if self._is_active(strategy_run):
             return self._focus(
@@ -435,7 +467,8 @@ class CampaignWorkflowService:
 
         performance_completed = bool(
             (performance_run and performance_run.status in _SUCCESS_RUN)
-            or (content_count > 0 and campaign.status in ("active", "completed"))
+            or has_performance_analysis
+            or (completed_content_count > 0 and (campaign.status == "completed" or campaign.workflow_state in ("COMPLETED", "OPTIMIZATION_PENDING", "OPTIMIZATION_APPROVAL_PENDING")))
         )
 
         if not performance_completed:
@@ -482,15 +515,28 @@ class CampaignWorkflowService:
                 tab="approvals",
             )
 
-        if optimization_run and optimization_run.status in _SUCCESS_RUN:
-            return self._focus(
-                WorkflowStepKey.OPTIMIZATION,
-                NextStepKey.REVIEW_OPTIMIZATION,
-                StepStatus.COMPLETED,
-                "Review Optimizations",
-                "Campaign optimizations active. Monitor ongoing performance and creator ROI.",
-                tab="optimization",
-            )
+        optimization_completed = bool(
+            (optimization_run and optimization_run.status in _SUCCESS_RUN)
+            or has_optimization_plan
+        )
+
+        if optimization_completed:
+            return {
+                "current_step": WorkflowStepKey.OPTIMIZATION,
+                "next_step": "",
+                "step_status": StepStatus.COMPLETED,
+                "is_completed": True,
+                "blocking_reason": None,
+                "next_action": WorkflowAction(
+                    key="",
+                    label="Campaign Completed",
+                    description="All campaign stages have been completed.",
+                    route=f"/app/campaigns/{campaign.id}?tab=overview",
+                    tab="overview",
+                    enabled=False,
+                    running=False,
+                ),
+            }
 
         return self._focus(
             WorkflowStepKey.OPTIMIZATION,
@@ -533,6 +579,19 @@ class CampaignWorkflowService:
         }
 
     def _build_steps(self, campaign_id: str, focus: Dict[str, Any]) -> List[WorkflowStep]:
+        if focus.get("is_completed"):
+            return [
+                WorkflowStep(
+                    key=key,
+                    label=label,
+                    status=StepStatus.COMPLETED,
+                    route=self._step_target(campaign_id, key)[0],
+                    tab=self._step_target(campaign_id, key)[1],
+                    hint=None,
+                )
+                for key, label in _STEPPER
+            ]
+
         current_key: str = focus["current_step"]
         current_status: str = focus["step_status"]
         reached_current = False
@@ -727,3 +786,38 @@ class CampaignWorkflowService:
             )
         )
         return int(result.scalar_one() or 0)
+
+    async def _has_optimization_plan(self, campaign_id: str) -> bool:
+        from app.models.campaign_content import OptimizationPlan
+
+        result = await self.db.execute(
+            select(func.count()).select_from(OptimizationPlan).where(
+                OptimizationPlan.campaign_id == campaign_id
+            )
+        )
+        return int(result.scalar_one() or 0) > 0
+
+    async def _has_performance_analysis(self, campaign_id: str) -> bool:
+        from app.models.campaign_content import PerformanceAnalysis
+
+        result = await self.db.execute(
+            select(func.count()).select_from(PerformanceAnalysis).where(
+                PerformanceAnalysis.campaign_id == campaign_id
+            )
+        )
+        return int(result.scalar_one() or 0) > 0
+
+    async def _count_completed_content(self, campaign_id: str) -> int:
+        from app.models.campaign_content import CampaignContent, TrackingStatus
+
+        result = await self.db.execute(
+            select(func.count()).select_from(CampaignContent).where(
+                CampaignContent.campaign_id == campaign_id,
+                or_(
+                    CampaignContent.tracking_status == TrackingStatus.COMPLETED,
+                    CampaignContent.current_views > 0,
+                ),
+            )
+        )
+        return int(result.scalar_one() or 0)
+

@@ -20,6 +20,14 @@ class ExtractedCreator(BaseModel):
     platform: Optional[str] = None
     channel_id: Optional[str] = None
     channel_url: Optional[str] = None
+    category: Optional[str] = None
+    followers: Optional[int] = None
+    engagement_rate: Optional[float] = None
+    audience_fit_score: Optional[float] = None
+    match_score: Optional[float] = None
+    predicted_roas: Optional[float] = None
+    discovery_decision: Optional[str] = None
+    outreach_result: Optional[str] = None
     shortlisted: Optional[bool] = None
     approved: Optional[bool] = None
     discovered: Optional[bool] = None
@@ -65,8 +73,11 @@ class ExtractedContent(BaseModel):
 class ExtractedPerformance(BaseModel):
     creator_name: Optional[str] = None
     views: Optional[int] = None
+    reach: Optional[int] = None
     likes: Optional[int] = None
     comments: Optional[int] = None
+    clicks: Optional[int] = None
+    conversions: Optional[int] = None
     engagement: Optional[float] = None
     spend: Optional[float] = None
     revenue: Optional[float] = None
@@ -119,6 +130,7 @@ class FieldConflict(BaseModel):
 
 class HistoricalCampaignCandidate(BaseModel):
     key: str
+    external_id: Optional[str] = None
     campaign_name: Optional[str] = None
     brand: Optional[str] = None
     product: Optional[str] = None
@@ -131,6 +143,8 @@ class HistoricalCampaignCandidate(BaseModel):
     budget: Optional[float] = None
     actual_spend: Optional[float] = None
     reported_status: Optional[str] = None
+    reported_stage: Optional[str] = None
+    selected_count: Optional[int] = None
     creators: List[ExtractedCreator] = Field(default_factory=list)
     outreach_records: List[ExtractedOutreach] = Field(default_factory=list)
     negotiations: List[ExtractedOutreach] = Field(default_factory=list)

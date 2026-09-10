@@ -283,6 +283,46 @@ async def delete_campaign(
 
     camp_name = campaign.name
 
+    from sqlalchemy import delete
+    from app.models.agent_execution import AgentRun
+    from app.models.approval import Approval
+    from app.models.campaign_content import (
+        CampaignContent,
+        ContentPerformanceSnapshot,
+        OptimizationPlan,
+        PerformanceAnalysis,
+    )
+    from app.models.campaign_history_import import ImportedFieldProvenance
+    from app.models.campaign_influencer import CampaignInfluencer
+    from app.models.campaign_strategy import CampaignStrategy
+    from app.models.contract import Contract
+    from app.models.outreach import OutreachMessage
+
+    # 1. Clean up campaign-specific records (shared global influencers are preserved intact)
+    await db.execute(delete(Contract).where(Contract.campaign_id == campaign_id))
+    await db.execute(delete(OutreachMessage).where(OutreachMessage.campaign_id == campaign_id))
+    await db.execute(delete(Approval).where(Approval.campaign_id == campaign_id))
+    await db.execute(delete(OptimizationPlan).where(OptimizationPlan.campaign_id == campaign_id))
+    await db.execute(delete(PerformanceAnalysis).where(PerformanceAnalysis.campaign_id == campaign_id))
+    await db.execute(delete(ImportedFieldProvenance).where(ImportedFieldProvenance.entity_id == campaign_id))
+
+    # Campaign contents and snapshots
+    c_stmt = select(CampaignContent.id).where(CampaignContent.campaign_id == campaign_id)
+    c_res = await db.execute(c_stmt)
+    content_ids = c_res.scalars().all()
+    if content_ids:
+        await db.execute(
+            delete(ContentPerformanceSnapshot).where(
+                ContentPerformanceSnapshot.campaign_content_id.in_(content_ids)
+            )
+        )
+    await db.execute(delete(CampaignContent).where(CampaignContent.campaign_id == campaign_id))
+
+    # Campaign-creator relationships (join table only; shared creator records in influencers table remain untouched)
+    await db.execute(delete(CampaignInfluencer).where(CampaignInfluencer.campaign_id == campaign_id))
+    await db.execute(delete(CampaignStrategy).where(CampaignStrategy.campaign_id == campaign_id))
+    await db.execute(delete(AgentRun).where(AgentRun.campaign_id == campaign_id))
+
     # Record user activity before deleting campaign
     activity = CampaignActivity(
         id=f"act-{uuid.uuid4().hex[:8]}",

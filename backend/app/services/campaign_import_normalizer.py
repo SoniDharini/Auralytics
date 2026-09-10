@@ -29,23 +29,66 @@ from app.services.campaign_workflow_service import CampaignWorkflowService
 from app.services.document_parsers import ParsedTable, classify_source_type
 
 _COL = {
-    "campaign_name": ("campaign_name", "campaign", "campaign title", "name"),
-    "brand": ("brand", "company", "company_name"),
-    "product": ("product", "sku"),
-    "description": ("description", "brief", "campaign_description"),
+    "campaign_id": ("campaign_id", "campaign id", "cmp_id", "id", "campaign identifier"),
+    "campaign_name": ("campaign_name", "campaign name", "campaign", "campaign title", "name"),
+    "brand": ("brand", "company", "company_name", "company name"),
+    "product": ("product", "sku", "item"),
+    "description": ("description", "brief", "campaign_description", "campaign description", "notes", "comments"),
     "objective": ("objective", "goal"),
     "platform": ("platform", "platforms"),
-    "audience": ("audience", "target_audience"),
-    "start_date": ("start_date", "start", "campaign_start"),
-    "end_date": ("end_date", "end", "campaign_end"),
-    "budget": ("budget", "planned_budget"),
-    "actual_spend": ("actual_spend", "spend", "total_spend"),
-    "status": ("status", "campaign_status", "lifecycle_status"),
-    "creator_name": ("creator_name", "influencer_name", "creator", "influencer"),
+    "audience": ("audience", "target_audience", "target audience"),
+    "start_date": ("start_date", "start date", "start", "campaign_start"),
+    "end_date": ("end_date", "end date", "end", "campaign_end"),
+    "budget": ("budget", "planned_budget", "planned budget"),
+    "actual_spend": ("actual_spend", "amount_spent", "amount spent", "spend", "total_spend", "total spend"),
+    "status": ("final_status", "final status", "status", "campaign_status", "campaign status", "lifecycle_status"),
+    "campaign_stage": ("campaign_stage", "campaign stage", "stage", "lifecycle_stage"),
+    "influencers_selected": ("influencers_selected", "influencers selected", "selected_count", "creators_selected"),
+    "influencer_names": ("influencer_names", "influencer names", "influencers"),
+    "creator_name": (
+        "creator_name",
+        "creator / channel name",
+        "creator_channel_name",
+        "channel_name",
+        "channel name",
+        "influencer_name",
+        "influencer name",
+        "creator name",
+        "creator",
+        "influencer",
+    ),
     "handle": ("handle", "username", "channel"),
     "channel_id": ("channel_id", "youtube_id"),
-    "channel_url": ("channel_url", "profile_url", "youtube_url"),
-    "shortlisted": ("shortlisted", "shortlist"),
+    "channel_url": (
+        "channel_url",
+        "channel_link",
+        "channel link",
+        "profile_url",
+        "profile link",
+        "youtube_url",
+        "channel url",
+    ),
+    "category": (
+        "category",
+        "category / niche",
+        "category_niche",
+        "niche",
+        "genre",
+    ),
+    "followers": (
+        "followers",
+        "follower / subscriber count",
+        "follower_subscriber_count",
+        "subscriber count",
+        "subscribers",
+        "follower count",
+    ),
+    "audience_fit_score": ("audience_fit_score", "audience fit score", "fit_score", "fit score"),
+    "match_score": ("match_score", "match score", "score"),
+    "predicted_roas": ("predicted_roas", "predicted roas"),
+    "discovery_decision": ("discovery_decision", "discovery decision", "decision", "discovery status"),
+    "outreach_result": ("outreach_result", "outreach result"),
+    "shortlisted": ("shortlisted", "shortlist", "selected"),
     "approved": ("approved", "creator_approved"),
     "discovered": ("discovered", "discovery"),
     "outreach_sent": ("outreach_sent", "email_sent", "outreach"),
@@ -53,9 +96,9 @@ _COL = {
     "message": ("message", "outreach_message", "email_body"),
     "creator_reply": ("creator_reply", "reply", "response"),
     "reply_date": ("reply_date", "responded_at"),
-    "outreach_status": ("outreach_status", "negotiation_status"),
+    "outreach_status": ("outreach_status", "outreach status", "negotiation_status"),
     "final_agreed_price": ("final_agreed_price", "agreed_price", "rate", "creator_rate"),
-    "contract_status": ("contract_status",),
+    "contract_status": ("contract_status", "contract status"),
     "compensation": ("compensation", "contract_value", "contract_amount"),
     "currency": ("currency",),
     "deliverables": ("deliverables", "deliverable"),
@@ -66,11 +109,30 @@ _COL = {
     "content_url": ("content_url", "video_url", "youtube_url", "url"),
     "video_id": ("video_id",),
     "published_at": ("published_at", "publish_date"),
-    "views": ("views", "view_count"),
+    "views": (
+        "views",
+        "views / reach",
+        "views_reach",
+        "view_count",
+        "avg views",
+        "avg_views",
+        "total_reach",
+        "total reach",
+        "reach",
+    ),
+    "reach": (
+        "reach",
+        "views / reach",
+        "views_reach",
+        "total_reach",
+        "total reach",
+    ),
     "likes": ("likes",),
     "comments": ("comments",),
-    "engagement": ("engagement", "engagement_rate"),
-    "revenue": ("revenue", "attributed_revenue"),
+    "clicks": ("clicks",),
+    "conversions": ("conversions",),
+    "engagement": ("engagement", "engagement_rate", "engagement rate"),
+    "revenue": ("revenue", "revenue_generated", "revenue generated", "attributed_revenue"),
     "roas": ("roas",),
     "roi": ("roi",),
     "measurement_date": ("measurement_date", "report_date", "as_of"),
@@ -147,30 +209,73 @@ def campaign_key(name: Optional[str], brand: Optional[str] = None) -> str:
 
 
 def merge_tables(tables: Iterable[ParsedTable]) -> List[HistoricalCampaignCandidate]:
-    buckets: Dict[str, HistoricalCampaignCandidate] = {}
+    candidates: List[HistoricalCampaignCandidate] = []
+    by_ext_id: Dict[str, HistoricalCampaignCandidate] = {}
+    by_key: Dict[str, HistoricalCampaignCandidate] = {}
+
     for table in tables:
         source_type = classify_source_type(table.filename)
         for row in table.rows:
+            raw_id = _stringify(_get(row, "campaign_id"))
             name = _stringify(_get(row, "campaign_name", ("campaign",)))
             if not name and row.get("unstructured_text"):
                 name = _infer_name_from_text(str(row.get("unstructured_text")))
-            if not name:
-                name = _stringify(_get(row, "product")) or table.filename.rsplit(".", 1)[0]
             brand = _stringify(_get(row, "brand"))
-            key = campaign_key(name, brand)
-            cand = buckets.get(key)
+
+            ext_id = _norm_key(raw_id) if raw_id else None
+            key = campaign_key(name, brand) if name else None
+
+            cand: Optional[HistoricalCampaignCandidate] = None
+            if ext_id and ext_id in by_ext_id:
+                cand = by_ext_id[ext_id]
+            elif key and key in by_key:
+                cand = by_key[key]
+
             if cand is None:
-                cand = HistoricalCampaignCandidate(key=key, campaign_name=name, brand=brand)
-                buckets[key] = cand
+                if not name and not ext_id:
+                    name = _stringify(_get(row, "product")) or table.filename.rsplit(".", 1)[0]
+                    key = campaign_key(name, brand)
+                    if key in by_key:
+                        cand = by_key[key]
+
+            if cand is None:
+                cand_key = key or (f"id-{ext_id}" if ext_id else campaign_key(name or "unnamed", brand))
+                cand = HistoricalCampaignCandidate(
+                    key=cand_key,
+                    external_id=raw_id,
+                    campaign_name=name,
+                    brand=brand,
+                )
+                candidates.append(cand)
+                if ext_id:
+                    by_ext_id[ext_id] = cand
+                if key:
+                    by_key[key] = cand
+            else:
+                if raw_id and not cand.external_id:
+                    cand.external_id = raw_id
+                if ext_id and ext_id not in by_ext_id:
+                    by_ext_id[ext_id] = cand
+                if name and not cand.campaign_name:
+                    cand.campaign_name = name
+                    if not cand.brand and brand:
+                        cand.brand = brand
+                    cand.key = campaign_key(name, cand.brand)
+                    by_key[cand.key] = cand
+                if key and key not in by_key:
+                    by_key[key] = cand
+
             _apply_row(cand, row, table.filename, source_type)
-    for cand in buckets.values():
+
+    for cand in candidates:
         _finalize_candidate(cand)
-    return list(buckets.values())
+    return candidates
 
 
 def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename: str, source_type: str) -> None:
     if filename not in cand.sources:
         cand.sources.append(filename)
+    cand.external_id = cand.external_id or _stringify(_get(row, "campaign_id"))
     cand.brand = cand.brand or _stringify(_get(row, "brand"))
     cand.product = cand.product or _stringify(_get(row, "product"))
     cand.description = cand.description or _stringify(_get(row, "description"))
@@ -182,8 +287,12 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
     cand.budget = cand.budget if cand.budget is not None else _as_float(_get(row, "budget"))
     cand.actual_spend = cand.actual_spend if cand.actual_spend is not None else _as_float(_get(row, "actual_spend"))
     cand.reported_status = cand.reported_status or _stringify(_get(row, "status"))
+    cand.reported_stage = cand.reported_stage or _stringify(_get(row, "campaign_stage"))
+    sel_cnt = _as_int(_get(row, "influencers_selected"))
+    if sel_cnt is not None:
+        cand.selected_count = sel_cnt
 
-    creator_name = _stringify(_get(row, "creator_name", ("influencer_name", "creator")))
+    creator_name = _stringify(_get(row, "creator_name", ("influencer_name", "creator", "influencer")))
     handle = _stringify(_get(row, "handle"))
     if creator_name or handle:
         existing = next((c for c in cand.creators if _same_creator(c, creator_name, handle)), None)
@@ -191,33 +300,86 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
             existing = ExtractedCreator(name=creator_name, handle=handle)
             cand.creators.append(existing)
         existing.platform = existing.platform or _stringify(_get(row, "platform")) or "youtube"
+        existing.category = existing.category or _stringify(_get(row, "category"))
+        existing.followers = existing.followers or _as_int(_get(row, "followers"))
+        existing.engagement_rate = existing.engagement_rate or _as_float(_get(row, "engagement"))
+        existing.audience_fit_score = existing.audience_fit_score or _as_float(_get(row, "audience_fit_score"))
+        existing.match_score = existing.match_score or _as_float(_get(row, "match_score"))
+        existing.predicted_roas = existing.predicted_roas or _as_float(_get(row, "predicted_roas"))
         existing.channel_id = existing.channel_id or _stringify(_get(row, "channel_id"))
         existing.channel_url = existing.channel_url or _stringify(_get(row, "channel_url"))
+
+        decision = _stringify(_get(row, "discovery_decision"))
+        if decision:
+            existing.discovery_decision = decision
+            if decision.lower() in ("selected", "shortlisted"):
+                existing.shortlisted = True
+            elif decision.lower() in ("rejected", "declined"):
+                existing.shortlisted = False
+
         shortlisted = _as_bool(_get(row, "shortlisted"))
         if shortlisted is not None:
             existing.shortlisted = shortlisted
         approved = _as_bool(_get(row, "approved"))
         if approved is not None:
             existing.approved = approved
+
+        outreach_res = _stringify(_get(row, "outreach_result"))
+        if outreach_res:
+            existing.outreach_result = outreach_res
+
         discovered = _as_bool(_get(row, "discovered"))
-        if discovered is True or existing.shortlisted or existing.approved:
+        if discovered is True or existing.shortlisted or existing.approved or existing.discovery_decision:
             existing.discovered = True
+
+    names_raw = _get(row, "influencer_names")
+    if names_raw:
+        for name in _as_list(names_raw) or []:
+            if not any(_same_creator(c, name, None) for c in cand.creators):
+                cand.creators.append(ExtractedCreator(name=name, discovered=True))
 
     outreach_sent = _as_bool(_get(row, "outreach_sent"))
     message = _stringify(_get(row, "message"))
     reply = _stringify(_get(row, "creator_reply"))
     price = _as_float(_get(row, "final_agreed_price"))
-    if outreach_sent or message or reply or price is not None or _get(row, "outreach_status"):
+    outreach_st = _stringify(_get(row, "outreach_status"))
+    outreach_res = _stringify(_get(row, "outreach_result"))
+    effective_outreach_status = outreach_res or outreach_st
+    is_not_contacted = bool(
+        effective_outreach_status
+        and effective_outreach_status.lower() in (
+            "not contacted",
+            "not sent",
+            "not started",
+            "uncontacted",
+            "none",
+            "no",
+            "n/a",
+            "not_contacted",
+        )
+    )
+    has_real_outreach_status = bool(effective_outreach_status and not is_not_contacted)
+
+    if (
+        outreach_sent
+        or message
+        or reply
+        or price is not None
+        or has_real_outreach_status
+    ):
         cand.outreach_records.append(
             ExtractedOutreach(
                 creator_name=creator_name,
-                outreach_sent=outreach_sent if outreach_sent is not None else bool(message),
+                outreach_sent=outreach_sent if outreach_sent is not None else (
+                    bool(message)
+                    or (effective_outreach_status and effective_outreach_status.lower() in ("completed", "done", "sent", "accepted", "replied"))
+                ),
                 outreach_date=_stringify(_get(row, "outreach_date")),
                 message=message,
                 creator_reply=reply,
                 reply_date=_stringify(_get(row, "reply_date")),
-                status=_stringify(_get(row, "outreach_status")),
-                negotiation_status=_stringify(_get(row, "outreach_status")),
+                status=effective_outreach_status,
+                negotiation_status=effective_outreach_status,
                 final_agreed_price=price,
                 currency=_stringify(_get(row, "currency")) or "INR",
                 deliverables=_as_list(_get(row, "deliverables")),
@@ -226,13 +388,13 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
 
     compensation = _as_float(_get(row, "compensation"))
     contract_status = _stringify(_get(row, "contract_status"))
-    if compensation is not None or contract_status or source_type == "CONTRACT" and creator_name:
+    if compensation is not None or contract_status or (source_type == "CONTRACT" and creator_name):
         _add_conflict(cand, creator_name or "campaign", "compensation", compensation, filename, source_type)
         cand.contracts.append(
             ExtractedContract(
                 creator_name=creator_name,
                 contract_status=contract_status,
-                compensation=compensation,
+                compensation=compensation if compensation is not None else (cand.actual_spend or cand.budget),
                 currency=_stringify(_get(row, "currency")) or "INR",
                 deliverables=_as_list(_get(row, "deliverables")),
                 payment_terms=_stringify(_get(row, "payment_terms")),
@@ -258,17 +420,34 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
         )
 
     views = _as_int(_get(row, "views"))
+    reach = _as_int(_get(row, "reach"))
     revenue = _as_float(_get(row, "revenue"))
     roas = _as_float(_get(row, "roas"))
-    if views is not None or revenue is not None or roas is not None or _get(row, "measurement_date"):
+    spend = _as_float(_get(row, "actual_spend"))
+    engagement = _as_float(_get(row, "engagement"))
+    clicks = _as_int(_get(row, "clicks"))
+    conversions = _as_int(_get(row, "conversions"))
+    if (
+        views is not None
+        or reach is not None
+        or revenue is not None
+        or roas is not None
+        or spend is not None
+        or clicks is not None
+        or conversions is not None
+        or _get(row, "measurement_date")
+    ):
         cand.performance_records.append(
             ExtractedPerformance(
                 creator_name=creator_name,
-                views=views,
+                views=views or reach,
+                reach=reach,
                 likes=_as_int(_get(row, "likes")),
                 comments=_as_int(_get(row, "comments")),
-                engagement=_as_float(_get(row, "engagement")),
-                spend=_as_float(_get(row, "actual_spend")),
+                clicks=clicks,
+                conversions=conversions,
+                engagement=engagement,
+                spend=spend,
                 revenue=revenue,
                 roas=roas,
                 roi=_as_float(_get(row, "roi")),
@@ -308,23 +487,56 @@ def _add_conflict(
 def _finalize_candidate(cand: HistoricalCampaignCandidate) -> None:
     cand.conflicts = [c for c in cand.conflicts if len({str(v.get("value")) for v in c.values}) > 1]
     evidence = StageEvidence(campaign=bool(cand.campaign_name))
-    evidence.discovery = any(c.discovered or c.name or c.handle for c in cand.creators) or bool(cand.creators)
-    evidence.shortlist = any(c.shortlisted or c.approved for c in cand.creators)
-    evidence.outreach = any(
-        r.outreach_sent or r.message or r.creator_reply or r.final_agreed_price is not None for r in cand.outreach_records
+    evidence.discovery = (
+        any(c.discovered or c.name or c.handle for c in cand.creators)
+        or bool(cand.creators)
+        or bool(cand.reported_stage and "discovery" in cand.reported_stage.lower())
     )
-    evidence.negotiation = any(r.final_agreed_price is not None or r.negotiation_status for r in cand.outreach_records)
+    if cand.selected_count is not None and cand.selected_count == 0:
+        evidence.shortlist = False
+    elif cand.selected_count is not None and cand.selected_count > 0:
+        evidence.shortlist = True
+    else:
+        evidence.shortlist = any(
+            c.shortlisted is True
+            or c.approved is True
+            or (c.discovery_decision and c.discovery_decision.lower() in ("selected", "shortlisted"))
+            for c in cand.creators
+        )
+
+    evidence.outreach = any(
+        r.outreach_sent
+        or r.message
+        or r.creator_reply
+        or r.final_agreed_price is not None
+        or (r.status and r.status.lower() in ("completed", "accepted", "sent", "done"))
+        for r in cand.outreach_records
+    )
+    evidence.negotiation = any(
+        r.final_agreed_price is not None
+        or (r.status and r.status.lower() in ("accepted", "negotiating", "replied"))
+        for r in cand.outreach_records
+    )
     evidence.contract = any(
-        r.compensation is not None or (r.contract_status or "").lower() in {"signed", "approved", "completed", "done"}
+        r.compensation is not None
+        or (r.contract_status or "").lower() in {"signed", "approved", "completed", "done"}
         for r in cand.contracts
     )
     evidence.content = bool(cand.content_records)
-    evidence.performance = bool(cand.performance_records)
+    evidence.performance = bool(cand.performance_records) or bool(
+        cand.actual_spend is not None and (cand.reported_status or "").lower() in ("completed", "complete", "closed")
+    )
     evidence.optimization = bool(cand.optimization_records)
     evidence.approval = any((a.status or "").lower() in {"approved", "complete", "completed"} for a in cand.approvals)
-    evidence.strategy = bool(cand.objective or cand.description or cand.audience)
+    has_pending_approval = any((a.status or "").lower() in {"pending", "waiting"} for a in cand.approvals)
+    evidence.strategy = bool(cand.objective or cand.description or cand.audience or cand.product)
     cand.evidence = evidence
-    cand.classification, cand.current_stage, cand.workflow_state, cand.next_step_key, warning = classify_lifecycle(evidence, cand.reported_status)
+    cand.classification, cand.current_stage, cand.workflow_state, cand.next_step_key, warning = classify_lifecycle(
+        evidence,
+        cand.reported_status,
+        reported_stage=cand.reported_stage,
+        has_pending_approval=has_pending_approval,
+    )
     if warning:
         cand.warnings.append(warning)
     if cand.conflicts:
@@ -335,20 +547,34 @@ def _finalize_candidate(cand: HistoricalCampaignCandidate) -> None:
         cand.warnings.append("Campaign name was not found.")
     filled = sum(1 for flag in evidence.model_dump().values() if flag)
     cand.confidence = round(min(0.99, 0.35 + filled * 0.07), 2)
-    _, tab = CampaignWorkflowService._step_target("preview", _ui_step(cand.next_step_key))
-    cand.continue_tab = tab
+    if cand.classification == "COMPLETED":
+        cand.continue_route = None
+        cand.continue_tab = "overview"
+        cand.next_step_key = ""
+        cand.current_stage = "COMPLETE"
+    else:
+        _, tab = CampaignWorkflowService._step_target("preview", _ui_step(cand.next_step_key))
+        cand.continue_tab = tab
 
 
 def classify_lifecycle(
     evidence: StageEvidence,
     reported_status: Optional[str],
+    reported_stage: Optional[str] = None,
+    has_pending_approval: bool = False,
 ) -> Tuple[str, str, str, str, Optional[str]]:
     """Map extracted evidence onto existing WorkflowState values. Does not run agents."""
     reported = (reported_status or "").strip().lower()
     completed_words = reported in {"completed", "complete", "historical", "closed", "done"}
+    stage_completed = bool(
+        reported_stage and any(w in reported_stage.lower() for w in ("completed", "complete", "closed"))
+    )
+
+    if (completed_words or stage_completed) and evidence.contract and evidence.performance and evidence.outreach:
+        return "COMPLETED", "COMPLETE", WorkflowState.COMPLETED, "", None
 
     if evidence.optimization and evidence.performance and evidence.contract and evidence.outreach:
-        if evidence.approval or completed_words:
+        if completed_words or stage_completed:
             return "COMPLETED", "COMPLETE", WorkflowState.COMPLETED, "", None
         return (
             "IN_PROGRESS",
@@ -357,32 +583,28 @@ def classify_lifecycle(
             "APPROVE_OPTIMIZATION",
             None,
         )
+
     if evidence.performance and evidence.contract:
-        if completed_words and not evidence.optimization:
-            return (
-                "NEEDS_REVIEW",
-                "OPTIMIZATION",
-                WorkflowState.OPTIMIZATION_PENDING,
-                "OPTIMIZE_CAMPAIGN",
-                "A performance report exists but formal completion/approval was not confirmed.",
-            )
         return "IN_PROGRESS", "OPTIMIZATION", WorkflowState.OPTIMIZATION_PENDING, "OPTIMIZE_CAMPAIGN", None
+
     if evidence.contract and not evidence.performance:
         if evidence.content:
             return "IN_PROGRESS", "PERFORMANCE", WorkflowState.PERFORMANCE_MONITORING, "ANALYZE_PERFORMANCE", None
         return "IN_PROGRESS", "PERFORMANCE", WorkflowState.CAMPAIGN_LIVE, "TRACK_PERFORMANCE", None
+
     if evidence.outreach and not evidence.contract:
         return "IN_PROGRESS", "CONTRACT", WorkflowState.CONTRACT_PENDING, "CONTRACT", None
+
     if evidence.shortlist and not evidence.outreach:
         return "IN_PROGRESS", "OUTREACH", WorkflowState.OUTREACH_PENDING, "GENERATE_OUTREACH", None
+
     if evidence.discovery and not evidence.shortlist:
         return "IN_PROGRESS", "SHORTLIST", WorkflowState.DISCOVERY_COMPLETED, "SHORTLIST_INFLUENCERS", None
+
     if evidence.campaign and not evidence.discovery:
         return "IN_PROGRESS", "DISCOVERY", WorkflowState.STRATEGY_COMPLETED, "DISCOVER_INFLUENCERS", None
 
-    if completed_words and evidence.contract and evidence.performance:
-        return "COMPLETED", "COMPLETE", WorkflowState.COMPLETED, "", None
-    if completed_words:
+    if completed_words or stage_completed:
         return (
             "NEEDS_REVIEW",
             "REVIEW",
@@ -390,7 +612,9 @@ def classify_lifecycle(
             "GENERATE_STRATEGY",
             "The file marked this campaign complete, but supporting stage evidence is incomplete.",
         )
+
     return "NEEDS_REVIEW", "REVIEW", WorkflowState.CAMPAIGN_CREATED, "GENERATE_STRATEGY", "Not enough evidence to classify this campaign."
+
 
 
 def _ui_step(next_step_key: Optional[str]) -> str:

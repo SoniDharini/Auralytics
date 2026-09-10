@@ -38,16 +38,34 @@ class CampaignContextService:
         campaigns = await self.list_campaigns()
         completed = [c for c in campaigns if c.status == "completed" or c.workflow_state == "COMPLETED"]
         active = [c for c in campaigns if c.status not in {"completed", "draft"} and c.workflow_state != "COMPLETED"]
-        pending = [c for c in active if c.status in {"active", "planning", "needs_attention", "paused"}]
+        pending_work = []
+        for c in active:
+            wf = await CampaignWorkflowService(self.db).get_state(c)
+            pending_work.append(
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "brand": c.brand,
+                    "status": c.status,
+                    "workflow_state": c.workflow_state,
+                    "current_stage": wf.current_step,
+                    "current_stage_label": wf.next_action.label if wf.next_action else wf.current_step,
+                    "continue_route": wf.next_action.route if wf.next_action else f"/app/campaigns/{c.id}",
+                }
+            )
         return {
             "total": len(campaigns),
             "completed": [{"id": c.id, "name": c.name, "brand": c.brand, "status": c.status} for c in completed],
             "active": [{"id": c.id, "name": c.name, "brand": c.brand, "status": c.status, "workflow_state": c.workflow_state} for c in active],
-            "pending_work": [{"id": c.id, "name": c.name, "status": c.status, "workflow_state": c.workflow_state} for c in pending],
+            "pending_work": pending_work,
         }
 
     async def campaign_status(self, campaign: Campaign) -> Dict[str, Any]:
         state = await CampaignWorkflowService(self.db).get_state(campaign)
+        completed_stages = [s.label for s in state.steps if s.status == "COMPLETED"]
+        pending_stages = [s.label for s in state.steps if s.status in ("CURRENT", "NEXT", "WAITING_APPROVAL")]
+        unstarted_stages = [s.label for s in state.steps if s.status in ("LOCKED", "PENDING")]
+
         return {
             "id": campaign.id,
             "name": campaign.name,
@@ -61,6 +79,10 @@ class CampaignContextService:
             "discovered_count": state.discovered_count,
             "shortlisted_count": state.shortlisted_count,
             "outreach_count": state.outreach_count,
+            "completed_stages": completed_stages,
+            "pending_stages": pending_stages,
+            "unstarted_stages": unstarted_stages,
+            "continue_route": state.next_action.route if state.next_action and state.next_action.enabled else None,
         }
 
     async def creator_history(self, query: str) -> Dict[str, Any]:
