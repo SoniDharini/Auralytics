@@ -96,8 +96,9 @@ def parse_file(filename: str, data: bytes, file_type: str) -> List[ParsedTable]:
 
 def _parse_csv(filename: str, data: bytes) -> ParsedTable:
     text = _decode_text(data)
-    reader = csv.DictReader(io.StringIO(text))
-    rows = [_clean_row(row) for row in reader if any(str(v).strip() for v in row.values() if v is not None)]
+    reader = csv.reader(io.StringIO(text))
+    matrix = [list(row) for row in reader]
+    rows = matrix_to_rows(matrix)
     return ParsedTable(filename, "csv", rows, text=text)
 
 
@@ -179,15 +180,10 @@ def _parse_xlsx(filename: str, data: bytes) -> List[ParsedTable]:
             header_row = next(rows_iter)
         except StopIteration:
             continue
-        headers = [str(h).strip() if h is not None else "" for h in header_row]
-        if not any(headers):
-            continue
-        rows: List[Dict[str, Any]] = []
+        matrix = [list(header_row)]
         for raw in rows_iter:
-            row = {headers[i]: raw[i] for i in range(min(len(headers), len(raw))) if headers[i]}
-            cleaned = _clean_row(row)
-            if any(str(v).strip() for v in cleaned.values() if v is not None):
-                rows.append(cleaned)
+            matrix.append(list(raw) if raw is not None else [])
+        rows = matrix_to_rows(matrix)
         if rows:
             tables.append(ParsedTable(filename, "xlsx", rows, sheet=sheet.title or ""))
     if not tables:
@@ -283,16 +279,7 @@ def _xlsx_sheet_rows(sheet_root: Any, shared: List[str], ns: Dict[str, str]) -> 
             continue
         line = [values.get(i) for i in range(max_idx + 1)]
         matrix.append(line)
-    if not matrix:
-        return []
-    headers = [str(h).strip() if h is not None else "" for h in matrix[0]]
-    rows: List[Dict[str, Any]] = []
-    for raw in matrix[1:]:
-        row = {headers[i]: raw[i] if i < len(raw) else None for i in range(len(headers)) if headers[i]}
-        cleaned = _clean_row(row)
-        if any(str(v).strip() for v in cleaned.values() if v is not None):
-            rows.append(cleaned)
-    return rows
+    return matrix_to_rows(matrix)
 
 
 def _parse_pdf(filename: str, data: bytes) -> ParsedTable:
@@ -375,6 +362,189 @@ def _decode_text(data: bytes) -> str:
     raise ValueError("The file encoding could not be decoded.")
 
 
+_UNKNOWN_CELL = {
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "-",
+    "—",
+    "not started",
+    "not started yet",
+    "missing",
+    "unspecified",
+}
+
+_LABEL_HINTS = (
+    "campaign",
+    "budget",
+    "spend",
+    "spent",
+    "revenue",
+    "roas",
+    "roi",
+    "creator",
+    "influencer",
+    "outreach",
+    "contract",
+    "performance",
+    "status",
+    "stage",
+    "brand",
+    "product",
+    "objective",
+    "platform",
+    "audience",
+    "date",
+    "views",
+    "reach",
+    "conversion",
+    "engagement",
+    "compensation",
+    "deliverable",
+    "shortlist",
+    "selected",
+    "recommended",
+)
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+_KNOWN_FIELD_KEYS = {
+    "campaign",
+    "campaign_name",
+    "campaign_id",
+    "campaign_title",
+    "brand",
+    "product",
+    "description",
+    "objective",
+    "platform",
+    "platforms",
+    "audience",
+    "target_audience",
+    "start_date",
+    "end_date",
+    "budget",
+    "planned_budget",
+    "campaign_budget",
+    "amount_spent",
+    "actual_spend",
+    "spend",
+    "budget_used",
+    "revenue",
+    "revenue_generated",
+    "roas",
+    "roi",
+    "status",
+    "stage",
+    "campaign_stage",
+    "creator_name",
+    "creator_names",
+    "influencer_name",
+    "influencer_names",
+    "influencers_selected",
+    "influencers_recommended",
+    "shortlisted",
+    "outreach",
+    "outreach_sent",
+    "contract",
+    "contract_status",
+    "compensation",
+    "views",
+    "reach",
+    "engagement",
+    "engagement_rate",
+    "conversions",
+    "clicks",
+    "performance",
+    "performance_status",
+}
+
+
+def _looks_like_label(text: str) -> bool:
+    folded = re.sub(r"[^a-z0-9]+", "_", text.strip().lower()).strip("_")
+    if not folded or len(folded) > 80:
+        return False
+    return folded in _KNOWN_FIELD_KEYS
+
+
+def _is_key_value_matrix(matrix: List[List[Any]]) -> bool:
+    nonempty = [row for row in matrix if any(_cell_text(c) for c in row)]
+    if len(nonempty) < 2:
+        return False
+    width = max(len(row) for row in nonempty)
+    if width > 3:
+        return False
+    first_cells = [_cell_text(row[0]) for row in nonempty if row]
+    hits = sum(1 for cell in first_cells if _looks_like_label(cell))
+    return hits >= max(2, int(len(first_cells) * 0.5))
+
+
+def _folded_header(text: str) -> str:
+    folded = re.sub(r"[^a-z0-9]+", "_", text.strip().lower()).strip("_")
+    folded = re.sub(r"_(inr|rs|rupees|rupee|usd|eur|gbp)$", "", folded)
+    return folded
+
+
+def _header_match_score(cells: List[Any]) -> int:
+    score = 0
+    for cell in cells:
+        folded = _folded_header(_cell_text(cell))
+        if not folded:
+            continue
+        if folded in _KNOWN_FIELD_KEYS:
+            score += 2
+            continue
+        if any(folded.endswith("_" + key) or folded == key for key in ("budget", "spend", "spent", "revenue", "roas", "reach")):
+            score += 1
+    return score
+
+
+def matrix_to_rows(matrix: List[List[Any]]) -> List[Dict[str, Any]]:
+    """Turn a sheet matrix into dict rows. Detects key/value campaign summaries."""
+    nonempty = [list(row) for row in matrix if any(_cell_text(c) for c in row)]
+    if not nonempty:
+        return []
+    if _is_key_value_matrix(nonempty):
+        combined: Dict[str, Any] = {}
+        for line in nonempty:
+            key = _cell_text(line[0] if line else None)
+            value = line[1] if len(line) > 1 else None
+            if key.lower() in {"field", "key", "attribute", "metric", "label", "item"}:
+                continue
+            if not key:
+                continue
+            if value is None or _cell_text(value) == "":
+                continue
+            combined[key] = value
+        cleaned = _clean_row(combined)
+        return [cleaned] if cleaned else []
+
+    header_idx = 0
+    best_score = _header_match_score(nonempty[0])
+    scan_limit = min(12, len(nonempty) - 1)
+    for i in range(1, scan_limit + 1):
+        score = _header_match_score(nonempty[i])
+        if score > best_score and score >= 2:
+            best_score = score
+            header_idx = i
+
+    headers = [_cell_text(h) for h in nonempty[header_idx]]
+    rows: List[Dict[str, Any]] = []
+    for raw in nonempty[header_idx + 1 :]:
+        row = {headers[i]: raw[i] if i < len(raw) else None for i in range(len(headers)) if headers[i]}
+        cleaned = _clean_row(row)
+        if cleaned:
+            rows.append(cleaned)
+    return rows
+
+
 def _clean_row(row: Dict[str, Any]) -> Dict[str, Any]:
     cleaned: Dict[str, Any] = {}
     for key, value in row.items():
@@ -387,7 +557,7 @@ def _clean_row(row: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if isinstance(value, str):
             value = value.strip()
-            if not value or value.lower() in {"n/a", "na", "none", "null", "unknown", "-"}:
+            if not value or value.lower() in _UNKNOWN_CELL:
                 continue
         cleaned[name] = value
     return cleaned

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from sqlalchemy import select
@@ -29,8 +30,8 @@ from app.services.campaign_workflow_service import CampaignWorkflowService
 from app.services.document_parsers import ParsedTable, classify_source_type
 
 _COL = {
-    "campaign_id": ("campaign_id", "campaign id", "cmp_id", "id", "campaign identifier"),
-    "campaign_name": ("campaign_name", "campaign name", "campaign", "campaign title", "name"),
+    "campaign_id": ("campaign_id", "campaign id", "cmp_id", "campaign identifier", "campaign code"),
+    "campaign_name": ("campaign_name", "campaign name", "campaign", "campaign title"),
     "brand": ("brand", "company", "company_name", "company name"),
     "product": ("product", "sku", "item"),
     "description": ("description", "brief", "campaign_description", "campaign description", "notes", "comments"),
@@ -39,12 +40,68 @@ _COL = {
     "audience": ("audience", "target_audience", "target audience"),
     "start_date": ("start_date", "start date", "start", "campaign_start"),
     "end_date": ("end_date", "end date", "end", "campaign_end"),
-    "budget": ("budget", "planned_budget", "planned budget"),
-    "actual_spend": ("actual_spend", "amount_spent", "amount spent", "spend", "total_spend", "total spend"),
+    "budget": (
+        "budget",
+        "planned_budget",
+        "planned budget",
+        "campaign_budget",
+        "campaign budget",
+        "total_budget",
+        "total budget",
+        "budget inr",
+        "budget (inr)",
+        "planned budget (inr)",
+        "planned_budget_inr",
+        "total campaign budget",
+        "allocated budget",
+    ),
+    "actual_spend": (
+        "actual_spend",
+        "amount_spent",
+        "amount spent",
+        "spend",
+        "total_spend",
+        "total spend",
+        "amount used",
+        "amount_used",
+        "actual spend",
+        "spent",
+        "amount spent (inr)",
+        "amount_spent_inr",
+        "actual spend (inr)",
+        "actual_spend_inr",
+    ),
+    "budget_used": ("budget_used", "budget used", "budget utilisation", "budget utilization"),
     "status": ("final_status", "final status", "status", "campaign_status", "campaign status", "lifecycle_status"),
     "campaign_stage": ("campaign_stage", "campaign stage", "stage", "lifecycle_stage"),
-    "influencers_selected": ("influencers_selected", "influencers selected", "selected_count", "creators_selected"),
-    "influencer_names": ("influencer_names", "influencer names", "influencers"),
+    "influencers_selected": (
+        "influencers_selected",
+        "influencers selected",
+        "selected_count",
+        "creators_selected",
+        "creators selected",
+        "shortlisted creators",
+        "shortlisted_creators",
+        "influencers selected count",
+    ),
+    "influencers_recommended": (
+        "influencers_recommended",
+        "influencers recommended",
+        "creators_recommended",
+        "creators recommended",
+        "recommended creators",
+        "recommended_creators",
+        "discovered creators",
+    ),
+    "influencer_names": (
+        "influencer_names",
+        "influencer names",
+        "influencers",
+        "creator_names",
+        "creator names",
+        "selected creators",
+        "selected_creators",
+    ),
     "creator_name": (
         "creator_name",
         "creator / channel name",
@@ -99,7 +156,16 @@ _COL = {
     "outreach_status": ("outreach_status", "outreach status", "negotiation_status"),
     "final_agreed_price": ("final_agreed_price", "agreed_price", "rate", "creator_rate"),
     "contract_status": ("contract_status", "contract status"),
-    "compensation": ("compensation", "contract_value", "contract_amount"),
+    "compensation": (
+        "compensation",
+        "contract_value",
+        "contract_amount",
+        "agreed_amount",
+        "agreed amount",
+        "signed_amount",
+        "contract fee",
+        "creator fee",
+    ),
     "currency": ("currency",),
     "deliverables": ("deliverables", "deliverable"),
     "payment_terms": ("payment_terms",),
@@ -132,19 +198,77 @@ _COL = {
     "clicks": ("clicks",),
     "conversions": ("conversions",),
     "engagement": ("engagement", "engagement_rate", "engagement rate"),
-    "revenue": ("revenue", "revenue_generated", "revenue generated", "attributed_revenue"),
-    "roas": ("roas",),
-    "roi": ("roi",),
-    "measurement_date": ("measurement_date", "report_date", "as_of"),
+    "revenue": (
+        "revenue",
+        "revenue_generated",
+        "revenue generated",
+        "attributed_revenue",
+        "historical_revenue",
+        "revenue generated (inr)",
+        "revenue_generated_inr",
+    ),
+    "roas": ("roas", "return on ad spend", "return_on_ad_spend"),
+    "roi": ("roi", "return on investment", "return_on_investment"),
+    "measurement_date": ("measurement_date", "report_date", "as_of", "recorded", "recorded_at"),
+    "performance_status": ("performance_status", "performance status", "performance"),
     "optimization": ("optimization", "recommendations"),
 }
 
 _TRUE = {"true", "yes", "y", "1", "done", "completed", "complete", "sent", "✓", "checked"}
-_MONEY_RE = re.compile(r"[₹$€,\s]")
+_UNKNOWN_TEXT = {
+    "n/a",
+    "na",
+    "none",
+    "null",
+    "unknown",
+    "-",
+    "—",
+    "not started",
+    "not started yet",
+    "missing",
+    "unspecified",
+}
+_INDIAN_SUFFIX = re.compile(
+    r"^\s*([\d.]+)\s*(lakh|lakhs|lac|lacs|l|cr|crore|crores)\s*$",
+    re.IGNORECASE,
+)
+_RATIO_SPLIT = re.compile(r"\s*/\s*")
+
+
+_UNIT_TAILS = frozenset({
+    "inr", "rs", "rupees", "rupee", "usd", "eur", "gbp", "cad", "aud",
+    "amount", "value", "num", "number", "qty", "quantity",
+})
+_GENERIC_PREFIXES = frozenset({
+    "planned", "actual", "total", "campaign", "overall", "final",
+    "reported", "historical", "attributed", "gross", "net", "allocated",
+    "approved", "target",
+})
 
 
 def _norm_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.strip().lower()).strip("_")
+
+
+def _strip_units(folded: str) -> str:
+    parts = [p for p in folded.split("_") if p]
+    while parts and parts[-1] in _UNIT_TAILS:
+        parts.pop()
+    return "_".join(parts)
+
+
+def _header_matches_alias(header: str, alias: str) -> bool:
+    h = _strip_units(header)
+    a = _strip_units(alias)
+    if not h or not a:
+        return False
+    if h == a:
+        return True
+    if h.endswith("_" + a):
+        prefix = h[: -(len(a) + 1)]
+        parts = [p for p in prefix.split("_") if p]
+        return bool(parts) and all(p in _GENERIC_PREFIXES for p in parts)
+    return False
 
 
 def _lookup(row: Dict[str, Any], *aliases: str) -> Any:
@@ -153,6 +277,16 @@ def _lookup(row: Dict[str, Any], *aliases: str) -> Any:
         key = _norm_key(alias)
         if key in mapped:
             return mapped[key]
+    stripped_aliases = [_strip_units(_norm_key(alias)) for alias in aliases]
+    stripped_map = {_strip_units(k): v for k, v in mapped.items()}
+    for key in stripped_aliases:
+        if key and key in stripped_map:
+            return stripped_map[key]
+    ranked = sorted({k for k in stripped_aliases if k}, key=len, reverse=True)
+    for alias in ranked:
+        for header, value in mapped.items():
+            if _header_matches_alias(header, alias):
+                return value
     return None
 
 
@@ -177,11 +311,30 @@ def _as_bool(value: Any) -> Optional[bool]:
 def _as_float(value: Any) -> Optional[float]:
     if value is None or value == "":
         return None
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
         return float(value)
-    text = _MONEY_RE.sub("", str(value))
+    text = str(value).strip()
+    if not text or text.lower() in _UNKNOWN_TEXT:
+        return None
+    if _RATIO_SPLIT.search(text) and text.count("/") == 1:
+        left, _right = _RATIO_SPLIT.split(text, 1)
+        parsed = _as_float(left)
+        if parsed is not None:
+            return parsed
+    suffix = _INDIAN_SUFFIX.match(text.replace(",", "").replace("₹", "").replace("$", "").replace("€", ""))
+    if suffix:
+        number = float(suffix.group(1))
+        unit = suffix.group(2).lower()
+        if unit in {"l", "lakh", "lakhs", "lac", "lacs"}:
+            return number * 100000.0
+        return number * 10000000.0
+    cleaned = re.sub(r"[₹$€,\s]", "", text)
+    cleaned = cleaned.rstrip("%")
+    cleaned = re.sub(r"[xX]+$", "", cleaned)
     try:
-        return float(text)
+        return float(cleaned)
     except ValueError:
         return None
 
@@ -193,13 +346,46 @@ def _as_int(value: Any) -> Optional[int]:
     return int(number)
 
 
+def _as_date(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        try:
+            return value.isoformat()[:10]
+        except Exception:
+            pass
+    text = str(value).strip()
+    if not text or text.lower() in _UNKNOWN_TEXT:
+        return None
+    if re.match(r"^\d{4}-\d{2}-\d{2}", text):
+        return text[:10]
+    number = _as_float(text)
+    if number is not None and 30000 <= number <= 80000 and abs(number - round(number)) < 1e-6:
+        return (datetime(1899, 12, 30) + timedelta(days=int(round(number)))).date().isoformat()
+    return text
+
+
 def _as_list(value: Any) -> Optional[List[str]]:
     if value is None:
         return None
     if isinstance(value, list):
         return [str(v).strip() for v in value if str(v).strip()]
-    parts = [p.strip() for p in re.split(r"[|,;]", str(value)) if p.strip()]
+    parts = [p.strip() for p in re.split(r"[|,;\n]+", str(value)) if p.strip()]
     return parts or None
+
+
+def _parse_budget_used(value: Any) -> Tuple[Optional[float], Optional[float]]:
+    """Parse '₹1,50,000 / ₹20,00,000' as (spend, budget)."""
+    if value is None or value == "":
+        return None, None
+    text = str(value).strip()
+    if "/" not in text:
+        spend = _as_float(text)
+        return spend, None
+    left, right = _RATIO_SPLIT.split(text, 1)
+    return _as_float(left), _as_float(right)
 
 
 def campaign_key(name: Optional[str], brand: Optional[str] = None) -> str:
@@ -209,63 +395,109 @@ def campaign_key(name: Optional[str], brand: Optional[str] = None) -> str:
 
 
 def merge_tables(tables: Iterable[ParsedTable]) -> List[HistoricalCampaignCandidate]:
+    table_list = list(tables)
     candidates: List[HistoricalCampaignCandidate] = []
     by_ext_id: Dict[str, HistoricalCampaignCandidate] = {}
     by_key: Dict[str, HistoricalCampaignCandidate] = {}
 
-    for table in tables:
-        source_type = classify_source_type(table.filename)
+    def _upsert_identity(row: Dict[str, Any], filename: str) -> Optional[HistoricalCampaignCandidate]:
+        raw_id = _stringify(_get(row, "campaign_id"))
+        name = _stringify(_get(row, "campaign_name", ("campaign",)))
+        if not name and row.get("unstructured_text"):
+            name = _infer_name_from_text(str(row.get("unstructured_text")))
+        brand = _stringify(_get(row, "brand"))
+        ext_id = _norm_key(raw_id) if raw_id else None
+        key = campaign_key(name, brand) if name else None
+        cand: Optional[HistoricalCampaignCandidate] = None
+        if ext_id and ext_id in by_ext_id:
+            cand = by_ext_id[ext_id]
+        elif key and key in by_key:
+            cand = by_key[key]
+        if cand is None:
+            if not name and not ext_id:
+                return None
+            cand_key = key or (f"id-{ext_id}" if ext_id else campaign_key(name or "unnamed", brand))
+            cand = HistoricalCampaignCandidate(
+                key=cand_key,
+                external_id=raw_id,
+                campaign_name=name,
+                brand=brand,
+            )
+            candidates.append(cand)
+            if ext_id:
+                by_ext_id[ext_id] = cand
+            if key:
+                by_key[key] = cand
+        else:
+            if raw_id and not cand.external_id:
+                cand.external_id = raw_id
+            if ext_id and ext_id not in by_ext_id:
+                by_ext_id[ext_id] = cand
+            if name and not cand.campaign_name:
+                cand.campaign_name = name
+                if not cand.brand and brand:
+                    cand.brand = brand
+                cand.key = campaign_key(name, cand.brand)
+                by_key[cand.key] = cand
+            if key and key not in by_key:
+                by_key[key] = cand
+        return cand
+
+    primary_rows: List[Tuple[ParsedTable, Dict[str, Any]]] = []
+    satellite_rows: List[Tuple[ParsedTable, Dict[str, Any]]] = []
+    for table in table_list:
         for row in table.rows:
             raw_id = _stringify(_get(row, "campaign_id"))
             name = _stringify(_get(row, "campaign_name", ("campaign",)))
             if not name and row.get("unstructured_text"):
                 name = _infer_name_from_text(str(row.get("unstructured_text")))
             brand = _stringify(_get(row, "brand"))
-
-            ext_id = _norm_key(raw_id) if raw_id else None
-            key = campaign_key(name, brand) if name else None
-
-            cand: Optional[HistoricalCampaignCandidate] = None
-            if ext_id and ext_id in by_ext_id:
-                cand = by_ext_id[ext_id]
-            elif key and key in by_key:
-                cand = by_key[key]
-
-            if cand is None:
-                if not name and not ext_id:
-                    name = _stringify(_get(row, "product")) or table.filename.rsplit(".", 1)[0]
-                    key = campaign_key(name, brand)
-                    if key in by_key:
-                        cand = by_key[key]
-
-            if cand is None:
-                cand_key = key or (f"id-{ext_id}" if ext_id else campaign_key(name or "unnamed", brand))
-                cand = HistoricalCampaignCandidate(
-                    key=cand_key,
-                    external_id=raw_id,
-                    campaign_name=name,
-                    brand=brand,
-                )
-                candidates.append(cand)
-                if ext_id:
-                    by_ext_id[ext_id] = cand
-                if key:
-                    by_key[key] = cand
+            if name or raw_id:
+                primary_rows.append((table, row))
             else:
-                if raw_id and not cand.external_id:
-                    cand.external_id = raw_id
-                if ext_id and ext_id not in by_ext_id:
-                    by_ext_id[ext_id] = cand
-                if name and not cand.campaign_name:
-                    cand.campaign_name = name
-                    if not cand.brand and brand:
-                        cand.brand = brand
-                    cand.key = campaign_key(name, cand.brand)
-                    by_key[cand.key] = cand
-                if key and key not in by_key:
-                    by_key[key] = cand
+                satellite_rows.append((table, row))
 
-            _apply_row(cand, row, table.filename, source_type)
+    for table, row in primary_rows:
+        cand = _upsert_identity(row, table.filename)
+        if cand is None:
+            satellite_rows.append((table, row))
+            continue
+        _apply_row(cand, row, table.filename, classify_source_type(table.filename))
+
+    fallback_created = False
+    if not candidates:
+        for table, row in list(satellite_rows):
+            name = _stringify(_get(row, "product")) or table.filename.rsplit(".", 1)[0]
+            brand = _stringify(_get(row, "brand"))
+            key = campaign_key(name, brand)
+            cand = by_key.get(key)
+            if cand is None:
+                cand = HistoricalCampaignCandidate(key=key, campaign_name=name, brand=brand)
+                candidates.append(cand)
+                by_key[key] = cand
+                fallback_created = True
+            _apply_row(cand, row, table.filename, classify_source_type(table.filename))
+        satellite_rows = [] if fallback_created else satellite_rows
+
+    for table, row in satellite_rows:
+        source_type = classify_source_type(table.filename)
+        raw_id = _stringify(_get(row, "campaign_id"))
+        name = _stringify(_get(row, "campaign_name", ("campaign",)))
+        if not name and row.get("unstructured_text"):
+            name = _infer_name_from_text(str(row.get("unstructured_text")))
+        brand = _stringify(_get(row, "brand"))
+        cand = None
+        if raw_id and _norm_key(raw_id) in by_ext_id:
+            cand = by_ext_id[_norm_key(raw_id)]
+        elif name and campaign_key(name, brand) in by_key:
+            cand = by_key[campaign_key(name, brand)]
+        elif name and campaign_key(name, None) in by_key:
+            cand = by_key[campaign_key(name, None)]
+        elif len(candidates) == 1:
+            cand = candidates[0]
+        if cand is None:
+            continue
+        _apply_row(cand, row, table.filename, source_type)
 
     for cand in candidates:
         _finalize_candidate(cand)
@@ -282,15 +514,44 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
     cand.objective = cand.objective or _stringify(_get(row, "objective"))
     cand.platform = cand.platform or _stringify(_get(row, "platform"))
     cand.audience = cand.audience or _stringify(_get(row, "audience"))
-    cand.start_date = cand.start_date or _stringify(_get(row, "start_date"))
-    cand.end_date = cand.end_date or _stringify(_get(row, "end_date"))
-    cand.budget = cand.budget if cand.budget is not None else _as_float(_get(row, "budget"))
-    cand.actual_spend = cand.actual_spend if cand.actual_spend is not None else _as_float(_get(row, "actual_spend"))
+    cand.start_date = cand.start_date or _as_date(_get(row, "start_date"))
+    cand.end_date = cand.end_date or _as_date(_get(row, "end_date"))
+    if cand.budget is None:
+        cand.budget = _as_float(_get(row, "budget"))
+    if cand.actual_spend is None:
+        cand.actual_spend = _as_float(_get(row, "actual_spend"))
+    used_spend, used_budget = _parse_budget_used(_get(row, "budget_used"))
+    if cand.actual_spend is None and used_spend is not None:
+        cand.actual_spend = used_spend
+    if cand.budget is None and used_budget is not None:
+        cand.budget = used_budget
+    if cand.revenue is None:
+        cand.revenue = _as_float(_get(row, "revenue"))
+    if cand.roas is None:
+        cand.roas = _as_float(_get(row, "roas"))
+    if cand.roi is None:
+        cand.roi = _as_float(_get(row, "roi"))
+    if cand.reach is None:
+        cand.reach = _as_int(_get(row, "reach"))
+    if cand.conversions is None:
+        cand.conversions = _as_int(_get(row, "conversions"))
+    if cand.clicks is None:
+        cand.clicks = _as_int(_get(row, "clicks"))
+    if cand.engagement_rate is None:
+        cand.engagement_rate = _as_float(_get(row, "engagement"))
     cand.reported_status = cand.reported_status or _stringify(_get(row, "status"))
     cand.reported_stage = cand.reported_stage or _stringify(_get(row, "campaign_stage"))
-    sel_cnt = _as_int(_get(row, "influencers_selected"))
+    rec_cnt = _as_int(_get(row, "influencers_recommended"))
+    if rec_cnt is not None:
+        cand.recommended_count = rec_cnt
+    sel_raw = _get(row, "influencers_selected")
+    sel_cnt = _as_int(sel_raw)
     if sel_cnt is not None:
         cand.selected_count = sel_cnt
+    elif sel_raw:
+        for name in _as_list(sel_raw) or []:
+            if not any(_same_creator(c, name, None) for c in cand.creators):
+                cand.creators.append(ExtractedCreator(name=name, discovered=True, shortlisted=True))
 
     creator_name = _stringify(_get(row, "creator_name", ("influencer_name", "creator", "influencer")))
     handle = _stringify(_get(row, "handle"))
@@ -333,7 +594,7 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
             existing.discovered = True
 
     names_raw = _get(row, "influencer_names")
-    if names_raw:
+    if names_raw and _as_int(names_raw) is None:
         for name in _as_list(names_raw) or []:
             if not any(_same_creator(c, name, None) for c in cand.creators):
                 cand.creators.append(ExtractedCreator(name=name, discovered=True))
@@ -394,7 +655,7 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
             ExtractedContract(
                 creator_name=creator_name,
                 contract_status=contract_status,
-                compensation=compensation if compensation is not None else (cand.actual_spend or cand.budget),
+                compensation=compensation,
                 currency=_stringify(_get(row, "currency")) or "INR",
                 deliverables=_as_list(_get(row, "deliverables")),
                 payment_terms=_stringify(_get(row, "payment_terms")),
@@ -436,11 +697,12 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
         or clicks is not None
         or conversions is not None
         or _get(row, "measurement_date")
+        or _get(row, "performance_status")
     ):
         cand.performance_records.append(
             ExtractedPerformance(
                 creator_name=creator_name,
-                views=views or reach,
+                views=views if views is not None else reach,
                 reach=reach,
                 likes=_as_int(_get(row, "likes")),
                 comments=_as_int(_get(row, "comments")),
@@ -451,6 +713,7 @@ def _apply_row(cand: HistoricalCampaignCandidate, row: Dict[str, Any], filename:
                 revenue=revenue,
                 roas=roas,
                 roi=_as_float(_get(row, "roi")),
+                performance_status=_stringify(_get(row, "performance_status")),
                 measurement_date=_stringify(_get(row, "measurement_date")),
             )
         )
@@ -490,6 +753,7 @@ def _finalize_candidate(cand: HistoricalCampaignCandidate) -> None:
     evidence.discovery = (
         any(c.discovered or c.name or c.handle for c in cand.creators)
         or bool(cand.creators)
+        or bool(cand.recommended_count)
         or bool(cand.reported_stage and "discovery" in cand.reported_stage.lower())
     )
     if cand.selected_count is not None and cand.selected_count == 0:

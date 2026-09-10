@@ -406,3 +406,236 @@ async def test_conflict_blocks_confirm(client):
     )
     assert resolved.status_code == 200
     assert not resolved.json()["campaigns"][0]["conflicts"]
+
+
+@pytest.mark.asyncio
+async def test_imported_budget_spend_creators_and_performance_persist(client):
+    headers = await register(client, "hist.metrics@test.com")
+    rows = [
+        {
+            "Campaign Name": "Glow That's Yours",
+            "Brand": "GlowNaturals",
+            "Campaign Budget": "₹20,00,000",
+            "Amount Spent": "₹1,50,000",
+            "Revenue Generated": "₹5,00,000",
+            "ROAS": "3.3x",
+            "ROI": "120",
+            "Influencers Selected": "3",
+            "Creator Names": "Creator A; Creator B; Creator C",
+            "Shortlisted": "yes",
+            "Outreach Sent": "yes",
+            "Contract Status": "signed",
+            "Compensation": "₹75,000",
+            "Views": "800000",
+            "Engagement Rate": "6.5%",
+            "status": "completed",
+        }
+    ]
+    preview = (await _upload(client, headers, "Campaign_History.csv", _csv(rows))).json()
+    cand = preview["campaigns"][0]
+    assert cand["budget"] == 2000000
+    assert cand["actual_spend"] == 150000
+    assert cand["classification"] == "COMPLETED"
+    confirm = await client.post(
+        f"/api/v1/assistant/imports/{preview['import_id']}/confirm",
+        headers=headers,
+        json={},
+    )
+    assert confirm.status_code == 200, confirm.text
+    campaign_id = confirm.json()["campaign_ids"][0]
+    camp = (await client.get(f"/api/v1/campaigns/{campaign_id}", headers=headers)).json()
+    assert camp["budget"] == 2000000
+    assert camp["spend"] == 150000
+    assert camp["revenue"] == 500000
+    assert camp["roas"] == 3.3
+    assert camp["influencers"] >= 3
+
+    creators = (await client.get(f"/api/v1/campaigns/{campaign_id}/influencers", headers=headers)).json()
+    assert creators["total"] >= 3
+    names = {item["creator"]["name"] for item in creators["creators"]}
+    assert {"Creator A", "Creator B", "Creator C"} <= names
+
+    contracts = (await client.get(f"/api/v1/contracts?campaign_id={campaign_id}", headers=headers)).json()
+    assert contracts
+    assert any(float(c["value"]) == 75000 for c in contracts)
+
+    contents = (await client.get(f"/api/v1/campaigns/{campaign_id}/content", headers=headers)).json()
+    assert contents
+    hist = [c for c in contents if c.get("attribution_source") == "HISTORICAL_REPORTED_RESULTS"]
+    assert hist
+    assert hist[0]["current_views"] == 800000
+    assert hist[0]["attributed_revenue"] == 500000
+
+
+@pytest.mark.asyncio
+async def test_blank_budget_stays_unknown_and_zero_conversions_stay_zero(client):
+    headers = await register(client, "hist.nullzero@test.com")
+    rows = [
+        {
+            "campaign_name": "Sparse Campaign",
+            "brand": "GlowNaturals",
+            "conversions": "0",
+            "creator_name": "Creator A",
+            "shortlisted": "yes",
+        }
+    ]
+    preview = (await _upload(client, headers, "sparse.csv", _csv(rows))).json()
+    cand = preview["campaigns"][0]
+    assert cand["budget"] is None
+    confirm = await client.post(
+        f"/api/v1/assistant/imports/{preview['import_id']}/confirm",
+        headers=headers,
+        json={},
+    )
+    campaign_id = confirm.json()["campaign_ids"][0]
+    camp = (await client.get(f"/api/v1/campaigns/{campaign_id}", headers=headers)).json()
+    assert camp["budget"] is None
+    assert camp.get("conversions") == 0
+
+
+@pytest.mark.asyncio
+async def test_multiple_files_merge_into_one_campaign(client):
+    headers = await register(client, "hist.multifile@test.com")
+    campaigns = _csv(
+        [{"campaign_name": "Multi Source Launch", "brand": "GlowNaturals", "planned_budget": "1000000", "amount_spent": "200000"}]
+    )
+    creators = _csv(
+        [
+            {"creator_name": "Creator A", "shortlisted": "yes"},
+            {"creator_name": "Creator B", "discovered": "yes"},
+            {"creator_name": "Creator C", "discovered": "yes"},
+            {"creator_name": "Creator D", "discovered": "yes"},
+            {"creator_name": "Creator E", "discovered": "yes"},
+        ]
+    )
+    performance = _csv(
+        [{"views": "800000", "engagement_rate": "6.5%", "revenue_generated": "300000", "roas": "4x"}]
+    )
+    res = await client.post(
+        "/api/v1/assistant/imports",
+        headers=headers,
+        files=[
+            ("files", ("Campaigns.csv", campaigns, "text/csv")),
+            ("files", ("Creators.csv", creators, "text/csv")),
+            ("files", ("Performance.csv", performance, "text/csv")),
+        ],
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["detected_campaigns"] == 1
+    cand = res.json()["campaigns"][0]
+    assert cand["budget"] == 1000000
+    assert cand["actual_spend"] == 200000
+    assert len(cand["creators"]) == 5
+    confirm = await client.post(f"/api/v1/assistant/imports/{res.json()['import_id']}/confirm", headers=headers, json={})
+    campaign_id = confirm.json()["campaign_ids"][0]
+    camp = (await client.get(f"/api/v1/campaigns/{campaign_id}", headers=headers)).json()
+    assert camp["budget"] == 1000000
+    assert camp["spend"] == 200000
+    assert camp["revenue"] == 300000
+    creators_res = (await client.get(f"/api/v1/campaigns/{campaign_id}/influencers", headers=headers)).json()
+    assert creators_res["total"] == 5
+    contents = (await client.get(f"/api/v1/campaigns/{campaign_id}/content", headers=headers)).json()
+    assert any(c.get("current_views") == 800000 for c in contents)
+
+
+@pytest.mark.asyncio
+async def test_key_value_excel_and_indian_budget(client):
+    headers = await register(client, "hist.kv@test.com")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "Summary"
+    sheet.append(["Campaign Name", "Glow That's Yours"])
+    sheet.append(["Campaign Budget", "₹20,00,000"])
+    sheet.append(["Amount Spent", "₹1,50,000"])
+    sheet.append(["Influencer Names", "Creator A, Creator B"])
+    sheet.append(["ROAS", "3.3x"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    res = await _upload(
+        client,
+        headers,
+        "Campaign_History.xlsx",
+        buf.getvalue(),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    assert res.status_code == 200, res.text
+    cand = res.json()["campaigns"][0]
+    assert cand["campaign_name"] == "Glow That's Yours"
+    assert cand["budget"] == 2000000
+    assert cand["actual_spend"] == 150000
+    assert cand["roas"] == 3.3
+    assert len(cand["creators"]) == 2
+
+
+def test_as_float_indian_and_unknown():
+    from app.services.campaign_import_normalizer import _as_float
+
+    assert _as_float("₹20,00,000") == 2000000
+    assert _as_float("20L") == 2000000
+    assert _as_float("3.3x") == 3.3
+    assert _as_float("6.5%") == 6.5
+    assert _as_float("N/A") is None
+    assert _as_float("Unknown") is None
+    assert _as_float("0") == 0.0
+    assert _as_float(0) == 0.0
+    assert _as_float("") is None
+
+
+def test_currency_suffix_headers_parse_budget_spend_revenue():
+    from datetime import datetime, timedelta
+
+    from app.services.campaign_import_normalizer import _as_date, merge_tables
+    from app.services.document_parsers import ParsedTable, matrix_to_rows
+
+    table = ParsedTable(
+        "Auralytics_Campaign_History_With_Influencer_Names.xlsx",
+        "xlsx",
+        [
+            {
+                "Campaign ID": "CMP-001",
+                "Campaign Name": "Glow Serum Launch",
+                "Brand": "GlowNaturals",
+                "Planned Budget (INR)": "300000",
+                "Amount Spent (INR)": "282000",
+                "Revenue Generated (INR)": "846000",
+                "ROAS": "3",
+                "Total Reach": "680000",
+                "Start Date": "46032",
+                "End Date": "46063",
+            }
+        ],
+    )
+    cand = merge_tables([table])[0]
+    assert cand.budget == 300000
+    assert cand.actual_spend == 282000
+    assert cand.revenue == 846000
+    assert cand.roas == 3
+    assert cand.reach == 680000
+    assert cand.start_date == (datetime(1899, 12, 30) + timedelta(days=46032)).date().isoformat()
+    assert cand.end_date == (datetime(1899, 12, 30) + timedelta(days=46063)).date().isoformat()
+
+    creator_only = ParsedTable(
+        "Influencers.xlsx",
+        "xlsx",
+        [{"Campaign ID": "CMP-001", "Predicted ROAS": "3.4", "Influencer Name": "Khushi Malhotra"}],
+    )
+    merged = merge_tables([table, creator_only])[0]
+    assert merged.roas == 3
+    assert merged.creators[0].name == "Khushi Malhotra"
+    assert merged.creators[0].predicted_roas == 3.4
+
+    titled = matrix_to_rows(
+        [
+            ["Campaign History Export", None, None],
+            ["Campaign Name", "Planned Budget (INR)", "Amount Spent (INR)"],
+            ["Glow Serum Launch", 300000, 282000],
+        ]
+    )
+    assert titled[0]["Campaign Name"] == "Glow Serum Launch"
+    assert titled[0]["Planned Budget (INR)"] == 300000
+
+    assert _as_date("2024-06-01") == "2024-06-01"
+
+

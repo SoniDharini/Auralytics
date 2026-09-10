@@ -39,7 +39,7 @@ import {
 } from '@/components/ui'
 import { PageAmbientBackground } from '@/components/brand/VisualSystem'
 import { CampaignApprovalsTab } from '@/components/campaigns/CampaignApprovalsTab'
-import { formatINR, recommendedCampaignCreators, statusLabel } from '@/utils'
+import { formatINR, formatRoas, recommendedCampaignCreators, statusLabel } from '@/utils'
 import { formatCompactCount, formatCPV, formatCPM } from '@/components/analytics'
 import type {
   Campaign,
@@ -452,7 +452,10 @@ export function CampaignDetailPage() {
     )
   }
 
-  const budgetUsedPct = campaign.budget > 0 ? (campaign.spend / campaign.budget) * 100 : 0
+  const budgetUsedPct =
+    campaign.budget != null && campaign.budget > 0 && campaign.spend != null
+      ? (campaign.spend / campaign.budget) * 100
+      : 0
   const campaignStart =
     campaign.startDate || (campaign as { start_date?: string }).start_date || ''
   const campaignEnd =
@@ -597,15 +600,15 @@ export function CampaignDetailPage() {
             </div>
             <div className="rounded-[12px] border border-border bg-surface/80 p-3">
               <p className="text-[10px] text-text-secondary">Spend</p>
-              <p className="text-sm font-bold mt-0.5 text-text">{formatINR(campaign.spend || 0)}</p>
+              <p className="text-sm font-bold mt-0.5 text-text">{formatINR(campaign.spend)}</p>
             </div>
             <div className="rounded-[12px] border border-border bg-surface/80 p-3">
               <p className="text-[10px] text-text-secondary">Revenue</p>
-              <p className="text-sm font-bold mt-0.5 text-success">{formatINR(campaign.revenue || 0)}</p>
+              <p className="text-sm font-bold mt-0.5 text-success">{formatINR(campaign.revenue)}</p>
             </div>
             <div className="rounded-[12px] border border-border bg-surface/80 p-3">
               <p className="text-[10px] text-text-secondary">ROAS</p>
-              <p className="text-sm font-bold mt-0.5 text-primary">{(campaign.roas || 0).toFixed(2)}x</p>
+              <p className="text-sm font-bold mt-0.5 text-primary">{formatRoas(campaign.roas)}</p>
             </div>
             <div className="rounded-[12px] border border-border bg-surface/80 p-3 col-span-2 sm:col-span-1">
               <p className="text-[10px] text-text-secondary">Creators</p>
@@ -1194,7 +1197,9 @@ export function CampaignDetailPage() {
                       <div className="grid grid-cols-2 gap-2 text-xs py-2 border-y border-border">
                         <div>
                           <span className="text-[10px] uppercase text-text-secondary font-semibold block">Agreed Fee</span>
-                          <span className="font-bold text-text">{formatINR(c.value)}</span>
+                          <span className="font-bold text-text">
+                            {(c.analysisJson || c.analysis_json)?.amount_unknown ? 'N/A' : formatINR(c.value)}
+                          </span>
                         </div>
                         <div>
                           <span className="text-[10px] uppercase text-text-secondary font-semibold block">Payment Due</span>
@@ -1263,10 +1268,10 @@ export function CampaignDetailPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {[
-              { label: 'Spend', value: formatINR(campaign.spend || 0, true), context: `${Math.round(budgetUsedPct)}% of budget` },
-              { label: 'Revenue', value: formatINR(campaign.revenue || 0, true), context: 'Campaign records' },
-              { label: 'ROAS', value: `${(campaign.roas || 0).toFixed(2)}x`, context: campaign.target_roas ? `Target ${campaign.target_roas}x` : 'Stored ROAS' },
-              { label: 'Reach', value: formatCompactCount(campaign.reach || 0), context: `${campaign.conversions || 0} conversions` },
+              { label: 'Spend', value: formatINR(campaign.spend, true), context: `${Math.round(budgetUsedPct)}% of budget` },
+              { label: 'Revenue', value: formatINR(campaign.revenue, true), context: 'Campaign records' },
+              { label: 'ROAS', value: formatRoas(campaign.roas), context: campaign.target_roas ? `Target ${campaign.target_roas}x` : 'Stored ROAS' },
+              { label: 'Reach', value: campaign.reach == null ? 'N/A' : formatCompactCount(campaign.reach), context: campaign.conversions == null ? 'Conversions N/A' : `${campaign.conversions} conversions` },
             ].map((item) => (
               <Card key={item.label} className="p-4">
                 <p className="text-xs text-text-secondary">{item.label}</p>
@@ -1295,7 +1300,15 @@ export function CampaignDetailPage() {
                         <h4 className="text-sm font-bold text-text truncate">{content.title || content.external_content_id}</h4>
                         <p className="text-xs text-text-secondary mt-0.5">
                           {content.channel_title || 'Creator'} · {content.content_type === 'YOUTUBE_SHORT' ? 'YouTube Short' : 'YouTube Video'}
+                          {content.attribution_source === 'HISTORICAL_REPORTED_RESULTS' ? ' · Imported History' : ''}
                         </p>
+                        {content.attribution_source === 'HISTORICAL_REPORTED_RESULTS' && (content.snapshots?.length || 0) > 1 && (
+                          <p className="text-[10px] text-text-secondary mt-1">
+                            Historical: {formatCompactCount(content.snapshots[content.snapshots.length - 1]?.views ?? content.current_views)}
+                            {' · '}
+                            Current: {formatCompactCount(content.current_views)}
+                          </p>
+                        )}
                       </div>
                       <div className="flex flex-wrap items-center gap-3 text-xs">
                         <div>
@@ -1304,7 +1317,9 @@ export function CampaignDetailPage() {
                         </div>
                         <div>
                           <span className="text-text-secondary block">Engagement</span>
-                          <span className="font-bold text-text">{content.engagement_rate.toFixed(2)}%</span>
+                          <span className="font-bold text-text">
+                            {content.engagement_rate == null ? 'N/A' : `${content.engagement_rate.toFixed(2)}%`}
+                          </span>
                         </div>
                         <div>
                           <span className="text-text-secondary block">CPV</span>

@@ -7,7 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import case, desc, select
 from sqlalchemy.orm import selectinload
 
 from app.ai.agents.base import AgentContext, BaseAgent
@@ -20,6 +20,7 @@ from app.models.campaign_content import (
     PerformanceAnalysis,
     PerformanceStatus,
     ContentStage,
+    TrackingStatus,
 )
 from app.models.campaign_strategy import CampaignStrategy
 from app.models.influencer import Influencer
@@ -59,7 +60,18 @@ class PerformanceAgent(BaseAgent):
                 select(CampaignContent)
                 .options(selectinload(CampaignContent.snapshots), selectinload(CampaignContent.influencer))
                 .where(CampaignContent.campaign_id == campaign.id)
-                .order_by(CampaignContent.updated_at.desc())
+                .order_by(
+                    case(
+                        (
+                            CampaignContent.tracking_status.in_(
+                                [TrackingStatus.ACTIVE, TrackingStatus.TRACKING]
+                            ),
+                            0,
+                        ),
+                        else_=1,
+                    ),
+                    CampaignContent.updated_at.desc(),
+                )
                 .limit(1)
             )
 
@@ -102,7 +114,7 @@ class PerformanceAgent(BaseAgent):
             "views": content.current_views,
             "likes": content.current_likes,
             "comments": content.current_comments,
-            "engagements": content.current_likes + content.current_comments,
+            "engagements": (content.current_likes or 0) + (content.current_comments or 0),
             "engagement_rate_percent": content.engagement_rate,
             "baseline_median_views": content.baseline_median_views,
             "baseline_avg_views": content.baseline_avg_views,
@@ -113,24 +125,47 @@ class PerformanceAgent(BaseAgent):
             "cost_per_view_inr": content.cost_per_view,
             "cost_per_engagement_inr": content.cost_per_engagement,
             "cpm_inr": content.cpm,
-            "actual_spend_inr": content.agreed_cost,
-            "attributed_revenue_inr": content.attributed_revenue,
+            "actual_spend_inr": content.agreed_cost if content.agreed_cost is not None else campaign.spend,
+            "attributed_revenue_inr": content.attributed_revenue if content.attributed_revenue is not None else campaign.revenue,
             "attributed_orders": content.attributed_orders,
             "average_order_value_inr": content.average_order_value,
             "gross_margin_percent": content.gross_margin_percent,
             "attributed_profit_inr": content.attributed_profit,
-            "roas": content.roas,
-            "roi_percent": content.roi,
+            "roas": content.roas if content.roas is not None else campaign.roas,
+            "roi_percent": content.roi if content.roi is not None else campaign.roi,
             "attribution_source": content.attribution_source or "Unspecified",
             "is_demo_content": content.is_demo,
             "performance_status": content.performance_status,
         }
+
+        hist_res = await db.execute(
+            select(CampaignContent).where(
+                CampaignContent.campaign_id == campaign.id,
+                CampaignContent.attribution_source == "HISTORICAL_REPORTED_RESULTS",
+                CampaignContent.id != content.id,
+            )
+        )
+        historical_imported = [
+            {
+                "content_id": row.id,
+                "views": row.current_views,
+                "revenue": row.attributed_revenue,
+                "agreed_cost": row.agreed_cost,
+                "attribution_source": row.attribution_source,
+                "metric_kind": "HISTORICAL_REPORTED",
+            }
+            for row in hist_res.scalars().all()
+        ]
 
         return {
             "campaign_id": campaign.id,
             "campaign_name": campaign.name,
             "campaign_objective": campaign.objective or "AWARENESS",
             "campaign_budget": campaign.budget,
+            "campaign_spend": campaign.spend,
+            "campaign_revenue": campaign.revenue,
+            "campaign_reported_roas": campaign.roas,
+            "campaign_reported_roi": campaign.roi,
             "strategy_summary": strategy_summary,
             "influencer_name": influencer.name if influencer else (content.channel_title or "Creator"),
             "influencer_username": influencer.username if influencer else "creator",
@@ -143,6 +178,7 @@ class PerformanceAgent(BaseAgent):
             "content_age_days": content.content_age_days,
             "content_stage": content.content_stage,
             "kpis": kpis,
+            "historical_imported_performance": historical_imported,
             "snapshot_growth": snapshot_growth,
             "latest_snapshot_id": latest_snapshot.id if latest_snapshot else None,
         }

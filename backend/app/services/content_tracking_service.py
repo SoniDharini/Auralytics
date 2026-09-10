@@ -375,6 +375,8 @@ class ContentTrackingService:
                         return num_val
                 except (ValueError, TypeError):
                     pass
+        if outreach and outreach.final_amount is not None and float(outreach.final_amount) > 0:
+            return float(outreach.final_amount)
 
         return None
 
@@ -846,67 +848,15 @@ class ContentTrackingService:
         return content
 
     async def sync_campaign_metrics(self, campaign_id: str) -> None:
-        """Recalculates and persists ground-truth aggregates (spend, reach, influencers, ROAS) on the Campaign entity."""
+        """Recalculates campaign card totals without erasing imported historical values."""
+        from app.services.campaign_metrics_service import reconcile_campaign_metrics
+
         camp_stmt = select(Campaign).where(Campaign.id == campaign_id)
         camp_res = await self.db.execute(camp_stmt)
         campaign = camp_res.scalar_one_or_none()
         if not campaign:
             return
-
-        # 1. Total tracked content spend and reach
-        content_stmt = select(
-            func.coalesce(func.sum(CampaignContent.agreed_cost), 0.0),
-            func.coalesce(func.sum(CampaignContent.current_views), 0),
-            func.count(func.distinct(CampaignContent.influencer_id)),
-        ).where(
-            CampaignContent.campaign_id == campaign_id,
-            CampaignContent.tracking_status.in_([TrackingStatus.ACTIVE, TrackingStatus.TRACKING]),
-        )
-        c_res = await self.db.execute(content_stmt)
-        row = c_res.first()
-        tracked_spend = float(row[0]) if row and row[0] is not None else 0.0
-        tracked_reach = int(row[1]) if row and row[1] is not None else 0
-        tracked_creators = int(row[2]) if row and row[2] is not None else 0
-
-        # 2. Approved/signed contracts spend
-        contract_stmt = select(
-            func.coalesce(func.sum(Contract.value), 0.0),
-            func.count(func.distinct(Contract.influencer_id)),
-        ).where(
-            Contract.campaign_id == campaign_id,
-            Contract.status.in_(["APPROVED", "signed"]),
-        )
-        cntr_res = await self.db.execute(contract_stmt)
-        cntr_row = cntr_res.first()
-        contract_spend = float(cntr_row[0]) if cntr_row and cntr_row[0] is not None else 0.0
-        contracted_creators = int(cntr_row[1]) if cntr_row and cntr_row[1] is not None else 0
-
-        # 3. Sum attributed revenue from all campaign contents
-        rev_stmt = select(
-            func.coalesce(func.sum(CampaignContent.attributed_revenue), 0.0),
-        ).where(
-            CampaignContent.campaign_id == campaign_id,
-        )
-        rev_res = await self.db.execute(rev_stmt)
-        rev_row = rev_res.first()
-        total_attributed_revenue = float(rev_row[0]) if rev_row and rev_row[0] is not None else 0.0
-
-        effective_spend = max(tracked_spend, contract_spend, campaign.spend or 0.0)
-        effective_reach = max(tracked_reach, campaign.reach or 0)
-        effective_creators = max(tracked_creators, contracted_creators, campaign.influencers or 0)
-
-        campaign.spend = effective_spend
-        campaign.reach = effective_reach
-        campaign.influencers = effective_creators
-        if total_attributed_revenue > 0:
-            campaign.revenue = total_attributed_revenue
-
-        if campaign.revenue and campaign.revenue > 0 and effective_spend > 0:
-            campaign.roas = round(campaign.revenue / effective_spend, 2)
-        elif effective_spend > 0 and (not campaign.revenue or campaign.revenue <= 0):
-            campaign.roas = 0.0
-
-        await self.db.flush()
+        await reconcile_campaign_metrics(campaign, self.db)
 
     async def update_content_attribution(
         self,

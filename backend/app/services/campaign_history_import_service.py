@@ -253,35 +253,32 @@ class CampaignHistoryImportService:
                     "needs_attention" if cand.classification == "NEEDS_REVIEW" else "active"
                 ),
                 health="healthy",
-                budget=float(cand.budget or 0),
-                spend=float(cand.actual_spend or 0),
+                budget=cand.budget,
+                spend=cand.actual_spend,
                 revenue=_total_revenue(cand),
                 roas=_reported_roas(cand),
-                influencers=len(cand.creators),
+                roi=_reported_roi(cand),
+                influencers=max(len(cand.creators), cand.selected_count or 0),
                 progress=100 if cand.classification == "COMPLETED" else 50,
                 start_date=cand.start_date or "not specified",
                 end_date=cand.end_date or "not specified",
+                conversions=cand.conversions,
+                reach=_campaign_reach(cand),
                 objective=(cand.objective or "Imported historical campaign")[:100],
                 description=cand.description,
+                target_locations=(cand.audience[:255] if cand.audience else None),
                 platforms=[cand.platform] if cand.platform else ["youtube"],
                 workflow_state=cand.workflow_state or WorkflowState.CAMPAIGN_CREATED,
             )
             self.db.add(campaign)
             await self.db.flush()
         else:
-            if cand.actual_spend is not None:
-                campaign.spend = float(cand.actual_spend)
-            revenue = _total_revenue(cand)
-            if revenue:
-                campaign.revenue = revenue
-            if cand.workflow_state:
-                campaign.workflow_state = cand.workflow_state
-            if cand.classification == "COMPLETED":
-                campaign.status = "completed"
-                campaign.progress = 100
+            _merge_campaign_fields(campaign, cand)
 
         await self._ensure_imported_strategy(campaign, cand)
         influencer_map = await self._persist_creators(campaign, cand, import_id, now)
+        unique_creators = {inf.id for inf in influencer_map.values()}
+        campaign.influencers = max(len(unique_creators), len(cand.creators), cand.selected_count or 0)
         await self._persist_outreach(campaign, cand, influencer_map)
         await self._persist_contracts(campaign, cand, influencer_map)
         await self._persist_performance(campaign, cand, influencer_map)
@@ -342,17 +339,26 @@ class CampaignHistoryImportService:
         for rank_idx, creator in enumerate(cand.creators, start=1):
             label = (creator.name or creator.handle or "Imported creator").strip()
             platform = (creator.platform or "youtube").lower()
-            external_id = creator.channel_id or (
-                f"hist:{(creator.handle or label).lower().replace(' ', '-')[:80]}"
-            )
+            handle = (creator.handle or "").lstrip("@")
+            slug = (handle or label).lower().replace(" ", "-")[:80]
+            external_id = creator.channel_id or (handle if handle else f"hist:{slug}")
             result = await self.db.execute(
                 select(Influencer).where(Influencer.platform == platform, Influencer.external_id == external_id)
             )
             influencer = result.scalar_one_or_none()
-            followers_count = int(creator.followers or 0)
-            eng_rate = float(creator.engagement_rate or 0.0)
+            if influencer is None and handle:
+                result = await self.db.execute(
+                    select(Influencer).where(Influencer.platform == platform, Influencer.username == handle)
+                )
+                influencer = result.scalar_one_or_none()
+            followers_count = int(creator.followers) if creator.followers is not None else 0
+            eng_rate = float(creator.engagement_rate) if creator.engagement_rate is not None else 0.0
             niches_list = [creator.category] if creator.category else []
-            fit_score = float(creator.match_score or creator.audience_fit_score or 90.0)
+            fit_score = None
+            if creator.match_score is not None:
+                fit_score = float(creator.match_score)
+            elif creator.audience_fit_score is not None:
+                fit_score = float(creator.audience_fit_score)
             roas_val = float(creator.predicted_roas) if creator.predicted_roas is not None else None
 
             is_shortlisted = bool(
@@ -375,7 +381,7 @@ class CampaignHistoryImportService:
                     ai_match_score=fit_score,
                     predicted_roas=roas_val,
                     audience_fit=float(creator.audience_fit_score) if creator.audience_fit_score is not None else None,
-                    why_recommended=f"Historical recommendation ({creator.discovery_decision or 'Recommended'})",
+                    why_recommended="Imported from uploaded campaign history.",
                     shortlisted=is_shortlisted,
                 )
                 self.db.add(influencer)
@@ -387,7 +393,7 @@ class CampaignHistoryImportService:
                     influencer.engagement_rate = eng_rate
                 if niches_list and not influencer.niches:
                     influencer.niches = niches_list
-                if fit_score and influencer.ai_match_score is None:
+                if fit_score is not None and influencer.ai_match_score is None:
                     influencer.ai_match_score = fit_score
                 if roas_val and influencer.predicted_roas is None:
                     influencer.predicted_roas = roas_val
@@ -415,31 +421,37 @@ class CampaignHistoryImportService:
 
             match_reasons = [
                 {
-                    "key": "ai_discovery",
-                    "label": "AI Discovery Match",
-                    "weight": int(fit_score),
+                    "key": "historical_import",
+                    "label": "Imported History",
+                    "weight": int(fit_score) if fit_score is not None else 0,
                     "score": fit_score,
-                    "available": True,
-                    "detail": f"Audience fit: {creator.audience_fit_score or 'N/A'}, Decision: {creator.discovery_decision or 'Recommended'}",
-                    "source": "discovery_agent_grok",
-                    "rank": rank_idx,
-                    "ai_fit_score": fit_score,
-                    "campaign_fit": "EXCELLENT" if fit_score >= 85 else "GOOD",
-                    "recommendation_reason": f"Historical recommendation ({creator.discovery_decision or 'Recommended'}). Predicted ROAS: {creator.predicted_roas or 'N/A'}",
-                    "strengths": [f"Category: {creator.category}"] if creator.category else ["Relevant historical creator"],
-                    "risks": [],
-                },
-                {
-                    "key": "provenance",
-                    "label": "Historical Import",
-                    "weight": 100,
-                    "score": 100.0,
                     "available": True,
                     "detail": "Imported from uploaded campaign files",
                     "selection_source": "HISTORICAL_IMPORT",
                     "import_id": import_id,
+                    "eligibility": "ELIGIBLE",
+                    "rank": rank_idx,
+                    "recommendation_reason": creator.discovery_decision or "Imported creator record",
+                    "strengths": [f"Category: {creator.category}"] if creator.category else [],
+                    "risks": [],
                 },
             ]
+            if fit_score is not None:
+                match_reasons.insert(
+                    0,
+                    {
+                        "key": "ai_discovery",
+                        "label": "Imported match score",
+                        "weight": int(fit_score),
+                        "score": fit_score,
+                        "available": True,
+                        "detail": f"Audience fit: {creator.audience_fit_score if creator.audience_fit_score is not None else 'N/A'}",
+                        "source": "HISTORICAL_IMPORT",
+                        "rank": rank_idx,
+                        "ai_fit_score": fit_score,
+                        "eligibility": "ELIGIBLE",
+                    },
+                )
 
             existing_link = await self.db.execute(
                 select(CampaignInfluencer).where(
@@ -469,7 +481,6 @@ class CampaignHistoryImportService:
             mapping[_norm(label)] = influencer
             if creator.handle:
                 mapping[_norm(creator.handle)] = influencer
-        campaign.influencers = len(cand.creators)
         return mapping
 
     async def _persist_outreach(
@@ -492,6 +503,14 @@ class CampaignHistoryImportService:
                 continue
             influencer = _resolve_inf(influencer_map, rec.creator_name)
             if influencer is None:
+                continue
+            existing = await self.db.execute(
+                select(OutreachMessage).where(
+                    OutreachMessage.campaign_id == campaign.id,
+                    OutreachMessage.influencer_id == influencer.id,
+                )
+            )
+            if existing.scalar_one_or_none():
                 continue
             status = "READY"
             if rec.final_agreed_price is not None or (rec.status or "").lower() in {"accepted", "agreed"}:
@@ -533,13 +552,20 @@ class CampaignHistoryImportService:
                 influencer = next(iter(influencer_map.values()))
             if influencer is None:
                 continue
+            existing = await self.db.execute(
+                select(Contract).where(
+                    Contract.campaign_id == campaign.id,
+                    Contract.influencer_id == influencer.id,
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
             raw_status = (rec.contract_status or "").lower()
             status = ContractStatus.SIGNED if raw_status in {"signed", "approved", "completed", "done"} else ContractStatus.APPROVED
             if raw_status in {"draft", "drafted", "pending"}:
                 status = ContractStatus.DRAFTED
             value = rec.compensation
-            if value is None:
-                continue
+            amount_unknown = value is None
             self.db.add(
                 Contract(
                     id=f"con-{uuid.uuid4().hex[:10]}",
@@ -548,7 +574,7 @@ class CampaignHistoryImportService:
                     creator=influencer.name,
                     username=influencer.username,
                     campaign=campaign.name,
-                    value=float(value),
+                    value=float(value) if value is not None else 0.0,
                     currency=rec.currency or "INR",
                     status=status,
                     start_date=rec.start_date or campaign.start_date,
@@ -559,7 +585,11 @@ class CampaignHistoryImportService:
                     exclusivity=rec.exclusivity or "As specified in source file",
                     additional_terms="Imported historical contract. Terms are reference-only for new campaigns.",
                     overall_status="APPROVED" if status in {ContractStatus.SIGNED, ContractStatus.APPROVED} else "READY_FOR_REVIEW",
-                    analysis_json={"source": "HISTORICAL_IMPORT", "reference_only": True},
+                    analysis_json={
+                        "source": "HISTORICAL_IMPORT",
+                        "reference_only": True,
+                        "amount_unknown": amount_unknown,
+                    },
                 )
             )
 
@@ -575,47 +605,72 @@ class CampaignHistoryImportService:
                 influencer = next(iter(influencer_map.values()))
             if influencer is None:
                 continue
+            existing_content = await self.db.execute(
+                select(CampaignContent).where(
+                    CampaignContent.campaign_id == campaign.id,
+                    CampaignContent.influencer_id == influencer.id,
+                    CampaignContent.attribution_source == "HISTORICAL_REPORTED_RESULTS",
+                )
+            )
+            existing_row = existing_content.scalar_one_or_none()
             content_match = next(
                 (c for c in cand.content_records if _norm(c.creator_name or "") == _norm(rec.creator_name or "")),
                 cand.content_records[0] if cand.content_records else None,
             )
             content_url = (content_match.content_url if content_match else None) or f"historical://{campaign.id}/{influencer.id}"
             video_id = (content_match.video_id if content_match else None) or f"hist-{uuid.uuid4().hex[:10]}"
-            content = CampaignContent(
-                id=f"ccont-{uuid.uuid4().hex[:12]}",
-                user_id=self.user.id,
-                campaign_id=campaign.id,
-                influencer_id=influencer.id,
-                platform=(content_match.platform if content_match else None) or "youtube",
-                content_type=ContentType.YOUTUBE_VIDEO,
-                external_content_id=video_id,
-                content_url=content_url,
-                is_demo=False,
-                title=f"Historical content for {influencer.name}",
-                tracking_status=TrackingStatus.COMPLETED,
-                current_views=int(rec.views or 0),
-                current_likes=int(rec.likes or 0),
-                current_comments=int(rec.comments or 0),
-                attributed_revenue=rec.revenue,
-                agreed_cost=rec.spend,
-                attribution_source="HISTORICAL_REPORTED_RESULTS",
-                performance_status=rec.performance_status or "STRONG",
-            )
-            self.db.add(content)
-            await self.db.flush()
+            views = int(rec.views) if rec.views is not None else 0
+            likes = int(rec.likes) if rec.likes is not None else 0
+            comments = int(rec.comments) if rec.comments is not None else 0
+            spend = rec.spend if rec.spend is not None else campaign.spend
+            if existing_row:
+                if rec.views is not None:
+                    existing_row.current_views = views
+                if rec.revenue is not None:
+                    existing_row.attributed_revenue = rec.revenue
+                if spend is not None:
+                    existing_row.agreed_cost = spend
+                if rec.engagement is not None:
+                    existing_row.engagement_rate = rec.engagement
+                content = existing_row
+            else:
+                content = CampaignContent(
+                    id=f"ccont-{uuid.uuid4().hex[:12]}",
+                    user_id=self.user.id,
+                    campaign_id=campaign.id,
+                    influencer_id=influencer.id,
+                    platform=(content_match.platform if content_match else None) or "youtube",
+                    content_type=ContentType.YOUTUBE_VIDEO,
+                    external_content_id=video_id,
+                    content_url=content_url,
+                    is_demo=False,
+                    title=f"Imported history for {influencer.name}",
+                    channel_title=influencer.name,
+                    tracking_status=TrackingStatus.COMPLETED,
+                    current_views=views,
+                    current_likes=likes,
+                    current_comments=comments,
+                    engagement_rate=rec.engagement,
+                    attributed_revenue=rec.revenue if rec.revenue is not None else campaign.revenue,
+                    agreed_cost=spend,
+                    attribution_source="HISTORICAL_REPORTED_RESULTS",
+                    performance_status=rec.performance_status,
+                )
+                self.db.add(content)
+                await self.db.flush()
             captured = _parse_dt(rec.measurement_date) or datetime.now(timezone.utc)
             snap = ContentPerformanceSnapshot(
                 id=f"csnap-{uuid.uuid4().hex[:12]}",
                 campaign_content_id=content.id,
-                views=int(rec.views or 0),
-                likes=int(rec.likes or 0),
-                comments=int(rec.comments or 0),
+                views=views,
+                likes=likes,
+                comments=comments,
                 captured_at=captured,
             )
             self.db.add(snap)
             await self.db.flush()
 
-            if cand.classification == "COMPLETED" or rec.views or rec.revenue:
+            if rec.views is not None or rec.revenue is not None or rec.roas is not None or rec.roi is not None:
                 roas_display = rec.roas if rec.roas is not None else campaign.roas
                 self.db.add(
                     PerformanceAnalysis(
@@ -625,16 +680,21 @@ class CampaignHistoryImportService:
                         influencer_id=influencer.id,
                         campaign_content_id=content.id,
                         latest_snapshot_id=snap.id,
-                        status=rec.performance_status or "STRONG",
+                        status=rec.performance_status or "ON_TRACK",
                         content_stage="MATURE",
-                        summary=f"Historical performance analysis for {influencer.name} ({campaign.name}). Views: {int(rec.views or 0):,}, ROAS: {roas_display or 0:.2f}x.",
-                        what_is_working=[
-                            f"Generated {int(rec.views or 0):,} views and achieved {roas_display or 0}x ROAS",
-                            "Delivered strong audience engagement and positive brand lift",
-                        ],
+                        summary=(
+                            f"Imported historical performance for {influencer.name} ({campaign.name})."
+                            + (f" Views: {views:,}." if rec.views is not None else "")
+                            + (f" ROAS: {roas_display}x." if roas_display is not None else "")
+                            + (f" Revenue: {rec.revenue}." if rec.revenue is not None else "")
+                        ),
+                        what_is_working=[],
                         needs_attention=[],
-                        financial_interpretation=f"Attributed revenue of {rec.revenue or campaign.revenue or 0:,.2f} with total spend of {rec.spend or campaign.spend or 0:,.2f}.",
-                        next_step="Campaign finalized. Performance results archived.",
+                        financial_interpretation=(
+                            f"Historical reported revenue {rec.revenue if rec.revenue is not None else campaign.revenue} "
+                            f"with spend {spend}."
+                        ),
+                        next_step="Imported historical result. Live tracking can still be added.",
                         confidence=0.95,
                         raw_kpis={
                             "views": rec.views,
@@ -643,65 +703,17 @@ class CampaignHistoryImportService:
                             "reach": rec.reach,
                             "clicks": rec.clicks,
                             "conversions": rec.conversions,
+                            "engagement_rate": rec.engagement,
                             "revenue": rec.revenue,
                             "roas": rec.roas,
+                            "roi": rec.roi,
+                            "metric_kind": "HISTORICAL_REPORTED",
                             "source": "HISTORICAL_REPORTED_RESULTS",
+                            "source_filename": cand.sources[0] if cand.sources else None,
+                            "measurement_date": rec.measurement_date,
                         },
                     )
                 )
-
-        if not cand.performance_records and cand.classification == "COMPLETED" and influencer_map:
-            for inf in influencer_map.values():
-                content = CampaignContent(
-                    id=f"ccont-{uuid.uuid4().hex[:12]}",
-                    user_id=self.user.id,
-                    campaign_id=campaign.id,
-                    influencer_id=inf.id,
-                    platform="youtube",
-                    content_type=ContentType.YOUTUBE_VIDEO,
-                    external_content_id=f"hist-{uuid.uuid4().hex[:10]}",
-                    content_url=f"historical://{campaign.id}/{inf.id}",
-                    is_demo=False,
-                    title=f"Completed campaign content for {inf.name}",
-                    tracking_status=TrackingStatus.COMPLETED,
-                    current_views=int(10000),
-                    attributed_revenue=campaign.revenue,
-                    agreed_cost=campaign.spend,
-                    attribution_source="HISTORICAL_REPORTED_RESULTS",
-                    performance_status="STRONG",
-                )
-                self.db.add(content)
-                await self.db.flush()
-                snap = ContentPerformanceSnapshot(
-                    id=f"csnap-{uuid.uuid4().hex[:12]}",
-                    campaign_content_id=content.id,
-                    views=content.current_views,
-                    likes=0,
-                    comments=0,
-                    captured_at=datetime.now(timezone.utc),
-                )
-                self.db.add(snap)
-                await self.db.flush()
-                self.db.add(
-                    PerformanceAnalysis(
-                        id=f"panal-{uuid.uuid4().hex[:12]}",
-                        user_id=self.user.id,
-                        campaign_id=campaign.id,
-                        influencer_id=inf.id,
-                        campaign_content_id=content.id,
-                        latest_snapshot_id=snap.id,
-                        status="STRONG",
-                        content_stage="MATURE",
-                        summary=f"Completed historical campaign performance for {inf.name}.",
-                        what_is_working=["Completed campaign goals achieved"],
-                        needs_attention=[],
-                        financial_interpretation=f"Spend: {campaign.spend}, Revenue: {campaign.revenue}",
-                        next_step="Campaign finalized. Performance results archived.",
-                        confidence=0.95,
-                        raw_kpis={"source": "HISTORICAL_REPORTED_RESULTS"},
-                    )
-                )
-                break
 
         for rec in cand.content_records:
             if any(_norm(p.creator_name or "") == _norm(rec.creator_name or "") for p in cand.performance_records):
@@ -732,15 +744,15 @@ class CampaignHistoryImportService:
         campaign: Campaign,
         cand: HistoricalCampaignCandidate,
     ) -> None:
-        if not cand.optimization_records and cand.classification != "COMPLETED":
+        if not cand.optimization_records:
             return
 
         recs: List[Dict[str, Any]] = []
         for r in cand.optimization_records:
-            for rec_text in r.recommendations:
+            for rec_text in r.recommendations or []:
                 recs.append({"recommendation": rec_text, "source": "HISTORICAL_IMPORT"})
-        if not recs and cand.classification == "COMPLETED":
-            recs.append({"recommendation": "Historical campaign optimization finalized", "source": "HISTORICAL_IMPORT"})
+        if not recs:
+            return
 
         self.db.add(
             OptimizationPlan(
@@ -757,6 +769,29 @@ class CampaignHistoryImportService:
         campaign: Campaign,
         cand: HistoricalCampaignCandidate,
     ) -> None:
+        fields = {
+            "budget": cand.budget,
+            "actual_spend": cand.actual_spend,
+            "revenue": _total_revenue(cand),
+            "roas": _reported_roas(cand),
+            "roi": _reported_roi(cand),
+        }
+        for field_name, value in fields.items():
+            if value is None:
+                continue
+            self.db.add(
+                ImportedFieldProvenance(
+                    id=f"prov-{uuid.uuid4().hex[:10]}",
+                    import_id=import_id,
+                    entity_type="campaign",
+                    entity_id=campaign.id,
+                    field_name=field_name,
+                    field_value=str(value),
+                    source_filename=cand.sources[0] if cand.sources else None,
+                    source_type="CAMPAIGN",
+                    confidence=cand.confidence,
+                )
+            )
         for rec in cand.contracts:
             if rec.compensation is None:
                 continue
@@ -824,14 +859,70 @@ def _apply_chosen_value(cand: HistoricalCampaignCandidate, field: str, entity: s
                 rec.compensation = float(value) if value not in (None, "") else rec.compensation
 
 
-def _total_revenue(cand: HistoricalCampaignCandidate) -> float:
+def _merge_campaign_fields(campaign: Campaign, cand: HistoricalCampaignCandidate) -> None:
+    if cand.budget is not None:
+        campaign.budget = float(cand.budget)
+    if cand.actual_spend is not None:
+        campaign.spend = float(cand.actual_spend)
+    revenue = _total_revenue(cand)
+    if revenue is not None:
+        campaign.revenue = revenue
+    roas = _reported_roas(cand)
+    if roas is not None:
+        campaign.roas = roas
+    roi = _reported_roi(cand)
+    if roi is not None:
+        campaign.roi = roi
+    if cand.conversions is not None:
+        campaign.conversions = cand.conversions
+    reach = _campaign_reach(cand)
+    if reach is not None:
+        campaign.reach = reach
+    if cand.start_date:
+        campaign.start_date = cand.start_date
+    if cand.end_date:
+        campaign.end_date = cand.end_date
+    if cand.objective:
+        campaign.objective = cand.objective[:100]
+    if cand.description and not campaign.description:
+        campaign.description = cand.description
+    if cand.audience and not campaign.target_locations:
+        campaign.target_locations = cand.audience[:255]
+    if cand.platform:
+        campaign.platforms = [cand.platform]
+    if cand.workflow_state:
+        campaign.workflow_state = cand.workflow_state
+    if cand.classification == "COMPLETED":
+        campaign.status = "completed"
+        campaign.progress = 100
+
+
+def _total_revenue(cand: HistoricalCampaignCandidate) -> Optional[float]:
+    if cand.revenue is not None:
+        return float(cand.revenue)
     values = [p.revenue for p in cand.performance_records if p.revenue is not None]
-    return float(sum(values)) if values else 0.0
+    return float(sum(values)) if values else None
 
 
-def _reported_roas(cand: HistoricalCampaignCandidate) -> float:
+def _reported_roas(cand: HistoricalCampaignCandidate) -> Optional[float]:
+    if cand.roas is not None:
+        return float(cand.roas)
     values = [p.roas for p in cand.performance_records if p.roas is not None]
-    return float(values[0]) if values else 0.0
+    return float(values[0]) if values else None
+
+
+def _reported_roi(cand: HistoricalCampaignCandidate) -> Optional[float]:
+    if cand.roi is not None:
+        return float(cand.roi)
+    values = [p.roi for p in cand.performance_records if p.roi is not None]
+    return float(values[0]) if values else None
+
+
+def _campaign_reach(cand: HistoricalCampaignCandidate) -> Optional[int]:
+    if cand.reach is not None:
+        return int(cand.reach)
+    values = [p.reach or p.views for p in cand.performance_records if p.reach is not None or p.views is not None]
+    return int(sum(v for v in values if v is not None)) if values else None
 
 
 def _resolve_inf(mapping: Dict[str, Influencer], name: Optional[str]) -> Optional[Influencer]:

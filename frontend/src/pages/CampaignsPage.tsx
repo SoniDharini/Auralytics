@@ -158,17 +158,17 @@ export function CampaignsPage() {
         </Card>
         <Card className="p-3.5">
           <p className="text-[11px] text-text-secondary font-medium">Allocated</p>
-          <p className="text-[22px] font-bold mt-1 text-text">{formatINR(totals.budget)}</p>
-          <p className="text-[11px] text-text-secondary mt-1">{formatINR(totals.spend)} spent</p>
+          <p className="text-[22px] font-bold mt-1 text-text">{loading ? '—' : formatINR(totals.budget)}</p>
+          <p className="text-[11px] text-text-secondary mt-1">{loading ? '—' : `${formatINR(totals.spend)} spent`}</p>
         </Card>
         <Card className="p-3.5">
           <p className="text-[11px] text-text-secondary font-medium">Revenue</p>
-          <p className="text-[22px] font-bold mt-1 text-success">{formatINR(totals.revenue)}</p>
+          <p className="text-[22px] font-bold mt-1 text-success">{loading ? '—' : formatINR(totals.revenue)}</p>
           <p className="text-[11px] text-text-secondary mt-1">From campaign records</p>
         </Card>
         <Card className="p-3.5">
           <p className="text-[11px] text-text-secondary font-medium">Avg ROAS</p>
-          <p className="text-[22px] font-bold mt-1 text-primary">{totals.avgRoas.toFixed(2)}x</p>
+          <p className="text-[22px] font-bold mt-1 text-primary">{loading ? '—' : `${totals.avgRoas.toFixed(2)}x`}</p>
           <p className="text-[11px] text-text-secondary mt-1">Revenue ÷ spend</p>
         </Card>
       </div>
@@ -309,7 +309,7 @@ export function CampaignsPage() {
                       </span>
                     </div>
                     <ProgressBar
-                      value={Math.round((c.spend / (c.budget || 1)) * 100 || 0)}
+                      value={Math.round(((c.spend || 0) / (c.budget || 1)) * 100 || 0)}
                       size="sm"
                     />
                   </div>

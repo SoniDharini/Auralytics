@@ -91,12 +91,18 @@ async def test_full_campaign_history_lifecycle(client: AsyncClient):
         assert cand["current_stage"] == "COMPLETE"
         assert cand["continue_route"] is None
 
+    assert cands_by_name["Summer Hydration Wave"]["budget"] == 50000
+    assert cands_by_name["Summer Hydration Wave"]["actual_spend"] == 48000
+    assert cands_by_name["Summer Hydration Wave"]["revenue"] == 144000
+
     # Verify CMP-006 (Zero Sugar Refresh)
     cmp006 = cands_by_name["Zero Sugar Refresh"]
     assert cmp006["classification"] == "IN_PROGRESS"
     assert cmp006["current_stage"] == "SHORTLIST"
     assert cmp006["workflow_state"] == "DISCOVERY_COMPLETED"
     assert cmp006["next_step_key"] == "SHORTLIST_INFLUENCERS"
+    assert cmp006["budget"] == 45000
+    assert cmp006["actual_spend"] == 0
     assert len(cmp006["creators"]) == 4
 
     creator_names = {cr["name"] for cr in cmp006["creators"]}
@@ -131,6 +137,9 @@ async def test_full_campaign_history_lifecycle(client: AsyncClient):
     summer_camp = db_camps["Summer Hydration Wave"]
     assert summer_camp["status"] == "completed"
     assert summer_camp["progress"] == 100
+    assert summer_camp["budget"] == 50000
+    assert summer_camp["spend"] == 48000
+    assert summer_camp["revenue"] == 144000
 
     wf_resp = await client.get(f"/api/v1/campaigns/{summer_camp['id']}/workflow", headers=headers)
     assert wf_resp.status_code == 200

@@ -5,7 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatINR(amount: number, compact = false): string {
+export function formatINR(amount: number | null | undefined, compact = false): string {
+  if (amount == null || Number.isNaN(Number(amount))) return 'N/A'
   if (compact) {
     if (amount >= 100000) {
       const lakhs = amount / 100000
@@ -21,6 +22,11 @@ export function formatINR(amount: number, compact = false): string {
     currency: 'INR',
     maximumFractionDigits: 0,
   }).format(amount)
+}
+
+export function formatRoas(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(Number(value))) return 'N/A'
+  return `${value.toFixed(2)}x`
 }
 
 export function formatNumber(n: number): string {

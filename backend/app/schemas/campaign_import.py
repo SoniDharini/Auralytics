@@ -142,9 +142,17 @@ class HistoricalCampaignCandidate(BaseModel):
     end_date: Optional[str] = None
     budget: Optional[float] = None
     actual_spend: Optional[float] = None
+    revenue: Optional[float] = None
+    roas: Optional[float] = None
+    roi: Optional[float] = None
+    reach: Optional[int] = None
+    conversions: Optional[int] = None
+    clicks: Optional[int] = None
+    engagement_rate: Optional[float] = None
     reported_status: Optional[str] = None
     reported_stage: Optional[str] = None
     selected_count: Optional[int] = None
+    recommended_count: Optional[int] = None
     creators: List[ExtractedCreator] = Field(default_factory=list)
     outreach_records: List[ExtractedOutreach] = Field(default_factory=list)
     negotiations: List[ExtractedOutreach] = Field(default_factory=list)

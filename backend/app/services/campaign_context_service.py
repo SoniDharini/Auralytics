@@ -157,6 +157,10 @@ class CampaignContextService:
             select(OutreachMessage).where(OutreachMessage.campaign_id == campaign.id)
         )
         contracts = await self.db.execute(select(Contract).where(Contract.campaign_id == campaign.id))
+        links = await self.db.execute(
+            select(CampaignInfluencer).where(CampaignInfluencer.campaign_id == campaign.id)
+        )
+        link_rows = list(links.scalars().all())
         contents = await self.db.execute(select(CampaignContent).where(CampaignContent.campaign_id == campaign.id))
         content_rows = list(contents.scalars().all())
         snapshots = []
@@ -179,9 +183,31 @@ class CampaignContextService:
             ]
         return {
             **status,
+            "budget": campaign.budget,
             "spend": campaign.spend,
             "revenue": campaign.revenue,
             "roas": campaign.roas,
+            "roi": campaign.roi,
+            "conversions": campaign.conversions,
+            "reach": campaign.reach,
+            "objective": campaign.objective,
+            "platforms": campaign.platforms,
+            "creators": [
+                {
+                    "influencer_id": link.influencer_id,
+                    "status": link.status,
+                    "match_score": link.match_score,
+                }
+                for link in link_rows
+            ],
+            "shortlisted_creators": [
+                {
+                    "influencer_id": link.influencer_id,
+                    "status": link.status,
+                }
+                for link in link_rows
+                if link.status in {"SHORTLISTED", "ACCEPTED", "CONTACTED", "NEGOTIATING"}
+            ],
             "outreach": [
                 {
                     "influencer_name": m.influencer_name,

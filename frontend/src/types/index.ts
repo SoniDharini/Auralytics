@@ -55,16 +55,17 @@ export interface Campaign {
   brand: string
   status: CampaignStatus
   health: HealthStatus
-  budget: number
-  spend: number
-  revenue: number
-  roas: number
+  budget: number | null
+  spend: number | null
+  revenue: number | null
+  roas: number | null
+  roi?: number | null
   influencers: number
   progress: number
   startDate: string
   endDate: string
-  conversions: number
-  reach: number
+  conversions?: number | null
+  reach?: number | null
   objective: string
   description?: string
   campaign_types?: string[]
@@ -797,7 +798,7 @@ export interface CampaignContent {
   current_views: number
   current_likes: number
   current_comments: number
-  engagement_rate: number
+  engagement_rate?: number | null
   performance_lift_percent?: number | null
   engagement_lift_percent?: number | null
   cost_per_view?: number | null

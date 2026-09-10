@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import case, desc, select
 from sqlalchemy.orm import selectinload
 
 from app.ai.agents.base import AgentContext, BaseAgent
@@ -21,6 +21,7 @@ from app.models.campaign_content import (
     CampaignContent,
     OptimizationPlan,
     PerformanceAnalysis,
+    TrackingStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,11 +57,21 @@ class OptimizationAgent(BaseAgent):
         # 1. Fetch latest Performance Analysis
         p_stmt = (
             select(PerformanceAnalysis)
+            .outerjoin(CampaignContent, CampaignContent.id == PerformanceAnalysis.campaign_content_id)
             .where(PerformanceAnalysis.campaign_id == campaign.id)
         )
         if content_id:
             p_stmt = p_stmt.where(PerformanceAnalysis.campaign_content_id == content_id)
-        p_stmt = p_stmt.order_by(PerformanceAnalysis.created_at.desc()).limit(1)
+        p_stmt = p_stmt.order_by(
+            case(
+                (
+                    CampaignContent.tracking_status.in_([TrackingStatus.ACTIVE, TrackingStatus.TRACKING]),
+                    0,
+                ),
+                else_=1,
+            ),
+            PerformanceAnalysis.created_at.desc(),
+        ).limit(1)
 
         p_res = await db.execute(p_stmt)
         perf_analysis = p_res.scalar_one_or_none()

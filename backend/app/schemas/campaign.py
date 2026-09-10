@@ -44,6 +44,7 @@ class CampaignUpdate(BaseModel):
     spend: Optional[float] = None
     revenue: Optional[float] = None
     roas: Optional[float] = None
+    roi: Optional[float] = None
     influencers: Optional[int] = None
     progress: Optional[int] = None
     start_date: Optional[str] = None
@@ -91,16 +92,17 @@ class CampaignResponse(BaseModel):
     brand: str
     status: str
     health: str
-    budget: float
-    spend: float
-    revenue: float
-    roas: float
+    budget: Optional[float] = None
+    spend: Optional[float] = None
+    revenue: Optional[float] = None
+    roas: Optional[float] = None
+    roi: Optional[float] = None
     influencers: int
     progress: int
     startDate: str = Field(..., validation_alias="start_date", serialization_alias="startDate")
     endDate: str = Field(..., validation_alias="end_date", serialization_alias="endDate")
-    conversions: int
-    reach: int
+    conversions: Optional[int] = None
+    reach: Optional[int] = None
     objective: str
     description: Optional[str] = None
     campaign_types: Optional[List[str]] = None

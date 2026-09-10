@@ -26,68 +26,10 @@ from app.schemas.influencer import (
     ProviderResultSchema,
 )
 from app.services.campaign_workflow_service import CampaignWorkflowService
+from app.services.campaign_metrics_service import reconcile_campaign_metrics
 from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
-
-
-async def reconcile_campaign_metrics(campaign: Campaign, db: AsyncSession) -> Campaign:
-    """Reconciles ground-truth spend, reach, and creator counts from tracked content and contracts."""
-    from sqlalchemy import func
-    from app.models.campaign_content import CampaignContent, TrackingStatus
-    from app.models.contract import Contract
-
-    content_stmt = select(
-        func.coalesce(func.sum(CampaignContent.agreed_cost), 0.0),
-        func.coalesce(func.sum(CampaignContent.current_views), 0),
-        func.count(func.distinct(CampaignContent.influencer_id)),
-    ).where(
-        CampaignContent.campaign_id == campaign.id,
-        CampaignContent.tracking_status.in_([TrackingStatus.ACTIVE, TrackingStatus.TRACKING]),
-    )
-    c_res = await db.execute(content_stmt)
-    c_row = c_res.first()
-    tracked_spend = float(c_row[0]) if c_row and c_row[0] is not None else 0.0
-    tracked_reach = int(c_row[1]) if c_row and c_row[1] is not None else 0
-    tracked_creators = int(c_row[2]) if c_row and c_row[2] is not None else 0
-
-    contract_stmt = select(
-        func.coalesce(func.sum(Contract.value), 0.0),
-        func.count(func.distinct(Contract.influencer_id)),
-    ).where(
-        Contract.campaign_id == campaign.id,
-        Contract.status.in_(["APPROVED", "signed"]),
-    )
-    cntr_res = await db.execute(contract_stmt)
-    cntr_row = cntr_res.first()
-    contract_spend = float(cntr_row[0]) if cntr_row and cntr_row[0] is not None else 0.0
-    contracted_creators = int(cntr_row[1]) if cntr_row and cntr_row[1] is not None else 0
-
-    effective_spend = max(tracked_spend, contract_spend, campaign.spend or 0.0)
-    effective_reach = max(tracked_reach, campaign.reach or 0)
-    effective_creators = max(tracked_creators, contracted_creators, campaign.influencers or 0)
-
-    changed = False
-    if effective_spend != campaign.spend:
-        campaign.spend = effective_spend
-        changed = True
-    if effective_reach != campaign.reach:
-        campaign.reach = effective_reach
-        changed = True
-    if effective_creators != campaign.influencers:
-        campaign.influencers = effective_creators
-        changed = True
-    if campaign.revenue and campaign.revenue > 0 and effective_spend > 0:
-        new_roas = round(campaign.revenue / effective_spend, 2)
-        if new_roas != campaign.roas:
-            campaign.roas = new_roas
-            changed = True
-
-    if changed:
-        await db.commit()
-        await db.refresh(campaign)
-
-    return campaign
 
 
 @router.get("", response_model=List[CampaignResponse], summary="List all campaigns for current user")

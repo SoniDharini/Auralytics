@@ -26,8 +26,8 @@ async def get_dashboard_summary(
     pending_campaigns = sum(1 for c in campaigns if c.status in ("planning", "draft", "pending_approval", "needs_attention"))
     completed_campaigns = sum(1 for c in campaigns if c.status == "completed")
 
-    total_spend = sum(c.spend for c in campaigns)
-    total_revenue = sum(c.revenue for c in campaigns)
+    total_spend = sum(c.spend or 0 for c in campaigns)
+    total_revenue = sum(c.revenue or 0 for c in campaigns)
     average_roas = (total_revenue / total_spend) if total_spend > 0 else 0.0
 
     # User pending approvals count (if user has approval records)

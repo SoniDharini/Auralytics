@@ -34,8 +34,8 @@ async def get_dashboard_analytics(
     raw_camps = camp_res.scalars().all()
     camps = [await reconcile_campaign_metrics(c, db) for c in raw_camps]
 
-    total_spend = sum(c.spend for c in camps)
-    total_rev = sum(c.revenue for c in camps)
+    total_spend = sum(c.spend or 0 for c in camps)
+    total_rev = sum(c.revenue or 0 for c in camps)
     active_camps = len([c for c in camps if c.status == "active"])
     avg_roas = (total_rev / total_spend) if total_spend > 0 else 0.0
     pending_approvals = 0
@@ -137,7 +137,7 @@ async def get_dashboard_analytics(
             label="Total Spend",
             value=f"₹{total_spend / 100000:.1f}L" if total_spend >= 100000 else f"₹{total_spend:,.0f}",
             context="Allocated campaign budget",
-            trend=TrendData(value="0% of budget" if total_spend == 0 else f"{int(min(100, (total_spend / (sum(c.budget for c in camps) or 1)) * 100))}% of budget", positive=True),
+            trend=TrendData(value="0% of budget" if total_spend == 0 else f"{int(min(100, (total_spend / (sum(c.budget or 0 for c in camps) or 1)) * 100))}% of budget", positive=True),
             sparkline=None,
         ),
         MetricCardSchema(
