@@ -33,6 +33,63 @@ async def test_campaign_crud_lifecycle(client: AsyncClient):
     camp_id = camp_data["id"]
     assert camp_data["name"] == "Serum Launch Q4"
     assert camp_data["budget"] == 250000
+    assert camp_data["brand"] == "GlowNaturals"
+
+    # Brand in the payload is ignored; workspace company_name is authoritative.
+    spoof = await client.post(
+        "/api/v1/campaigns",
+        json={
+            "name": "Spoof Attempt",
+            "brand": "SomeoneElse",
+            "budget": 10000,
+            "objective": "Awareness",
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+        },
+        headers=headers,
+    )
+    assert spoof.status_code == 201
+    assert spoof.json()["brand"] == "GlowNaturals"
+
+    invalid_ages = await client.post(
+        "/api/v1/campaigns",
+        json={
+            "name": "Bad Age Range",
+            "brand": "GlowNaturals",
+            "budget": 10000,
+            "objective": "Awareness",
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "target_age_min": 30,
+            "target_age_max": 18,
+        },
+        headers=headers,
+    )
+    assert invalid_ages.status_code == 422
+
+    other_type = await client.post(
+        "/api/v1/campaigns",
+        json={
+            "name": "Functional Beverage Launch",
+            "brand": "Ignored",
+            "budget": 50000,
+            "objective": "Product Launch",
+            "start_date": "2026-10-01",
+            "end_date": "2026-11-01",
+            "campaign_types": ["Other", "Functional Beverage Launch"],
+            "description": "Launch of a new low-sugar functional beverage for young urban consumers.",
+            "target_age_min": 18,
+            "target_age_max": 25,
+        },
+        headers=headers,
+    )
+    assert other_type.status_code == 201
+    other_data = other_type.json()
+    assert other_data["brand"] == "GlowNaturals"
+    assert "Other" not in (other_data.get("campaign_types") or [])
+    assert "Functional Beverage Launch" in other_data["campaign_types"]
+    assert other_data["target_age_min"] == 18
+    assert other_data["target_age_max"] == 25
 
     # 3. List campaigns
     list_res = await client.get("/api/v1/campaigns", headers=headers)

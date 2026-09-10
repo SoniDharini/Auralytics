@@ -81,11 +81,14 @@ ALLOWED_TRANSITIONS = {
     },
     WorkflowState.OPTIMIZATION_PENDING: {
         WorkflowState.OPTIMIZATION_APPROVAL_PENDING,
+        WorkflowState.PERFORMANCE_MONITORING,
         WorkflowState.FAILED,
+        WorkflowState.COMPLETED,
     },
     WorkflowState.OPTIMIZATION_APPROVAL_PENDING: {
         WorkflowState.PERFORMANCE_MONITORING,
         WorkflowState.OPTIMIZATION_PENDING,
+        WorkflowState.COMPLETED,
     },
     WorkflowState.COMPLETED: set(),
     WorkflowState.FAILED: {WorkflowState.STRATEGY_PENDING, WorkflowState.DISCOVERY_PENDING},

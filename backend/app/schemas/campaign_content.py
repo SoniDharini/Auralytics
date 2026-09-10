@@ -154,8 +154,15 @@ class OptimizationPlanResponse(BaseModel):
     campaign_id: str
     campaign_content_id: Optional[str] = None
     performance_analysis_id: Optional[str] = None
+    latest_snapshot_id: Optional[str] = None
     agent_run_id: Optional[str] = None
     status: str = "PENDING_APPROVAL"
+    is_stale: bool = False
+    stale_reason: Optional[str] = None
+    overall_assessment: Optional[str] = None
+    data_quality: Optional[str] = None
+    optimization_generated_at: Optional[datetime] = None
+    performance_updated_at: Optional[datetime] = None
     recommendations: List[OptimizationRecommendationSchema] = []
     created_at: datetime
     updated_at: datetime

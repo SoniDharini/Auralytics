@@ -6,16 +6,23 @@ It reads existing PostgreSQL rows and tells the UI what is done and what is next
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.agents.optimization import campaign_timeline
 from app.ai.workflow_states import AgentNames, AgentRunStatus, ApprovalStatus
 from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
 from app.models.campaign import Campaign
-from app.models.campaign_content import CampaignContent
+from app.models.campaign_content import (
+    CampaignContent,
+    ContentPerformanceSnapshot,
+    OptimizationPlan,
+    PerformanceAnalysis,
+)
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
 from app.models.contract import Contract
@@ -64,6 +71,8 @@ class NextStepKey:
     OPTIMIZE_CAMPAIGN = "OPTIMIZE_CAMPAIGN"
     REVIEW_OPTIMIZATION = "REVIEW_OPTIMIZATION"
     APPROVE_OPTIMIZATION = "APPROVE_OPTIMIZATION"
+    CONTINUE_MONITORING = "CONTINUE_MONITORING"
+    COMPLETE_CAMPAIGN = "COMPLETE_CAMPAIGN"
 
 
 _ACTIVE_RUN = {AgentRunStatus.QUEUED, AgentRunStatus.RUNNING}
@@ -135,6 +144,7 @@ class CampaignWorkflowService:
         has_optimization_plan = await self._has_optimization_plan(campaign.id)
         has_performance_analysis = await self._has_performance_analysis(campaign.id)
         completed_content_count = await self._count_completed_content(campaign.id)
+        optimization_stale = await self._optimization_is_stale(campaign.id)
 
         discovery_exists = (
             discovered_count > 0
@@ -177,6 +187,7 @@ class CampaignWorkflowService:
             optimization_run=latest_optimization_run,
             has_optimization_plan=has_optimization_plan,
             pending_opt_approvals=pending_opt_approvals,
+            optimization_stale=optimization_stale,
         )
 
         action: WorkflowAction = focus["next_action"]
@@ -185,17 +196,28 @@ class CampaignWorkflowService:
             action = action.model_copy(update={"route": default_route})
             focus["next_action"] = action
 
+        secondary = focus.get("secondary_action")
+        if isinstance(secondary, WorkflowAction) and not secondary.route:
+            default_route, _tab = self._step_target(campaign.id, focus["current_step"])
+            secondary = secondary.model_copy(update={"route": default_route})
+            focus["secondary_action"] = secondary
+
         steps = self._build_steps(campaign.id, focus)
+        is_completed = bool(focus.get("is_completed"))
         completed = sum(1 for s in steps if s.key in _PROGRESS_KEYS and s.status == StepStatus.COMPLETED)
-        progress = 100 if focus.get("is_completed") else int(round((completed / len(_PROGRESS_KEYS)) * 100))
+        progress = 100 if is_completed else min(89, int(round((completed / len(_PROGRESS_KEYS)) * 100)))
+        timeline = campaign_timeline(campaign, datetime.now(timezone.utc))
 
         return CampaignWorkflowResponse(
             campaign_id=campaign.id,
             current_step=focus["current_step"],
             next_step=focus["next_step"],
             progress_percentage=progress,
+            is_completed=is_completed,
+            timeline_ended=bool(timeline.get("campaign_timeline_ended")),
             blocking_reason=focus.get("blocking_reason"),
             next_action=action,
+            secondary_action=secondary if isinstance(secondary, WorkflowAction) else None,
             steps=steps,
             discovered_count=discovered_count,
             shortlisted_count=shortlisted_count,
@@ -230,6 +252,7 @@ class CampaignWorkflowService:
         optimization_run: Optional[AgentRun] = ctx.get("optimization_run")
         has_optimization_plan: bool = ctx.get("has_optimization_plan", False)
         pending_opt_approvals: int = ctx.get("pending_opt_approvals", 0)
+        optimization_stale: bool = ctx.get("optimization_stale", False)
 
         # 1. Authoritative check: if campaign is completed, all stages are complete.
         if (
@@ -521,22 +544,38 @@ class CampaignWorkflowService:
         )
 
         if optimization_completed:
-            return {
-                "current_step": WorkflowStepKey.OPTIMIZATION,
-                "next_step": "",
-                "step_status": StepStatus.COMPLETED,
-                "is_completed": True,
-                "blocking_reason": None,
-                "next_action": WorkflowAction(
-                    key="",
-                    label="Campaign Completed",
-                    description="All campaign stages have been completed.",
-                    route=f"/app/campaigns/{campaign.id}?tab=overview",
-                    tab="overview",
-                    enabled=False,
-                    running=False,
-                ),
-            }
+            complete_action = WorkflowAction(
+                key=NextStepKey.COMPLETE_CAMPAIGN,
+                label="Complete Campaign",
+                description="Finish this campaign when monitoring is done. Performance and Optimization history are preserved.",
+                route=f"/app/campaigns/{campaign.id}?tab=overview",
+                tab="overview",
+                enabled=pending_opt_approvals == 0,
+                running=False,
+            )
+            if optimization_stale:
+                focus = self._focus(
+                    WorkflowStepKey.OPTIMIZATION,
+                    NextStepKey.OPTIMIZE_CAMPAIGN,
+                    StepStatus.COMPLETED,
+                    "Refresh Optimization",
+                    "New performance data is available. Refresh Optimization using the latest Performance analysis.",
+                    route=f"/app/analytics?campaignId={campaign.id}",
+                    tab="optimization",
+                )
+                focus["secondary_action"] = complete_action
+                return focus
+
+            focus = self._focus(
+                WorkflowStepKey.OPTIMIZATION,
+                NextStepKey.CONTINUE_MONITORING,
+                StepStatus.COMPLETED,
+                "Continue Monitoring",
+                "Optimization is complete. Keep the campaign active to refresh Performance later, or complete the campaign when you are ready.",
+                tab="performance",
+            )
+            focus["secondary_action"] = complete_action
+            return focus
 
         return self._focus(
             WorkflowStepKey.OPTIMIZATION,
@@ -544,6 +583,7 @@ class CampaignWorkflowService:
             StepStatus.NEXT,
             "Run Optimization Agent",
             "Performance analysis complete. Generate budget reallocation and scaling recommendations.",
+            route=f"/app/analytics?campaignId={campaign.id}",
             tab="optimization",
         )
 
@@ -782,14 +822,28 @@ class CampaignWorkflowService:
             .where(
                 Approval.campaign_id == campaign_id,
                 Approval.status.in_(_PENDING_APPROVAL),
-                Approval.type.in_(("budget", "optimization", "campaign")),
+                or_(
+                    Approval.agent.ilike("%optimization%"),
+                    Approval.type.in_(
+                        (
+                            "budget",
+                            "optimization",
+                            "OPTIMIZATION",
+                            "BUDGET",
+                            "MONITOR",
+                            "CREATOR",
+                            "CONTENT",
+                            "FORMAT",
+                            "CTA",
+                            "TIMING",
+                        )
+                    ),
+                ),
             )
         )
         return int(result.scalar_one() or 0)
 
     async def _has_optimization_plan(self, campaign_id: str) -> bool:
-        from app.models.campaign_content import OptimizationPlan
-
         result = await self.db.execute(
             select(func.count()).select_from(OptimizationPlan).where(
                 OptimizationPlan.campaign_id == campaign_id
@@ -798,14 +852,57 @@ class CampaignWorkflowService:
         return int(result.scalar_one() or 0) > 0
 
     async def _has_performance_analysis(self, campaign_id: str) -> bool:
-        from app.models.campaign_content import PerformanceAnalysis
-
         result = await self.db.execute(
             select(func.count()).select_from(PerformanceAnalysis).where(
                 PerformanceAnalysis.campaign_id == campaign_id
             )
         )
         return int(result.scalar_one() or 0) > 0
+
+    async def _optimization_is_stale(self, campaign_id: str) -> bool:
+        plan_res = await self.db.execute(
+            select(OptimizationPlan)
+            .where(OptimizationPlan.campaign_id == campaign_id)
+            .order_by(OptimizationPlan.created_at.desc())
+            .limit(1)
+        )
+        plan = plan_res.scalar_one_or_none()
+        if not plan:
+            return False
+
+        analysis_stmt = select(PerformanceAnalysis).where(PerformanceAnalysis.campaign_id == campaign_id)
+        if plan.campaign_content_id:
+            analysis_stmt = analysis_stmt.where(
+                PerformanceAnalysis.campaign_content_id == plan.campaign_content_id
+            )
+        analysis_res = await self.db.execute(
+            analysis_stmt.order_by(PerformanceAnalysis.created_at.desc()).limit(1)
+        )
+        latest_analysis = analysis_res.scalar_one_or_none()
+        if latest_analysis and plan.performance_analysis_id != latest_analysis.id:
+            return True
+        if latest_analysis and plan.created_at and latest_analysis.created_at:
+            if latest_analysis.created_at > plan.created_at:
+                return True
+
+        content_id = plan.campaign_content_id or (latest_analysis.campaign_content_id if latest_analysis else None)
+        if not content_id:
+            return False
+        snap_res = await self.db.execute(
+            select(ContentPerformanceSnapshot)
+            .where(ContentPerformanceSnapshot.campaign_content_id == content_id)
+            .order_by(ContentPerformanceSnapshot.captured_at.desc())
+            .limit(1)
+        )
+        latest_snap = snap_res.scalar_one_or_none()
+        if not latest_snap:
+            return False
+        if latest_analysis and latest_analysis.latest_snapshot_id and latest_snap.id != latest_analysis.latest_snapshot_id:
+            return True
+        if latest_analysis and latest_analysis.created_at and latest_snap.captured_at:
+            if latest_snap.captured_at > latest_analysis.created_at:
+                return True
+        return False
 
     async def _count_completed_content(self, campaign_id: str) -> int:
         from app.models.campaign_content import CampaignContent, TrackingStatus

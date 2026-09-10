@@ -10,6 +10,7 @@ import {
   Target,
 } from 'lucide-react'
 import {
+  AgeCombobox,
   Button,
   Card,
   CardContent,
@@ -22,11 +23,19 @@ import {
 } from '@/components/ui'
 
 import type { CreatorTier, Platform } from '@/types'
-import { cn, formatINR } from '@/utils'
+import {
+  ALL_CAMPAIGN_TYPE_OPTIONS,
+  OTHER_CAMPAIGN_TYPE,
+  ageRangeError,
+  assembleCampaignTypes,
+  cn,
+  formatINR,
+} from '@/utils'
+import { useAuth } from '@/context/AuthContext'
 
 const steps = ['Campaign', 'Audience', 'Creators', 'Budget', 'Goals', 'Review']
 
-const campaignTypes = ['Product Launch', 'Awareness', 'Conversions', 'UGC', 'Always-on', 'Seasonal']
+const campaignTypes = ALL_CAMPAIGN_TYPE_OPTIONS
 const objectives = [
   { value: 'launch', label: 'Product Launch' },
   { value: 'awareness', label: 'Brand Awareness' },
@@ -203,6 +212,8 @@ const agentWorkflowSteps = [
 export function CreateCampaignPage() {
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user } = useAuth()
+  const workspaceBrand = (user?.company_name || '').trim() || 'GlowNaturals'
   const [step, setStep] = useState(1)
   const [showLaunchModal, setShowLaunchModal] = useState(false)
   const [workflowStep, setWorkflowStep] = useState(0)
@@ -211,12 +222,14 @@ export function CreateCampaignPage() {
   const [savingDraft, setSavingDraft] = useState(false)
 
   const [name, setName] = useState('')
-  const [brand, setBrand] = useState('GlowNaturals')
   const [description, setDescription] = useState('')
   const [objective, setObjective] = useState('launch')
   const [startDate, setStartDate] = useState('2026-09-01')
   const [endDate, setEndDate] = useState('2026-10-15')
   const [selectedTypes, setSelectedTypes] = useState<string[]>(['Product Launch'])
+  const [customCampaignType, setCustomCampaignType] = useState('')
+  const [customTypeDescription, setCustomTypeDescription] = useState('')
+  const [attemptedStep1, setAttemptedStep1] = useState(false)
 
   const [ageMin, setAgeMin] = useState(22)
   const [ageMax, setAgeMax] = useState(34)
@@ -252,6 +265,25 @@ export function CreateCampaignPage() {
   const toggle = <T extends string>(list: T[], value: T, setter: (v: T[]) => void) => {
     setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
   }
+
+  const otherSelected = selectedTypes.includes(OTHER_CAMPAIGN_TYPE)
+
+  const toggleCampaignType = (value: string) => {
+    const next = selectedTypes.includes(value)
+      ? selectedTypes.filter((v) => v !== value)
+      : [...selectedTypes, value]
+    setSelectedTypes(next)
+    if (!next.includes(OTHER_CAMPAIGN_TYPE)) {
+      setCustomCampaignType('')
+      setCustomTypeDescription('')
+    }
+  }
+
+  const ageError = ageRangeError(ageMin, ageMax)
+  const customTypeError = otherSelected && !customCampaignType.trim() ? 'Custom campaign type is required.' : ''
+  const customDescError = otherSelected && !customTypeDescription.trim() ? 'Describe this campaign type.' : ''
+  const step1Valid = !otherSelected || (!customTypeError && !customDescError)
+  const step2Valid = !ageError
 
   const handleTotalBudgetChange = (value: number) => {
     const next = Math.max(0, value)
@@ -314,19 +346,25 @@ export function CreateCampaignPage() {
   const buildPayload = (status: 'active' | 'draft') => {
     const personaLine = persona.trim()
     const baseDescription = description.trim()
+    const typeContext = otherSelected ? customTypeDescription.trim() : ''
     let composedDescription: string | undefined
+    const descriptionParts: string[] = []
+    if (typeContext) descriptionParts.push(typeContext)
     if (personaLine && baseDescription) {
-      composedDescription = baseDescription.toLowerCase().includes(personaLine.toLowerCase())
-        ? baseDescription
-        : `${baseDescription}\n\nTarget audience: ${personaLine}`
+      descriptionParts.push(
+        baseDescription.toLowerCase().includes(personaLine.toLowerCase())
+          ? baseDescription
+          : `${baseDescription}\n\nTarget audience: ${personaLine}`,
+      )
     } else if (personaLine) {
-      composedDescription = `Target audience: ${personaLine}`
-    } else {
-      composedDescription = baseDescription || undefined
+      descriptionParts.push(`Target audience: ${personaLine}`)
+    } else if (baseDescription) {
+      descriptionParts.push(baseDescription)
     }
+    composedDescription = descriptionParts.length ? descriptionParts.join('\n\n') : undefined
     return {
       name: name.trim() || 'New Influencer Campaign',
-      brand: brand.trim() || 'GlowNaturals',
+      brand: workspaceBrand,
       description: composedDescription,
       budget: totalBudget,
       objective: objectiveLabel,
@@ -334,7 +372,7 @@ export function CreateCampaignPage() {
       end_date: endDate,
       status,
       health: 'healthy',
-      campaign_types: selectedTypes,
+      campaign_types: assembleCampaignTypes(selectedTypes, customCampaignType),
       target_locations: locations,
       target_age_min: ageMin,
       target_age_max: ageMax,
@@ -354,6 +392,15 @@ export function CreateCampaignPage() {
   }
 
   const handleLaunch = async () => {
+    if (!step1Valid || !step2Valid) {
+      setAttemptedStep1(true)
+      toast({
+        type: 'error',
+        title: 'Check campaign details',
+        description: ageError || customTypeError || customDescError || 'Complete required fields before launching.',
+      })
+      return
+    }
     setShowLaunchModal(true)
     setWorkflowStep(0)
     setWorkflowComplete(false)
@@ -375,6 +422,15 @@ export function CreateCampaignPage() {
   }
 
   const handleSaveDraft = async () => {
+    if (!step1Valid || !step2Valid) {
+      setAttemptedStep1(true)
+      toast({
+        type: 'error',
+        title: 'Check campaign details',
+        description: ageError || customTypeError || customDescError || 'Complete required fields before saving.',
+      })
+      return
+    }
     setSavingDraft(true)
     try {
       const payload = buildPayload('draft')
@@ -442,7 +498,10 @@ export function CreateCampaignPage() {
                 </p>
               </div>
               <Input label="Campaign name" placeholder="e.g. Summer Serum Launch" value={name} onChange={(e) => setName(e.target.value)} />
-              <Input label="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
+              <div className="rounded-[10px] border border-border bg-page/50 px-3 py-2.5">
+                <p className="text-xs font-medium text-text-secondary">Creating campaign for</p>
+                <p className="text-sm font-semibold text-text mt-0.5">{workspaceBrand}</p>
+              </div>
               <Textarea
                 label="Description"
                 placeholder="Describe the campaign goals, product, and key messaging..."
@@ -461,7 +520,7 @@ export function CreateCampaignPage() {
                     <button
                       key={t}
                       type="button"
-                      onClick={() => toggle(selectedTypes, t, setSelectedTypes)}
+                      onClick={() => toggleCampaignType(t)}
                       className={cn(
                         'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
                         selectedTypes.includes(t)
@@ -474,6 +533,24 @@ export function CreateCampaignPage() {
                   ))}
                 </div>
               </div>
+              {otherSelected && (
+                <div className="space-y-4 rounded-[12px] border border-border bg-page/40 p-4">
+                  <Input
+                    label="Custom campaign type"
+                    placeholder="e.g. Functional Beverage Launch"
+                    value={customCampaignType}
+                    onChange={(e) => setCustomCampaignType(e.target.value)}
+                    error={attemptedStep1 ? customTypeError : undefined}
+                  />
+                  <Textarea
+                    label="Describe this campaign type"
+                    placeholder="Briefly describe the product/category and what this campaign is about..."
+                    value={customTypeDescription}
+                    onChange={(e) => setCustomTypeDescription(e.target.value)}
+                    error={attemptedStep1 ? customDescError : undefined}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -493,28 +570,17 @@ export function CreateCampaignPage() {
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-text-secondary">Min age</label>
-                    <input
-                      type="range"
-                      min={18}
-                      max={55}
-                      value={ageMin}
-                      onChange={(e) => setAgeMin(Math.min(Number(e.target.value), ageMax - 1))}
-                      className="w-full accent-primary mt-1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-text-secondary">Max age</label>
-                    <input
-                      type="range"
-                      min={19}
-                      max={65}
-                      value={ageMax}
-                      onChange={(e) => setAgeMax(Math.max(Number(e.target.value), ageMin + 1))}
-                      className="w-full accent-primary mt-1"
-                    />
-                  </div>
+                  <AgeCombobox
+                    label="Minimum age"
+                    value={ageMin}
+                    onChange={setAgeMin}
+                  />
+                  <AgeCombobox
+                    label="Maximum age"
+                    value={ageMax}
+                    onChange={setAgeMax}
+                    error={ageError || undefined}
+                  />
                 </div>
               </div>
               <Select
@@ -897,7 +963,13 @@ export function CreateCampaignPage() {
 
               <div className="grid sm:grid-cols-2 gap-4">
                 {[
-                  { title: 'Campaign', items: [name || 'Untitled Campaign', brand, objectiveLabel, `${startDate} → ${endDate}`] },
+                  { title: 'Campaign', items: [
+                    name || 'Untitled Campaign',
+                    workspaceBrand,
+                    objectiveLabel,
+                    assembleCampaignTypes(selectedTypes, customCampaignType).join(', ') || 'No type selected',
+                    `${startDate} → ${endDate}`,
+                  ] },
                   { title: 'Audience', items: [`Ages ${ageMin}–${ageMax}`, gender, locations, selectedInterests.slice(0, 3).join(', ')] },
                   { title: 'Creators', items: [selectedPlatforms.join(', '), selectedTiers.join(', '), selectedNiches.join(', ')] },
                   { title: 'Budget', items: [formatINR(totalBudget), ...allocation.map((a) => `${a.label}: ${formatINR(a.amount)}`)] },
@@ -945,7 +1017,16 @@ export function CreateCampaignPage() {
                 Back
               </Button>
               <Button
-                onClick={() => setStep((s) => Math.min(6, s + 1))}
+                onClick={() => {
+                  if (step === 1 && !step1Valid) {
+                    setAttemptedStep1(true)
+                    return
+                  }
+                  if (step === 2 && !step2Valid) {
+                    return
+                  }
+                  setStep((s) => Math.min(6, s + 1))
+                }}
                 disabled={step === 4 && !allocationValid}
               >
                 Continue

@@ -29,8 +29,11 @@ class CampaignWorkflowResponse(BaseModel):
     current_step: str
     next_step: str
     progress_percentage: int = Field(..., ge=0, le=100)
+    is_completed: bool = False
+    timeline_ended: bool = False
     blocking_reason: Optional[str] = None
     next_action: WorkflowAction
+    secondary_action: Optional[WorkflowAction] = None
     steps: List[WorkflowStep]
     discovered_count: int = 0
     shortlisted_count: int = 0

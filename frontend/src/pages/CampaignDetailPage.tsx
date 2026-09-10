@@ -32,6 +32,7 @@ import {
   NextStepCard,
   ProgressBar,
   Select,
+  AgeCombobox,
   StatusChip,
   Tabs,
   Textarea,
@@ -39,7 +40,14 @@ import {
 } from '@/components/ui'
 import { PageAmbientBackground } from '@/components/brand/VisualSystem'
 import { CampaignApprovalsTab } from '@/components/campaigns/CampaignApprovalsTab'
-import { formatINR, formatRoas, recommendedCampaignCreators, statusLabel } from '@/utils'
+import { cn, formatINR, formatRoas, recommendedCampaignCreators, statusLabel } from '@/utils'
+import {
+  ALL_CAMPAIGN_TYPE_OPTIONS,
+  OTHER_CAMPAIGN_TYPE,
+  ageRangeError,
+  assembleCampaignTypes,
+  splitCampaignTypes,
+} from '@/utils/campaignForm'
 import { formatCompactCount, formatCPV, formatCPM } from '@/components/analytics'
 import type {
   Campaign,
@@ -103,17 +111,22 @@ export function CampaignDetailPage() {
   // Edit Modal State
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editName, setEditName] = useState('')
-  const [editBrand, setEditBrand] = useState('')
   const [editBudget, setEditBudget] = useState(0)
   const [editStatus, setEditStatus] = useState<CampaignStatus>('active')
   const [editObjective, setEditObjective] = useState('')
   const [editStartDate, setEditStartDate] = useState('')
   const [editEndDate, setEditEndDate] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editTypes, setEditTypes] = useState<string[]>([])
+  const [editCustomType, setEditCustomType] = useState('')
+  const [editAgeMin, setEditAgeMin] = useState(18)
+  const [editAgeMax, setEditAgeMax] = useState(45)
   const [savingEdit, setSavingEdit] = useState(false)
 
   // Delete Modal State
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [completeModalOpen, setCompleteModalOpen] = useState(false)
+  const [completing, setCompleting] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const visibleCreators = useMemo(
     () => recommendedCampaignCreators(campaignCreators),
@@ -149,13 +162,17 @@ export function CampaignDetailPage() {
       setTrackedContent(conts || [])
       setCampaignApprovals(apprs || [])
       setEditName(camp.name)
-      setEditBrand(camp.brand)
-      setEditBudget(camp.budget)
+      setEditBudget(camp.budget ?? 0)
       setEditStatus(camp.status)
       setEditObjective(camp.objective)
       setEditStartDate(camp.startDate)
       setEditEndDate(camp.endDate)
       setEditDescription(camp.description || '')
+      const split = splitCampaignTypes(camp.campaign_types)
+      setEditTypes(split.selected.length ? split.selected : [])
+      setEditCustomType(split.customType)
+      setEditAgeMin(camp.target_age_min || 18)
+      setEditAgeMax(camp.target_age_max || 45)
     } catch (err: any) {
       setError(err.message || 'Failed to load campaign')
     } finally {
@@ -356,12 +373,16 @@ export function CampaignDetailPage() {
       handleTabChange('contracts')
       return
     }
-    if (key === 'TRACK_PERFORMANCE' || key === 'ANALYZE_PERFORMANCE') {
+    if (key === 'TRACK_PERFORMANCE' || key === 'ANALYZE_PERFORMANCE' || key === 'CONTINUE_MONITORING') {
       handleTabChange('performance')
       return
     }
     if (key === 'OPTIMIZE_CAMPAIGN' || key === 'REVIEW_OPTIMIZATION') {
-      handleTabChange('optimization')
+      navigate(`/app/analytics?campaignId=${id}`)
+      return
+    }
+    if (key === 'COMPLETE_CAMPAIGN') {
+      setCompleteModalOpen(true)
       return
     }
     if (action.route) {
@@ -369,19 +390,75 @@ export function CampaignDetailPage() {
     }
   }
 
+  const handleSecondaryAction = () => {
+    if (!workflow?.secondary_action) return
+    if (workflow.secondary_action.key === 'COMPLETE_CAMPAIGN') {
+      setCompleteModalOpen(true)
+      return
+    }
+    if (workflow.secondary_action.tab && (tabIds as readonly string[]).includes(workflow.secondary_action.tab)) {
+      handleTabChange(workflow.secondary_action.tab)
+    }
+  }
+
+  const handleCompleteCampaign = async () => {
+    if (!id) return
+    setCompleting(true)
+    try {
+      const updated = await api.campaigns.complete(id)
+      setCampaign(updated)
+      const wf = await api.campaigns.getWorkflow(id).catch(() => null)
+      if (wf) setWorkflow(wf)
+      setCompleteModalOpen(false)
+      toast({
+        type: 'success',
+        title: 'Campaign completed',
+        description: 'Performance and Optimization results remain available as campaign history.',
+      })
+    } catch (err: any) {
+      toast({
+        type: 'error',
+        title: 'Could not complete campaign',
+        description: err?.message || 'Complete the required workflow steps first.',
+      })
+    } finally {
+      setCompleting(false)
+    }
+  }
+
   const handleEditSave = async () => {
     if (!id || !campaign) return
+    const editAgeErr = ageRangeError(editAgeMin, editAgeMax)
+    const editOther = editTypes.includes(OTHER_CAMPAIGN_TYPE)
+    if (editOther && !editCustomType.trim()) {
+      toast({
+        type: 'error',
+        title: 'Custom campaign type required',
+        description: 'Enter a custom campaign type or choose a predefined type.',
+      })
+      return
+    }
+    if (editAgeErr) {
+      toast({
+        type: 'error',
+        title: 'Invalid age range',
+        description: editAgeErr,
+      })
+      return
+    }
     setSavingEdit(true)
     try {
       const updated = await api.campaigns.update(id, {
         name: editName.trim() || campaign.name,
-        brand: editBrand.trim() || campaign.brand,
         budget: Number(editBudget) || campaign.budget,
         status: editStatus,
         objective: editObjective.trim() || campaign.objective,
         start_date: editStartDate || campaign.startDate,
         end_date: editEndDate || campaign.endDate,
         description: editDescription.trim() || undefined,
+        campaign_types: assembleCampaignTypes(editTypes, editCustomType),
+        target_age_min: editAgeMin,
+        target_age_max: editAgeMax,
       })
       setCampaign(updated)
       toast({
@@ -582,8 +659,9 @@ export function CampaignDetailPage() {
           </div>
           <NextStepCard
             workflow={workflow}
-            busy={strategyRunning || discoveringCreators || outreachRunning}
+            busy={strategyRunning || discoveringCreators || outreachRunning || completing}
             onAction={handleNextAction}
+            onSecondaryAction={handleSecondaryAction}
           />
         </div>
       )}
@@ -1432,16 +1510,58 @@ export function CampaignDetailPage() {
             onChange={(e) => setEditName(e.target.value)}
           />
           <div className="grid sm:grid-cols-2 gap-3">
-            <Input
-              label="Brand"
-              value={editBrand}
-              onChange={(e) => setEditBrand(e.target.value)}
-            />
+            <div className="rounded-[10px] border border-border bg-page/50 px-3 py-2.5">
+              <p className="text-xs font-medium text-text-secondary">Brand</p>
+              <p className="text-sm font-semibold text-text mt-0.5">{campaign.brand}</p>
+            </div>
             <Select
               label="Status"
               options={statusOptions}
               value={editStatus}
               onChange={(e) => setEditStatus(e.target.value as CampaignStatus)}
+            />
+          </div>
+          <div>
+            <p className="text-sm font-medium mb-2">Campaign type</p>
+            <div className="flex flex-wrap gap-2">
+              {ALL_CAMPAIGN_TYPE_OPTIONS.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => {
+                    const next = editTypes.includes(t)
+                      ? editTypes.filter((v) => v !== t)
+                      : [...editTypes, t]
+                    setEditTypes(next)
+                    if (!next.includes(OTHER_CAMPAIGN_TYPE)) setEditCustomType('')
+                  }}
+                  className={cn(
+                    'px-3 py-1.5 rounded-full text-xs font-semibold border transition',
+                    editTypes.includes(t)
+                      ? 'bg-primary-soft border-primary/30 text-primary'
+                      : 'bg-white border-border text-text-secondary hover:border-primary/30',
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          {editTypes.includes(OTHER_CAMPAIGN_TYPE) && (
+            <Input
+              label="Custom campaign type"
+              placeholder="e.g. Eco Beverage"
+              value={editCustomType}
+              onChange={(e) => setEditCustomType(e.target.value)}
+            />
+          )}
+          <div className="grid sm:grid-cols-2 gap-3">
+            <AgeCombobox label="Minimum age" value={editAgeMin} onChange={setEditAgeMin} />
+            <AgeCombobox
+              label="Maximum age"
+              value={editAgeMax}
+              onChange={setEditAgeMax}
+              error={ageRangeError(editAgeMin, editAgeMax) || undefined}
             />
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -1526,6 +1646,37 @@ export function CampaignDetailPage() {
             >
               {deleting && <Loader2 className="h-4 w-4 animate-spin" />}
               Delete Campaign
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={completeModalOpen}
+        onClose={() => setCompleteModalOpen(false)}
+        title="Complete Campaign?"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            The latest Performance and Optimization results will remain available as the final campaign history.
+            You can still review this campaign after completion.
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => setCompleteModalOpen(false)}
+              disabled={completing}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCompleteCampaign}
+              disabled={completing}
+              className="gap-2"
+            >
+              {completing && <Loader2 className="h-4 w-4 animate-spin" />}
+              Complete Campaign
             </Button>
           </div>
         </div>

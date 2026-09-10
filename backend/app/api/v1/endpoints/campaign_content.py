@@ -7,12 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.ai.execution import AgentExecutionService
-from app.ai.agents.optimization import OptimizationAgent
+from app.ai.agents.optimization import OptimizationAgent, latest_snapshot
 from app.ai.agents.performance import PerformanceAgent
-from app.ai.workflow_states import AgentRunStatus
+from app.ai.workflow_states import AgentRunStatus, WorkflowState
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
+from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
 from app.models.campaign import Campaign
 from app.models.campaign_activity import CampaignActivity
@@ -47,6 +48,28 @@ async def _get_owned_campaign(campaign_id: str, user: User, db: AsyncSession) ->
     if not campaign:
         raise NotFoundException(detail=f"Campaign '{campaign_id}' not found or not accessible.")
     return campaign
+
+
+def _campaign_is_completed(campaign: Campaign) -> bool:
+    return campaign.status == "completed" or campaign.workflow_state == WorkflowState.COMPLETED
+
+
+def _ensure_campaign_writable(campaign: Campaign) -> None:
+    if _campaign_is_completed(campaign):
+        raise BadRequestException(
+            detail="This campaign is completed. Performance and Optimization history remain available for review."
+        )
+
+
+def _plan_status(recs: List[Dict[str, Any]], is_stale: bool) -> str:
+    if is_stale:
+        return "STALE"
+    statuses = {str(r.get("status") or "pending").lower() for r in recs}
+    if recs and any(s in {"pending", "PENDING".lower()} for s in statuses):
+        return "PENDING_APPROVAL"
+    if recs:
+        return "DECIDED"
+    return "CURRENT"
 
 
 def _norm_dt(dt: Optional[datetime]) -> datetime:
@@ -281,13 +304,81 @@ async def _enrich_plan_with_approvals(plan: OptimizationPlan, db: AsyncSession) 
             if a_id in approvals_by_id:
                 r["status"] = approvals_by_id[a_id].status
 
+    overall_assessment = None
+    data_quality = None
+    latest_snapshot_id = None
+    if plan.agent_run_id:
+        run_res = await db.execute(select(AgentRun).where(AgentRun.id == plan.agent_run_id))
+        run = run_res.scalar_one_or_none()
+        if run and run.output_json:
+            run_data = run.output_json.get("data") or {}
+            overall_assessment = run_data.get("overall_assessment")
+            data_quality = run_data.get("data_quality")
+            latest_snapshot_id = run_data.get("latest_snapshot_id")
+
+    analysis = None
+    if plan.performance_analysis_id:
+        a_res = await db.execute(
+            select(PerformanceAnalysis).where(PerformanceAnalysis.id == plan.performance_analysis_id)
+        )
+        analysis = a_res.scalar_one_or_none()
+        if analysis and not latest_snapshot_id:
+            latest_snapshot_id = analysis.latest_snapshot_id
+
+    latest_analysis_stmt = select(PerformanceAnalysis).where(PerformanceAnalysis.campaign_id == plan.campaign_id)
+    if plan.campaign_content_id:
+        latest_analysis_stmt = latest_analysis_stmt.where(
+            PerformanceAnalysis.campaign_content_id == plan.campaign_content_id
+        )
+    latest_analysis_res = await db.execute(
+        latest_analysis_stmt.order_by(PerformanceAnalysis.created_at.desc()).limit(1)
+    )
+    latest_analysis = latest_analysis_res.scalar_one_or_none()
+
+    is_stale = False
+    stale_reason = None
+    performance_updated_at = analysis.created_at if analysis else None
+    if latest_analysis:
+        performance_updated_at = latest_analysis.created_at
+        if plan.performance_analysis_id and latest_analysis.id != plan.performance_analysis_id:
+            is_stale = True
+            stale_reason = "New performance data available. Optimization should be refreshed."
+        elif plan.created_at and latest_analysis.created_at and latest_analysis.created_at > plan.created_at:
+            is_stale = True
+            stale_reason = "New performance data available. Optimization should be refreshed."
+
+    content_id = plan.campaign_content_id or (latest_analysis.campaign_content_id if latest_analysis else None)
+    if content_id:
+        snap_res = await db.execute(
+            select(ContentPerformanceSnapshot)
+            .where(ContentPerformanceSnapshot.campaign_content_id == content_id)
+            .order_by(ContentPerformanceSnapshot.captured_at.desc())
+            .limit(1)
+        )
+        newest_snap = snap_res.scalar_one_or_none()
+        analysis_for_snap = latest_analysis or analysis
+        if newest_snap and analysis_for_snap:
+            if analysis_for_snap.latest_snapshot_id and newest_snap.id != analysis_for_snap.latest_snapshot_id:
+                is_stale = True
+                stale_reason = stale_reason or "New performance data available. Optimization should be refreshed."
+            elif analysis_for_snap.created_at and newest_snap.captured_at and newest_snap.captured_at > analysis_for_snap.created_at:
+                is_stale = True
+                stale_reason = stale_reason or "New performance data available. Optimization should be refreshed."
+
     return OptimizationPlanResponse(
         id=plan.id,
         campaign_id=plan.campaign_id,
         campaign_content_id=plan.campaign_content_id,
         performance_analysis_id=plan.performance_analysis_id,
+        latest_snapshot_id=latest_snapshot_id,
         agent_run_id=plan.agent_run_id,
-        status=plan.status,
+        status=_plan_status(recs, is_stale),
+        is_stale=is_stale,
+        stale_reason=stale_reason,
+        overall_assessment=overall_assessment,
+        data_quality=data_quality,
+        optimization_generated_at=plan.created_at,
+        performance_updated_at=performance_updated_at,
         recommendations=[OptimizationRecommendationSchema.model_validate(r) for r in recs],
         created_at=plan.created_at,
         updated_at=plan.updated_at,
@@ -306,8 +397,7 @@ async def analyze_content_performance(
     current_user: User = Depends(get_current_user),
 ):
     campaign = await _get_owned_campaign(campaign_id, current_user, db)
-
-    # 1. Fetch tracked content
+    _ensure_campaign_writable(campaign)
     c_stmt = (
         select(CampaignContent)
         .options(selectinload(CampaignContent.snapshots), selectinload(CampaignContent.influencer))
@@ -340,7 +430,7 @@ async def analyze_content_performance(
         campaign_id=campaign_id,
         influencer_id=content.influencer_id,
         campaign_content_id=content.id,
-        latest_snapshot_id=content.snapshots[0].id if content.snapshots else None,
+        latest_snapshot_id=(latest_snapshot(content).id if latest_snapshot(content) else None),
         agent_run_id=run.id,
         user_id=current_user.id,
         status=perf_data.get("status", "ON_TRACK"),
@@ -459,6 +549,7 @@ async def generate_content_optimization(
     current_user: User = Depends(get_current_user),
 ):
     campaign = await _get_owned_campaign(campaign_id, current_user, db)
+    _ensure_campaign_writable(campaign)
 
     # 1. Verify latest performance analysis exists
     p_stmt = (
@@ -485,7 +576,7 @@ async def generate_content_optimization(
         user=current_user,
         campaign=campaign,
         trigger="manual",
-        extras={"content_id": content_id},
+        extras={"content_id": content_id, "performance_analysis_id": perf_analysis.id},
     )
 
     if run.status == AgentRunStatus.FAILED:
@@ -493,6 +584,7 @@ async def generate_content_optimization(
 
     opt_data = run.output_json.get("data", {}) if run.output_json else {}
     raw_recs = opt_data.get("recommendations", [])[:3]
+    analysis_id = opt_data.get("performance_analysis_id") or perf_analysis.id
 
     # 3. Create Approval records for each recommendation
     plan_id = f"opt-{uuid.uuid4().hex[:12]}"
@@ -523,28 +615,42 @@ async def generate_content_optimization(
         rec_item["status"] = "pending"
         enriched_recs.append(rec_item)
 
-    # 4. Create and persist OptimizationPlan
+    # 4. Create and persist OptimizationPlan. Do not complete the campaign.
     plan = OptimizationPlan(
         id=plan_id,
         campaign_id=campaign_id,
         campaign_content_id=content_id,
-        performance_analysis_id=perf_analysis.id,
+        performance_analysis_id=analysis_id,
         agent_run_id=run.id,
         user_id=current_user.id,
         recommendations_json=enriched_recs,
     )
     db.add(plan)
 
+    if not _campaign_is_completed(campaign):
+        campaign.workflow_state = (
+            WorkflowState.OPTIMIZATION_APPROVAL_PENDING
+            if enriched_recs
+            else WorkflowState.PERFORMANCE_MONITORING
+        )
+
+    assessment = opt_data.get("overall_assessment") or ("NO_ACTION_NEEDED" if not enriched_recs else "CONTINUE_MONITORING")
     activity = CampaignActivity(
         id=f"act-{uuid.uuid4().hex[:8]}",
         user_id=current_user.id,
         campaign_id=campaign_id,
         activity_type="OPTIMIZATION_PLAN",
         title="Optimization Recommendations Generated",
-        description=f"Generated {len(enriched_recs)} optimization recommendations submitted to Approval Center.",
+        description=(
+            f"Generated {len(enriched_recs)} optimization recommendation(s). Assessment: {assessment}."
+            if enriched_recs
+            else f"Optimization completed with {assessment}. Campaign remains active."
+        ),
         metadata_json={
             "plan_id": plan.id,
             "recommendation_count": len(enriched_recs),
+            "performance_analysis_id": analysis_id,
+            "overall_assessment": assessment,
         },
     )
     db.add(activity)
@@ -653,6 +759,18 @@ async def decide_optimization_recommendation(
         },
     )
     db.add(activity)
+
+    if not _campaign_is_completed(campaign):
+        remaining = await db.execute(
+            select(Approval).where(
+                Approval.campaign_id == campaign_id,
+                Approval.agent.ilike("%optimization%"),
+                Approval.status.in_(("pending", "PENDING")),
+                Approval.id != approval.id,
+            )
+        )
+        if remaining.scalars().first() is None:
+            campaign.workflow_state = WorkflowState.PERFORMANCE_MONITORING
 
     await db.commit()
 

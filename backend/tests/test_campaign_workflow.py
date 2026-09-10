@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_execution import AgentRun
 from app.models.approval import Approval
-from app.models.campaign_content import CampaignContent, ContentType, TrackingStatus
+from app.models.campaign_content import (
+    CampaignContent,
+    ContentType,
+    OptimizationPlan,
+    PerformanceAnalysis,
+    TrackingStatus,
+)
 from app.models.campaign_influencer import CampaignInfluencer, CampaignInfluencerStatus
 from app.models.campaign_strategy import CampaignStrategy
 from app.models.contract import Contract
@@ -674,3 +680,200 @@ async def test_approvals_endpoint_filters_by_campaign_id(
     assert res_a.status_code == 200
     assert len(res_a.json()) == 1
     assert res_a.json()[0]["id"] == "appr-filter-a"
+
+
+async def _seed_optimization_ready(db_session: AsyncSession, camp_id: str, user_id: UUID, suffix: str):
+    db_session.add(CampaignStrategy(campaign_id=camp_id, strategy_json={"ok": True}, version=1))
+    db_session.add(
+        Contract(
+            id=f"cont-{suffix}",
+            campaign_id=camp_id,
+            influencer_id=f"inf-{suffix}",
+            creator="Creator",
+            username="creator",
+            campaign="GlowUp Summer Campaign",
+            value=50000.0,
+            currency="INR",
+            status="signed",
+            version=1,
+            start_date="2026-09-01",
+            end_date="2026-10-01",
+            payment_due="Net 30",
+            risk="low",
+            deliverables=["1 Dedicated Video"],
+            usage_rights="Digital rights",
+            exclusivity="Category exclusive",
+            overall_status="APPROVED",
+        )
+    )
+    db_session.add(
+        CampaignContent(
+            id=f"content-{suffix}",
+            campaign_id=camp_id,
+            influencer_id=f"inf-{suffix}",
+            content_type=ContentType.YOUTUBE_VIDEO,
+            external_content_id="dQw4w9WgXcQ",
+            content_url="https://youtube.com/watch?v=dQw4w9WgXcQ",
+            tracking_status=TrackingStatus.TRACKING,
+            current_views=25000,
+            agreed_cost=50000.0,
+        )
+    )
+    db_session.add(
+        PerformanceAnalysis(
+            id=f"panal-{suffix}",
+            user_id=user_id,
+            campaign_id=camp_id,
+            influencer_id=f"inf-{suffix}",
+            campaign_content_id=f"content-{suffix}",
+            status="ON_TRACK",
+            content_stage="SHORT_TERM",
+            summary="Content is tracking to plan.",
+            what_is_working=["Views accumulating"],
+            needs_attention=[],
+            financial_interpretation="ROI is NOT_AVAILABLE.",
+            next_step="Continue monitoring.",
+            confidence=0.9,
+            raw_kpis={"current_views": 25000, "roi": None, "roas": None},
+        )
+    )
+    db_session.add(
+        OptimizationPlan(
+            id=f"oplan-{suffix}",
+            user_id=user_id,
+            campaign_id=camp_id,
+            campaign_content_id=f"content-{suffix}",
+            performance_analysis_id=f"panal-{suffix}",
+            recommendations_json=[
+                {
+                    "priority": "MEDIUM",
+                    "category": "MONITOR",
+                    "action": "Continue monitoring for another 48 hours.",
+                    "reason": "Content is still accumulating early performance.",
+                    "evidence": ["Content age is still short-term", "Momentum is not slowing"],
+                    "requires_human_approval": True,
+                    "status": "approved",
+                    "approval_id": f"appr-{suffix}",
+                }
+            ],
+        )
+    )
+    db_session.add(
+        AgentRun(
+            user_id=user_id,
+            campaign_id=camp_id,
+            agent_name="optimization",
+            status="COMPLETED",
+            output_json={
+                "data": {
+                    "overall_assessment": "CONTINUE_MONITORING",
+                    "data_quality": "LIMITED",
+                    "recommendations": [],
+                    "performance_analysis_id": f"panal-{suffix}",
+                }
+            },
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_optimization_complete_does_not_complete_campaign(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.optstay@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    user_id = UUID(headers["user_id"])
+    await _seed_optimization_ready(db_session, camp_id, user_id, "stay")
+    await db_session.commit()
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["is_completed"] is False
+    assert body["progress_percentage"] < 100
+    assert body["next_step"] == "CONTINUE_MONITORING"
+    assert body["next_action"]["enabled"] is True
+    assert body["secondary_action"]["key"] == "COMPLETE_CAMPAIGN"
+
+    camp = await client.get(f"/api/v1/campaigns/{camp_id}", headers=headers)
+    assert camp.status_code == 200
+    assert camp.json()["status"] != "completed"
+
+
+@pytest.mark.asyncio
+async def test_complete_campaign_requires_confirmation_and_preserves_history(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.optcomplete@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    user_id = UUID(headers["user_id"])
+    await _seed_optimization_ready(db_session, camp_id, user_id, "done")
+    await db_session.commit()
+
+    res = await client.post(f"/api/v1/campaigns/{camp_id}/complete", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "completed"
+
+    body = await _get_workflow(client, headers, camp_id)
+    assert body["is_completed"] is True
+    assert body["progress_percentage"] == 100
+    assert _step(body, "OPTIMIZATION")["status"] == "COMPLETED"
+
+    latest = await client.get(
+        f"/api/v1/campaigns/{camp_id}/content/optimization/latest",
+        headers=headers,
+    )
+    assert latest.status_code == 200
+    assert latest.json()["id"] == "oplan-done"
+    assert latest.json()["recommendations"]
+
+    rerun = await client.post(
+        f"/api/v1/campaigns/{camp_id}/content/content-done/optimization",
+        headers=headers,
+    )
+    assert rerun.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_newer_performance_marks_optimization_stale(
+    client: AsyncClient, db_session: AsyncSession
+):
+    headers = await _auth(client, "wf.optstale@glownaturals.com")
+    camp_id = await _create_campaign(client, headers)
+    user_id = UUID(headers["user_id"])
+    await _seed_optimization_ready(db_session, camp_id, user_id, "stale")
+    await db_session.commit()
+
+    db_session.add(
+        PerformanceAnalysis(
+            id="panal-stale-new",
+            user_id=user_id,
+            campaign_id=camp_id,
+            influencer_id="inf-stale",
+            campaign_content_id="content-stale",
+            status="STRONG",
+            content_stage="MATURE",
+            summary="Later snapshot shows stronger performance.",
+            what_is_working=["Views rose"],
+            needs_attention=[],
+            financial_interpretation="ROI is NOT_AVAILABLE.",
+            next_step="Refresh optimization.",
+            confidence=0.91,
+            raw_kpis={"current_views": 600000, "roi": None},
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    latest = await client.get(
+        f"/api/v1/campaigns/{camp_id}/content/optimization/latest",
+        headers=headers,
+    )
+    assert latest.status_code == 200
+    body = latest.json()
+    assert body["is_stale"] is True
+    assert body["performance_analysis_id"] == "panal-stale"
+
+    wf = await _get_workflow(client, headers, camp_id)
+    assert wf["is_completed"] is False
+    assert wf["next_step"] == "OPTIMIZE_CAMPAIGN"
+    assert "Refresh" in wf["next_action"]["label"]

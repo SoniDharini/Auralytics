@@ -131,7 +131,12 @@ class AgentExecutionService:
             return await self._fail(run, agent.name, campaign.name, str(exc))
         except Exception as exc:  # noqa: BLE001
             logger.exception("Agent %s failed for campaign %s", agent.name, campaign.id)
-            return await self._fail(run, agent.name, campaign.name, f"Unexpected agent failure: {type(exc).__name__}")
+            return await self._fail(
+                run,
+                agent.name,
+                campaign.name,
+                f"Unexpected agent failure: {type(exc).__name__}: {exc}",
+            )
 
     async def _fail(self, run: AgentRun, agent_name: str, campaign_name: str, message: str) -> AgentRun:
         run.status = AgentRunStatus.FAILED

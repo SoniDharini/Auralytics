@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CampaignCreate(BaseModel):
@@ -33,6 +33,16 @@ class CampaignCreate(BaseModel):
     keywords: Optional[List[str]] = None
     min_followers: Optional[int] = Field(default=None, ge=0)
     max_followers: Optional[int] = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_age_range(self):
+        if (
+            self.target_age_min is not None
+            and self.target_age_max is not None
+            and self.target_age_min > self.target_age_max
+        ):
+            raise ValueError("Maximum age must be greater than or equal to minimum age.")
+        return self
 
 
 class CampaignUpdate(BaseModel):
@@ -69,6 +79,16 @@ class CampaignUpdate(BaseModel):
     keywords: Optional[List[str]] = None
     min_followers: Optional[int] = None
     max_followers: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_age_range(self):
+        if (
+            self.target_age_min is not None
+            and self.target_age_max is not None
+            and self.target_age_min > self.target_age_max
+        ):
+            raise ValueError("Maximum age must be greater than or equal to minimum age.")
+        return self
 
 
 class CampaignActivityResponse(BaseModel):

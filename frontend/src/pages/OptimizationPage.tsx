@@ -22,6 +22,9 @@ export function OptimizationPage() {
   const [optimizationPlan, setOptimizationPlan] = useState<OptimizationPlan | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [refreshing, setRefreshing] = useState(false)
+  const [completeModalOpen, setCompleteModalOpen] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   // Modification dialog state
   const [modifyModalOpen, setModifyModalOpen] = useState(false)
@@ -96,8 +99,58 @@ export function OptimizationPage() {
     }
   }
 
+  const selectedCampaign = campaigns.find((c) => c.id === selectedCampaignId) || null
+  const campaignCompleted = selectedCampaign?.status === 'completed'
+
+  const handleRefreshOptimization = async () => {
+    if (!selectedCampaignId || !optimizationPlan?.campaign_content_id || campaignCompleted) return
+    setRefreshing(true)
+    try {
+      const plan = await api.content.generateOptimization(selectedCampaignId, optimizationPlan.campaign_content_id)
+      setOptimizationPlan(plan)
+      toast({
+        title: 'Optimization refreshed',
+        description: 'Generated from the latest Performance analysis.',
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast({ title: 'Refresh failed', description: err?.message || 'Could not refresh Optimization.', type: 'error' })
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const handleCompleteCampaign = async () => {
+    if (!selectedCampaignId) return
+    setCompleting(true)
+    try {
+      const updated = await api.campaigns.complete(selectedCampaignId)
+      setCampaigns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      setCompleteModalOpen(false)
+      toast({
+        title: 'Campaign completed',
+        description: 'Performance and Optimization results remain available as campaign history.',
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Could not complete campaign',
+        description: err?.message || 'Complete the required workflow steps first.',
+        type: 'error',
+      })
+    } finally {
+      setCompleting(false)
+    }
+  }
+
   const recommendations: OptimizationRecommendation[] = optimizationPlan?.recommendations || []
 
+  const formatStamp = (iso?: string | null) => {
+    if (!iso) return null
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return null
+    return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -162,7 +215,7 @@ export function OptimizationPage() {
             <p className="text-sm text-text-secondary">Loading campaign optimization plan...</p>
           </CardContent>
         </Card>
-      ) : recommendations.length === 0 ? (
+      ) : !optimizationPlan ? (
         <Card>
           <CardContent className="py-16 text-center space-y-4">
             <div className="mx-auto h-14 w-14 rounded-2xl bg-violet-50 text-ai flex items-center justify-center">
@@ -183,6 +236,48 @@ export function OptimizationPage() {
         </Card>
       ) : (
         <div className="grid gap-4">
+          <div className="flex flex-col gap-2 text-xs text-text-secondary">
+            {formatStamp(optimizationPlan.optimization_generated_at || optimizationPlan.created_at) && (
+              <p>
+                Optimization Updated:{' '}
+                <span className="font-medium text-text">
+                  {formatStamp(optimizationPlan.optimization_generated_at || optimizationPlan.created_at)}
+                </span>
+              </p>
+            )}
+            {formatStamp(optimizationPlan.performance_updated_at) && (
+              <p>
+                Performance Updated:{' '}
+                <span className="font-medium text-text">{formatStamp(optimizationPlan.performance_updated_at)}</span>
+              </p>
+            )}
+            {optimizationPlan.overall_assessment && (
+              <p>
+                Assessment:{' '}
+                <span className="font-medium text-text">{optimizationPlan.overall_assessment.replace(/_/g, ' ')}</span>
+              </p>
+            )}
+          </div>
+          {optimizationPlan.is_stale && !campaignCompleted && (
+            <Card className="border-l-4 border-l-warning">
+              <CardContent className="py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-sm text-text">
+                  {optimizationPlan.stale_reason || 'New performance data available. Optimization should be refreshed.'}
+                </p>
+                <Button size="sm" className="gap-1.5 shrink-0" onClick={handleRefreshOptimization} disabled={refreshing}>
+                  <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+                  Refresh Optimization
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          {recommendations.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-text-secondary">
+                Current performance does not justify a campaign change. Continue monitoring.
+              </CardContent>
+            </Card>
+          ) : null}
           {recommendations.map((rec, index) => {
             const apprId = rec.approval_id || rec.id || `opt-${index}`
             const status = rec.status || 'pending'
@@ -307,6 +402,13 @@ export function OptimizationPage() {
               </Card>
             )
           })}
+          {!campaignCompleted && optimizationPlan && (
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={() => setCompleteModalOpen(true)}>
+                Complete Campaign
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -344,6 +446,29 @@ export function OptimizationPage() {
             value={modifyNote}
             onChange={(e) => setModifyNote(e.target.value)}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={completeModalOpen}
+        onClose={() => setCompleteModalOpen(false)}
+        title="Complete Campaign?"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            The latest Performance and Optimization results will remain available as the final campaign history.
+            You can still review this campaign after completion.
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setCompleteModalOpen(false)} disabled={completing}>
+              Cancel
+            </Button>
+            <Button onClick={handleCompleteCampaign} disabled={completing} className="gap-2">
+              {completing && <RefreshCw className="h-4 w-4 animate-spin" />}
+              Complete Campaign
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

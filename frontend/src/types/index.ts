@@ -124,8 +124,11 @@ export interface CampaignWorkflow {
   current_step: string
   next_step: string
   progress_percentage: number
+  is_completed?: boolean
+  timeline_ended?: boolean
   blocking_reason?: string | null
   next_action: CampaignWorkflowAction
+  secondary_action?: CampaignWorkflowAction | null
   steps: CampaignWorkflowStep[]
   discovered_count: number
   shortlisted_count: number
@@ -881,8 +884,15 @@ export interface OptimizationPlan {
   campaign_id: string
   campaign_content_id?: string | null
   performance_analysis_id?: string | null
+  latest_snapshot_id?: string | null
   agent_run_id?: string | null
   status: string
+  is_stale?: boolean
+  stale_reason?: string | null
+  overall_assessment?: string | null
+  data_quality?: string | null
+  optimization_generated_at?: string | null
+  performance_updated_at?: string | null
   recommendations: OptimizationRecommendation[]
   created_at: string
   updated_at: string

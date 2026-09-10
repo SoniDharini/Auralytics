@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, InvalidRequestException
 from app.db.session import get_db
 from app.dependencies.auth import get_current_user
 from app.models.campaign import Campaign
@@ -30,6 +30,18 @@ from app.services.campaign_metrics_service import reconcile_campaign_metrics
 from app.services.creator_discovery_service import CreatorDiscoveryService, discover_for_campaign_with_retry
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
+
+
+def _workspace_brand(user: User) -> str:
+    name = (user.company_name or "").strip()
+    return name[:255] if name else "GlowNaturals"
+
+
+def _campaign_types_for_storage(types: Optional[List[str]]) -> Optional[List[str]]:
+    if types is None:
+        return None
+    cleaned = [t.strip() for t in types if t and t.strip().lower() != "other"]
+    return cleaned
 
 
 @router.get("", response_model=List[CampaignResponse], summary="List all campaigns for current user")
@@ -60,7 +72,7 @@ async def create_campaign(
         id=camp_id,
         owner_id=current_user.id,
         name=data.name,
-        brand=data.brand,
+        brand=_workspace_brand(current_user),
         status=data.status,
         health=data.health,
         budget=data.budget,
@@ -75,7 +87,7 @@ async def create_campaign(
         reach=0,
         objective=data.objective,
         description=data.description,
-        campaign_types=data.campaign_types,
+        campaign_types=_campaign_types_for_storage(data.campaign_types),
         target_locations=data.target_locations,
         target_age_min=data.target_age_min,
         target_age_max=data.target_age_max,
@@ -152,6 +164,69 @@ async def get_campaign_workflow(
     return await CampaignWorkflowService(db).get_state(campaign)
 
 
+@router.post(
+    "/{campaign_id}/complete",
+    response_model=CampaignResponse,
+    summary="Explicitly complete a campaign after Optimization. Does not delete history.",
+)
+async def complete_campaign(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.ai.workflow_states import WorkflowState
+
+    stmt = select(Campaign).where(
+        Campaign.id == campaign_id,
+        Campaign.owner_id == current_user.id,
+    )
+    result = await db.execute(stmt)
+    campaign = result.scalar_one_or_none()
+    if not campaign:
+        raise NotFoundException(detail=f"Campaign {campaign_id} not found")
+
+    if campaign.status == "completed" or campaign.workflow_state == WorkflowState.COMPLETED:
+        raise InvalidRequestException(detail="Campaign is already completed.")
+
+    wf = CampaignWorkflowService(db)
+    has_performance = await wf._has_performance_analysis(campaign.id)
+    has_optimization = await wf._has_optimization_plan(campaign.id)
+    pending_opt = await wf._count_pending_optimization_approvals(campaign.id)
+
+    if not has_performance:
+        raise InvalidRequestException(
+            detail="Performance analysis is required before completing the campaign."
+        )
+    if not has_optimization:
+        raise InvalidRequestException(
+            detail="Optimization must run before completing the campaign."
+        )
+    if pending_opt > 0:
+        raise InvalidRequestException(
+            detail="Resolve pending optimization approvals before completing the campaign."
+        )
+
+    previous_status = campaign.status
+    campaign.status = "completed"
+    campaign.workflow_state = WorkflowState.COMPLETED
+    campaign.progress = 100
+
+    activity = CampaignActivity(
+        id=f"act-{uuid.uuid4().hex[:8]}",
+        user_id=current_user.id,
+        campaign_id=campaign.id,
+        activity_type="CAMPAIGN_COMPLETED",
+        title=f"Campaign '{campaign.name}' completed",
+        description="Campaign marked completed. Performance and Optimization history remain available.",
+        metadata_json={"previous_status": previous_status},
+    )
+    db.add(activity)
+    await db.commit()
+    await db.refresh(campaign)
+    campaign = await reconcile_campaign_metrics(campaign, db)
+    return CampaignResponse.model_validate(campaign)
+
+
 @router.patch("/{campaign_id}", response_model=CampaignResponse, summary="Update a campaign")
 async def update_campaign(
     campaign_id: str,
@@ -173,8 +248,18 @@ async def update_campaign(
     old_status = campaign.status
 
     update_dict = data.model_dump(exclude_unset=True)
+    update_dict.pop("brand", None)
+    if "campaign_types" in update_dict:
+        update_dict["campaign_types"] = _campaign_types_for_storage(update_dict["campaign_types"])
     for field, value in update_dict.items():
         setattr(campaign, field, value)
+
+    if (
+        campaign.target_age_min is not None
+        and campaign.target_age_max is not None
+        and campaign.target_age_min > campaign.target_age_max
+    ):
+        raise InvalidRequestException("Maximum age must be greater than or equal to minimum age.")
 
     # Determine activity description
     if "status" in update_dict and update_dict["status"] != old_status:

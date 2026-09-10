@@ -3,9 +3,10 @@ import type { TextareaHTMLAttributes } from 'react'
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string
+  error?: string
 }
 
-export function Textarea({ className, label, id, ...props }: TextareaProps) {
+export function Textarea({ className, label, error, id, ...props }: TextareaProps) {
   const areaId = id || label?.toLowerCase().replace(/\s+/g, '-')
   return (
     <div className="space-y-1.5">
@@ -21,10 +22,12 @@ export function Textarea({ className, label, id, ...props }: TextareaProps) {
           'shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-all duration-200 resize-y',
           'hover:border-primary/30',
           'focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary',
+          error && 'border-danger focus:ring-danger/30 focus:border-danger',
           className,
         )}
         {...props}
       />
+      {error && <p className="text-xs text-danger">{error}</p>}
     </div>
   )
 }

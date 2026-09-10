@@ -123,6 +123,18 @@ function pickString(record: Record<string, unknown> | null, keys: string[]): str
   return undefined
 }
 
+function formatStamp(iso?: string | null) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 export function AnalyticsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const campaignId = searchParams.get('campaignId') || ''
@@ -146,6 +158,8 @@ export function AnalyticsPage() {
   const [loadingPerformance, setLoadingPerformance] = useState(false)
   const [loadingOptimization, setLoadingOptimization] = useState(false)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  const [completeModalOpen, setCompleteModalOpen] = useState(false)
+  const [completing, setCompleting] = useState(false)
 
   // Content tracking form state
   const [trackingInfluencerId, setTrackingInfluencerId] = useState<string>('')
@@ -173,6 +187,34 @@ export function AnalyticsPage() {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null)
   const [activitiesError, setActivitiesError] = useState<string | null>(null)
   const [creatorsError, setCreatorsError] = useState<string | null>(null)
+
+  const campaignCompleted =
+    campaigns.find((c) => c.id === campaignId)?.status === 'completed' || workflow?.is_completed === true
+
+  const handleCompleteCampaign = async () => {
+    if (!campaignId) return
+    setCompleting(true)
+    try {
+      const updated = await api.campaigns.complete(campaignId)
+      setCampaigns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+      const wf = await api.campaigns.getWorkflow(campaignId).catch(() => null)
+      if (wf) setWorkflow(wf)
+      setCompleteModalOpen(false)
+      toast({
+        title: 'Campaign completed',
+        description: 'Performance and Optimization results remain available as campaign history.',
+        type: 'success',
+      })
+    } catch (err: any) {
+      toast({
+        title: 'Could not complete campaign',
+        description: err?.message || 'Complete the required workflow steps first.',
+        type: 'error',
+      })
+    } finally {
+      setCompleting(false)
+    }
+  }
 
   const loadCore = useCallback(async () => {
     setLoadingCore(true)
@@ -377,6 +419,10 @@ export function AnalyticsPage() {
   }
 
   const handleRunPerformance = async (contentId: string) => {
+    if (campaignCompleted) {
+      toast({ title: 'Campaign completed', description: 'Agents do not rerun on completed campaigns.', type: 'info' })
+      return
+    }
     setLoadingPerformance(true)
     try {
       const analysis = await api.content.analyzePerformance(campaignId, contentId)
@@ -394,13 +440,22 @@ export function AnalyticsPage() {
   }
 
   const handleRunOptimization = async (contentId: string) => {
+    if (campaignCompleted) {
+      toast({ title: 'Campaign completed', description: 'Agents do not rerun on completed campaigns.', type: 'info' })
+      return
+    }
     setLoadingOptimization(true)
     try {
       const plan = await api.content.generateOptimization(campaignId, contentId)
       setOptimizationPlan(plan)
+      const recCount = plan.recommendations.length
       toast({
-        title: 'Optimization Recommendations Generated',
-        description: `${plan.recommendations.length} recommendations created & sent to Approval Center.`,
+        title: recCount ? 'Optimization Recommendations Generated' : 'Optimization complete',
+        description: recCount
+          ? `${recCount} recommendation(s) created & sent to Approval Center.`
+          : plan.overall_assessment === 'NO_ACTION_NEEDED'
+            ? 'No campaign change is justified. Continue monitoring.'
+            : 'Optimization finished. Campaign remains active.',
         type: 'success',
       })
     } catch (err: any) {
@@ -1629,7 +1684,7 @@ export function AnalyticsPage() {
               {selectedContent && (
                 <Button
                   onClick={() => handleRunPerformance(selectedContent.id)}
-                  disabled={loadingPerformance}
+                  disabled={loadingPerformance || campaignCompleted}
                   className="gap-2 shrink-0"
                 >
                   <Bot className={cn('h-4 w-4', loadingPerformance && 'animate-spin')} />
@@ -1697,7 +1752,7 @@ export function AnalyticsPage() {
                     </div>
                     <Button
                       onClick={() => handleRunPerformance(selectedContent.id)}
-                      disabled={loadingPerformance}
+                      disabled={loadingPerformance || campaignCompleted}
                       className="gap-2 mt-2"
                     >
                       <Bot className="h-4 w-4" /> Analyze Performance Now
@@ -1810,12 +1865,20 @@ export function AnalyticsPage() {
               {selectedContent && (
                 <Button
                   onClick={() => handleRunOptimization(selectedContent.id)}
-                  disabled={loadingOptimization || !performanceAnalysis}
+                  disabled={loadingOptimization || !performanceAnalysis || campaignCompleted}
                   className="gap-2 shrink-0"
                   variant="primary"
                 >
                   <Sparkles className={cn('h-4 w-4', loadingOptimization && 'animate-spin')} />
-                  {loadingOptimization ? 'Generating...' : 'Run Optimization Agent'}
+                  {loadingOptimization
+                    ? 'Generating...'
+                    : campaignCompleted
+                      ? 'Optimization history'
+                      : optimizationPlan?.is_stale
+                        ? 'Refresh Optimization'
+                        : optimizationPlan
+                          ? 'Re-run Optimization'
+                          : 'Run Optimization Agent'}
                 </Button>
               )}
             </div>
@@ -1844,7 +1907,7 @@ export function AnalyticsPage() {
                   <div className="py-6 text-center text-xs sm:text-sm text-text-secondary">
                     Run Performance Agent analysis first. The Optimization Agent produces actions based only on verified performance findings.
                   </div>
-                ) : !optimizationPlan || optimizationPlan.recommendations.length === 0 ? (
+                ) : !optimizationPlan ? (
                   <div className="py-8 text-center space-y-3">
                     <div className="mx-auto h-12 w-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
                       <Sparkles className="h-6 w-6" />
@@ -1857,7 +1920,7 @@ export function AnalyticsPage() {
                     </div>
                     <Button
                       onClick={() => handleRunOptimization(selectedContent!.id)}
-                      disabled={loadingOptimization}
+                      disabled={loadingOptimization || campaignCompleted}
                       className="gap-2 mt-2"
                     >
                       <Sparkles className="h-4 w-4" /> Run Optimization Agent
@@ -1865,7 +1928,53 @@ export function AnalyticsPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {optimizationPlan.recommendations.slice(0, 3).map((rec, index) => {
+                    <div className="flex flex-col gap-1 text-xs text-text-secondary">
+                      {formatStamp(optimizationPlan.optimization_generated_at || optimizationPlan.created_at) && (
+                        <p>
+                          Optimization Updated:{' '}
+                          <span className="font-medium text-text">
+                            {formatStamp(optimizationPlan.optimization_generated_at || optimizationPlan.created_at)}
+                          </span>
+                        </p>
+                      )}
+                      {formatStamp(optimizationPlan.performance_updated_at || performanceAnalysis.created_at) && (
+                        <p>
+                          Performance Updated:{' '}
+                          <span className="font-medium text-text">
+                            {formatStamp(optimizationPlan.performance_updated_at || performanceAnalysis.created_at)}
+                          </span>
+                        </p>
+                      )}
+                      {optimizationPlan.overall_assessment && (
+                        <p>
+                          Assessment:{' '}
+                          <span className="font-medium text-text">{optimizationPlan.overall_assessment.replace(/_/g, ' ')}</span>
+                          {optimizationPlan.data_quality ? ` · Data ${optimizationPlan.data_quality}` : ''}
+                        </p>
+                      )}
+                    </div>
+                    {optimizationPlan.is_stale && !campaignCompleted && (
+                      <div className="rounded-[12px] border border-warning/30 bg-amber-50/50 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <p className="text-sm text-text">
+                          {optimizationPlan.stale_reason || 'New performance data available. Optimization should be refreshed.'}
+                        </p>
+                        <Button
+                          size="sm"
+                          onClick={() => handleRunOptimization(selectedContent!.id)}
+                          disabled={loadingOptimization}
+                          className="gap-1.5 shrink-0"
+                        >
+                          <RefreshCw className={cn('h-3.5 w-3.5', loadingOptimization && 'animate-spin')} />
+                          Refresh Optimization
+                        </Button>
+                      </div>
+                    )}
+                    {optimizationPlan.recommendations.length === 0 ? (
+                      <p className="text-sm text-text-secondary">
+                        Current performance does not justify a campaign change. Continue monitoring.
+                      </p>
+                    ) : (
+                      optimizationPlan.recommendations.slice(0, 3).map((rec, index) => {
                       const apprId = rec.approval_id || rec.id || `opt-${index}`
                       const isPending = rec.status === 'pending'
                       const isApproved = rec.status === 'approved'
@@ -1971,10 +2080,22 @@ export function AnalyticsPage() {
                           )}
                         </div>
                       )
-                    })}
+                    })
+                    )}
                     <p className="text-center text-xs text-text-secondary mt-2">
                       Decisions are synced immediately to the Approval Center. Changes are never applied automatically.
                     </p>
+                    {!campaignCompleted && (
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setCompleteModalOpen(true)}
+                        >
+                          Complete Campaign
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -2210,6 +2331,29 @@ export function AnalyticsPage() {
             value={modifyNote}
             onChange={(e) => setModifyNote(e.target.value)}
           />
+        </div>
+      </Modal>
+
+      <Modal
+        open={completeModalOpen}
+        onClose={() => setCompleteModalOpen(false)}
+        title="Complete Campaign?"
+        className="max-w-md"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-text-secondary">
+            The latest Performance and Optimization results will remain available as the final campaign history.
+            You can still review this campaign after completion.
+          </p>
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setCompleteModalOpen(false)} disabled={completing}>
+              Cancel
+            </Button>
+            <Button onClick={handleCompleteCampaign} disabled={completing} className="gap-2">
+              {completing && <RefreshCw className="h-4 w-4 animate-spin" />}
+              Complete Campaign
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

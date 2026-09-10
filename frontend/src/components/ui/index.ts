@@ -1,6 +1,7 @@
 export { Button } from './Button'
 export { Input } from './Input'
 export { Select } from './Select'
+export { AgeCombobox } from './AgeCombobox'
 export { Textarea } from './Textarea'
 export { Badge } from './Badge'
 export { Avatar } from './Avatar'

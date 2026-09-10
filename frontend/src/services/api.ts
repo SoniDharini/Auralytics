@@ -245,6 +245,10 @@ export const api = {
     delete: (id: string) => request<void>(`/campaigns/${id}`, { method: 'DELETE' }),
     getActivities: (id: string) => request<CampaignActivity[]>(`/campaigns/${id}/activities`),
     getWorkflow: (id: string) => request<CampaignWorkflow>(`/campaigns/${id}/workflow`),
+    complete: (id: string) =>
+      request<Campaign>(`/campaigns/${id}/complete`, {
+        method: 'POST',
+      }),
     fetchInfluencers: (
       id: string,
       payload?: { platforms?: string[]; limit?: number; force_refresh?: boolean },

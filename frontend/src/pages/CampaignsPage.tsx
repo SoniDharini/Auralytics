@@ -241,7 +241,7 @@ export function CampaignsPage() {
       {!loading && filtered.length > 0 && (
         <div className="relative grid md:grid-cols-2 xl:grid-cols-3 gap-3.5">
           {filtered.map((c) => {
-            const isCompleted = c.status === 'completed' || workflows[c.id]?.progress_percentage === 100
+            const isCompleted = c.status === 'completed' || workflows[c.id]?.is_completed === true
             const dates = formatDateRange(c.startDate, c.endDate)
             const stage = isCompleted
               ? 'Completed'
