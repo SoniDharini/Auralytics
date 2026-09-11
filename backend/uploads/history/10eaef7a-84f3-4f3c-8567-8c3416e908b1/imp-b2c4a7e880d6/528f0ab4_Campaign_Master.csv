@@ -1,0 +1,16 @@
+campaign_name,brand,product,objective,start_date,end_date,creator_name,handle,shortlisted,outreach_sent,final_agreed_price,contract_status,compensation,content_url,views,revenue,roas,measurement_date,optimization,approval_status,status
+Historical Campaign 01,GlowNaturals,Product 1,Awareness,2025-01-01,2025-02-01,Creator 1,@creator1,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist01,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 02,GlowNaturals,Product 2,Awareness,2025-01-01,2025-02-01,Creator 2,@creator2,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist02,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 03,GlowNaturals,Product 3,Awareness,2025-01-01,2025-02-01,Creator 3,@creator3,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist03,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 04,GlowNaturals,Product 4,Awareness,2025-01-01,2025-02-01,Creator 4,@creator4,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist04,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 05,GlowNaturals,Product 5,Awareness,2025-01-01,2025-02-01,Creator 5,@creator5,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist05,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 06,GlowNaturals,Product 6,Awareness,2025-01-01,2025-02-01,Creator 6,@creator6,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist06,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 07,GlowNaturals,Product 7,Awareness,2025-01-01,2025-02-01,Creator 7,@creator7,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist07,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 08,GlowNaturals,Product 8,Awareness,2025-01-01,2025-02-01,Creator 8,@creator8,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist08,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 09,GlowNaturals,Product 9,Awareness,2025-01-01,2025-02-01,Creator 9,@creator9,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist09,500000,200000,2.5,2025-03-10,Increase mid-funnel creators,approved,completed
+Historical Campaign 10,GlowNaturals,Product 10,Awareness,2025-01-01,2025-02-01,Creator 10,@creator10,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist10,500000,200000,2.5,2025-03-10,,,active
+Historical Campaign 11,GlowNaturals,Product 11,Awareness,2025-01-01,2025-02-01,Creator 11,@creator11,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist11,,,,,,,active
+Historical Campaign 12,GlowNaturals,Product 12,Awareness,2025-01-01,2025-02-01,Creator 12,@creator12,yes,yes,80000,signed,80000,https://youtube.com/watch?v=hist12,,,,,,,active
+Historical Campaign 13,GlowNaturals,Product 13,Awareness,2025-01-01,2025-02-01,Creator 13,@creator13,yes,yes,,,,,,,,,,,active
+Historical Campaign 14,GlowNaturals,Product 14,Awareness,2025-01-01,2025-02-01,Creator 14,@creator14,yes,,,,,,,,,,,,active
+Historical Campaign 15,GlowNaturals,Product 15,Awareness,2025-01-01,2025-02-01,Creator 15,@creator15,yes,,,,,,,,,,,,active

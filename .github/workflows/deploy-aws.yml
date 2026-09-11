@@ -1,0 +1,76 @@
+name: Deploy Auralytics to EC2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "infra/aws/**"
+      - ".github/workflows/deploy-aws.yml"
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  PROJECT: auralytics
+  ENVIRONMENT: production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: /api/v1
+        run: |
+          npm ci
+          npm run build
+
+      - name: Zip microservices
+        run: |
+          mkdir -p dist-api dist-web
+          rsync -a backend/ dist-api/ \
+            --exclude venv --exclude .venv --exclude __pycache__ --exclude tests \
+            --exclude .env --exclude spa_dist --exclude uploads
+          cp -R frontend/dist/. dist-web/
+          (cd dist-api && zip -r ../api.zip .)
+          (cd dist-web && zip -r ../web.zip .)
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload and refresh EC2 services
+        run: |
+          set -euo pipefail
+          NAME="${PROJECT}-${ENVIRONMENT}"
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET="${NAME}-ec2-deploy-${ACCOUNT}"
+          aws s3 cp api.zip "s3://${BUCKET}/api/current.zip"
+          aws s3 cp web.zip "s3://${BUCKET}/web/current.zip"
+          API_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${NAME}-api" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          WEB_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${NAME}-web" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" --output text)
+          aws ssm send-command --instance-ids "$API_ID" --document-name AWS-RunShellScript \
+            --parameters commands=/usr/local/bin/auralytics-update-api.sh
+          aws ssm send-command --instance-ids "$WEB_ID" --document-name AWS-RunShellScript \
+            --parameters commands=/usr/local/bin/auralytics-update-web.sh

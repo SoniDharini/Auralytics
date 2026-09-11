@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DeployBucket",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": [
+        "arn:aws:s3:::auralytics-production-ec2-deploy-*/api/*",
+        "arn:aws:s3:::auralytics-production-ec2-deploy-*/web/*"
+      ]
+    },
+    {
+      "Sid": "ListDeployBucket",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::auralytics-production-ec2-deploy-*"
+    },
+    {
+      "Sid": "FindInstances",
+      "Effect": "Allow",
+      "Action": ["ec2:DescribeInstances"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RefreshServices",
+      "Effect": "Allow",
+      "Action": ["ssm:SendCommand", "ssm:GetCommandInvocation"],
+      "Resource": "*"
+    }
+  ]
+}

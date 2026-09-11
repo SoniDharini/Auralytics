@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars (never commit terraform.tfvars).
+
+aws_region   = "ap-south-1"
+project_name = "auralytics"
+environment  = "production"
+
+# Optional HTTPS. Create an ACM cert in the same region, then paste the ARN.
+acm_certificate_arn = ""
+
+# Optional API keys.
+groq_api_key    = ""
+youtube_api_key = ""
+
+# Instance sizes are fixed at t3.micro (API, web) and db.t3.micro (RDS).

@@ -1,0 +1,33 @@
+version: 0.2
+
+env:
+  variables:
+    PROJECT: auralytics
+    ENVIRONMENT: production
+    VITE_API_URL: /api/v1
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - cd frontend && npm ci && cd ..
+  build:
+    commands:
+      - cd frontend && npm run build && cd ..
+      - mkdir -p dist-api dist-web
+      - rsync -a backend/ dist-api/ --exclude venv --exclude .venv --exclude __pycache__ --exclude tests --exclude .env --exclude spa_dist --exclude uploads
+      - cp -R frontend/dist/. dist-web/
+      - (cd dist-api && zip -r ../api.zip .)
+      - (cd dist-web && zip -r ../web.zip .)
+  post_build:
+    commands:
+      - NAME="${PROJECT}-${ENVIRONMENT}"
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - BUCKET="${NAME}-ec2-deploy-${ACCOUNT_ID}"
+      - aws s3 cp api.zip "s3://${BUCKET}/api/current.zip"
+      - aws s3 cp web.zip "s3://${BUCKET}/web/current.zip"
+      - API_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${NAME}-api" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].InstanceId" --output text)
+      - WEB_ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=${NAME}-web" "Name=instance-state-name,Values=running" --query "Reservations[0].Instances[0].InstanceId" --output text)
+      - aws ssm send-command --instance-ids "$API_ID" --document-name AWS-RunShellScript --parameters commands=/usr/local/bin/auralytics-update-api.sh
+      - aws ssm send-command --instance-ids "$WEB_ID" --document-name AWS-RunShellScript --parameters commands=/usr/local/bin/auralytics-update-web.sh

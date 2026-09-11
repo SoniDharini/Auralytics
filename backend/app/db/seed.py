@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.db.session import async_session_factory
 from app.models.agent_run import Agent
@@ -93,6 +94,9 @@ async def seed_database():
         # Always ensure agent catalog cards exist (safe for existing DBs).
         await ensure_default_agents(db)
         await db.commit()
+
+        if settings.ENVIRONMENT.lower() == "production":
+            return
 
         res = await db.execute(select(User).limit(1))
         if res.scalar_one_or_none() is not None:

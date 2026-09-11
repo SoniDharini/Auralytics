@@ -25,6 +25,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./influenceos.db"
+    DATABASE_SSL: bool = False
 
     # JWT Authentication
     JWT_SECRET_KEY: str = "default-insecure-secret-key-change-in-production"

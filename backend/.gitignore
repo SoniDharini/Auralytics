@@ -71,8 +71,8 @@ pgdata/
 *.sql.gz
 *.dump
 
-# Uploaded campaign-history files
-uploads/
+# Elastic Beanstalk packaged SPA (created by infra/aws/package.ps1)
+spa_dist/
 
 # Logs
 *.log

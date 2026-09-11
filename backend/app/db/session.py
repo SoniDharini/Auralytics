@@ -19,6 +19,8 @@ else:
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_size"] = 10
     engine_kwargs["max_overflow"] = 20
+    if settings.DATABASE_SSL:
+        engine_kwargs["connect_args"] = {"ssl": True}
 
 engine: AsyncEngine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 

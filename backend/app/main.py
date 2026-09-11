@@ -1,6 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.db.base import Base
@@ -67,3 +70,33 @@ async def health_check():
 
 # Mount versioned API routes
 app.include_router(api_router, prefix="/api/v1")
+
+_SPA_DIR = Path(__file__).resolve().parents[1] / "spa_dist"
+
+
+def _mount_spa() -> None:
+    """Serve the production frontend from spa_dist when it is present."""
+    if not _SPA_DIR.is_dir() or not (_SPA_DIR / "index.html").is_file():
+        return
+
+    assets_dir = _SPA_DIR / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="spa-assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        reserved = {"api", "health", "docs", "redoc", "openapi.json"}
+        first = full_path.split("/", 1)[0]
+        if first in reserved:
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = (_SPA_DIR / full_path).resolve()
+        try:
+            candidate.relative_to(_SPA_DIR.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not Found")
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_SPA_DIR / "index.html")
+
+
+_mount_spa()

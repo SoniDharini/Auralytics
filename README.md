@@ -63,6 +63,18 @@ Frontend Web App available at: [http://localhost:5173](http://localhost:5173)
 
 ---
 
+## Deploy on AWS
+
+Production files live in `infra/aws/`. One-command first deploy (AWS CLI + Terraform + Node.js; no Docker):
+
+```powershell
+.\infra\aws\deploy.ps1
+```
+
+See [infra/aws/README.md](infra/aws/README.md) for EC2 t3 microservices (API + web), RDS, HTTPS, and GitHub Actions.
+
+---
+
 ## Default Demo Credentials
 
 - **Email**: `aaditya@glownaturals.com`

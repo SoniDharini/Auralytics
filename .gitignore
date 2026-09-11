@@ -14,6 +14,8 @@
 backend/.env
 frontend/.env
 *.env.local
+backend/spa_dist/
+infra/aws/build/
 *.env.development
 *.env.test
 *.env.production
@@ -27,6 +29,20 @@ frontend/.env
 !*.env.example
 !backend/.env.example
 !frontend/.env.example
+!backend/env.production.example
+!frontend/env.production.example
+
+# Terraform
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfstate.backup
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+infra/aws/terraform.tfvars
 
 # Credentials & key material
 *.pem

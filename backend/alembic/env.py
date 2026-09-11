@@ -42,10 +42,15 @@ async def run_async_migrations() -> None:
     """In this scenario we need to create an Engine and associate a connection with the context."""
     configuration = config.get_section(config.config_ini_section, {})
     configuration["sqlalchemy.url"] = settings.DATABASE_URL
+    connect_args = {}
+    if "sqlite" not in settings.DATABASE_URL and settings.DATABASE_SSL:
+        connect_args = {"ssl": True}
+
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
